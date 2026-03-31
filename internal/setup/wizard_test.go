@@ -286,11 +286,22 @@ func (failingImageProvider) ListBaseImages(ctx context.Context, region string) (
 		Cause:   errors.New("security token invalid"),
 	}
 }
+func (failingImageProvider) RecommendBaseImages(ctx context.Context, region, computeClass string) ([]provider.BaseImage, error) {
+	return nil, &awsprovider.AuthError{
+		Kind:    "api_call_failed",
+		Profile: "test-profile",
+		Stage:   "api",
+		Cause:   errors.New("security token invalid"),
+	}
+}
 
 type genericFailingImageProvider struct {
 	fakeProvider
 }
 
 func (genericFailingImageProvider) ListBaseImages(ctx context.Context, region string) ([]provider.BaseImage, error) {
+	return nil, errors.New("dial tcp: lookup ssm.ap-northeast-1.amazonaws.com: no such host")
+}
+func (genericFailingImageProvider) RecommendBaseImages(ctx context.Context, region, computeClass string) ([]provider.BaseImage, error) {
 	return nil, errors.New("dial tcp: lookup ssm.ap-northeast-1.amazonaws.com: no such host")
 }

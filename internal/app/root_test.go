@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"openclaw/internal/host"
+	"openclaw/internal/config"
+	infratf "openclaw/internal/infra/terraform"
 	"openclaw/internal/provider"
 	awsprovider "openclaw/internal/provider/aws"
 )
@@ -159,6 +161,23 @@ func TestInfraCreateCommandReportsCreatedInstance(t *testing.T) {
 	}
 	defer func() { newAWSProvider = original }()
 
+	originalBackend := newTerraformBackend
+	newTerraformBackend = func(cfg *config.Config) (infratf.InfraBackend, error) {
+		return fakeTerraformBackend{
+			output: &infratf.InfraOutput{
+				InstanceID:        "i-0123456789abcdef0",
+				PublicIP:          "203.0.113.10",
+				PrivateIP:         "10.0.0.10",
+				ConnectionInfo:    "ssh -i <your-key>.pem ubuntu@203.0.113.10",
+				SecurityGroupID:   "sg-0123456789abcdef0",
+				SecurityGroupRules: []string{"allow tcp/22 from 203.0.113.0/24"},
+				Region:            cfg.Region.Name,
+				NetworkMode:       "public",
+			},
+		}, nil
+	}
+	defer func() { newTerraformBackend = originalBackend }()
+
 	dir := t.TempDir()
 	path := filepath.Join(dir, "openclaw.yaml")
 	writeConfig(t, path, `
@@ -166,9 +185,15 @@ platform:
   name: aws
 region:
   name: us-east-1
+ssh:
+  key_name: demo-key
+  private_key_path: /tmp/demo.pem
+  cidr: 203.0.113.0/24
+  user: ubuntu
 instance:
   type: g5.xlarge
   disk_size_gb: 40
+  network_mode: public
 image:
   id: ami-0123456789abcdef0
 sandbox:
@@ -300,7 +325,7 @@ runtime:
   model: llama3.2
 sandbox:
   enabled: true
-  network_mode: private
+  network_mode: public
   use_nemoclaw: false
 `)
 
@@ -391,6 +416,23 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()
 
+	originalBackend := newTerraformBackend
+	newTerraformBackend = func(cfg *config.Config) (infratf.InfraBackend, error) {
+		return fakeTerraformBackend{
+			output: &infratf.InfraOutput{
+				InstanceID:        "i-0123456789abcdef0",
+				PublicIP:          "203.0.113.10",
+				PrivateIP:         "10.0.0.10",
+				ConnectionInfo:    "ssh -i <your-key>.pem ubuntu@203.0.113.10",
+				SecurityGroupID:   "sg-0123456789abcdef0",
+				SecurityGroupRules: []string{"allow tcp/22 from 203.0.113.0/24"},
+				Region:            cfg.Region.Name,
+				NetworkMode:       "public",
+			},
+		}, nil
+	}
+	defer func() { newTerraformBackend = originalBackend }()
+
 	original := newSSHExecutor
 	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
 		return flexibleExecutor{
@@ -432,9 +474,15 @@ platform:
   name: aws
 region:
   name: us-east-1
+ssh:
+  key_name: demo-key
+  private_key_path: /tmp/demo.pem
+  cidr: 203.0.113.0/24
+  user: ubuntu
 instance:
   type: g5.xlarge
   disk_size_gb: 40
+  network_mode: public
 image:
   name: ubuntu-24.04
 runtime:
@@ -442,13 +490,13 @@ runtime:
   model: llama3.2
 sandbox:
   enabled: true
-  network_mode: private
+  network_mode: public
   use_nemoclaw: true
 `)
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--config", path, "create", "--ssh-key-name", "demo-key", "--ssh-cidr", "203.0.113.0/24", "--ssh-user", "ubuntu"}
+	os.Args = []string{"openclaw", "--config", path, "create"}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -595,6 +643,21 @@ func (s stubCloudProvider) GetInstance(ctx context.Context, region, instanceID s
 
 type infraCreateStubCloudProvider struct {
 	stubCloudProvider
+}
+
+type fakeTerraformBackend struct {
+	output *infratf.InfraOutput
+}
+
+func (f fakeTerraformBackend) Init(ctx context.Context, workdir string) error { return nil }
+func (f fakeTerraformBackend) Plan(ctx context.Context, workdir string, varsFile string) error { return nil }
+func (f fakeTerraformBackend) Apply(ctx context.Context, workdir string, varsFile string) error { return nil }
+func (f fakeTerraformBackend) Destroy(ctx context.Context, workdir string, varsFile string) error { return nil }
+func (f fakeTerraformBackend) Output(ctx context.Context, workdir string) (*infratf.InfraOutput, error) {
+	if f.output == nil {
+		return &infratf.InfraOutput{}, nil
+	}
+	return f.output, nil
 }
 
 type fakeSSHExecutor struct {
