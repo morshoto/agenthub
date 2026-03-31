@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"openclaw/internal/host"
 	"openclaw/internal/provider"
 	awsprovider "openclaw/internal/provider/aws"
 )
@@ -201,6 +202,65 @@ sandbox:
 	}
 }
 
+func TestInstallCommandRunsWorkflowAgainstResolvedInstance(t *testing.T) {
+	restore := stubAWSProviderFactory()
+	defer restore()
+
+	originalExecutor := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return fakeSSHExecutor{
+			results: map[string]host.CommandResult{
+				"nvidia-smi -L": {Stdout: "GPU 0: demo"},
+				"docker info":   {Stdout: "Docker Engine"},
+				"docker info --format {{json .Runtimes}}":                                                {Stdout: `{"nvidia":{}}`},
+				"docker run --rm --gpus all --pull=never nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi": {Stdout: "NVIDIA-SMI"},
+				"mkdir -p /opt/openclaw":                                 {},
+				"chmod +x /opt/openclaw/install.sh":                      {},
+				"sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml": {Stdout: "OpenClaw runtime installation complete"},
+			},
+		}
+	}
+	defer func() { newSSHExecutor = originalExecutor }()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "openclaw.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: true
+  network_mode: private
+  use_nemoclaw: false
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"openclaw", "--config", path, "install", "--target", "i-0123456789abcdef0", "--working-dir", "/opt/openclaw", "--ssh-user", "ubuntu", "--ssh-key", "/tmp/demo.pem"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := stdout.String(); !strings.Contains(got, "install workflow completed") {
+		t.Fatalf("stdout = %q, want install summary", got)
+	}
+}
+
 func stubAWSProviderFactory() func() {
 	original := newAWSProvider
 	newAWSProvider = func(profile string) provider.CloudProvider {
@@ -298,9 +358,34 @@ func (s stubCloudProvider) CreateInstance(ctx context.Context, req provider.Crea
 
 func (s stubCloudProvider) DeleteInstance(ctx context.Context, instanceID string) error { return nil }
 
+func (s stubCloudProvider) GetInstance(ctx context.Context, region, instanceID string) (*provider.Instance, error) {
+	return &provider.Instance{
+		ID:             instanceID,
+		Name:           instanceID,
+		Region:         region,
+		PublicIP:       "203.0.113.10",
+		PrivateIP:      "10.0.0.10",
+		ConnectionInfo: "public IP: 203.0.113.10",
+	}, nil
+}
+
 type infraCreateStubCloudProvider struct {
 	stubCloudProvider
 }
+
+type fakeSSHExecutor struct {
+	results map[string]host.CommandResult
+}
+
+func (f fakeSSHExecutor) Run(ctx context.Context, command string, args ...string) (host.CommandResult, error) {
+	key := strings.TrimSpace(command + " " + strings.Join(args, " "))
+	if result, ok := f.results[key]; ok {
+		return result, nil
+	}
+	return host.CommandResult{}, errors.New("unexpected command: " + key)
+}
+
+func (f fakeSSHExecutor) Upload(ctx context.Context, localPath, remotePath string) error { return nil }
 
 func writeConfig(t *testing.T, path, contents string) {
 	t.Helper()

@@ -283,6 +283,51 @@ func (p *Provider) CreateInstance(ctx context.Context, req provider.CreateInstan
 	}, nil
 }
 
+func (p *Provider) GetInstance(ctx context.Context, region, instanceID string) (*provider.Instance, error) {
+	region = strings.TrimSpace(region)
+	instanceID = strings.TrimSpace(instanceID)
+	if region == "" {
+		return nil, errors.New("region is required")
+	}
+	if instanceID == "" {
+		return nil, errors.New("instance id is required")
+	}
+
+	cfg, err := p.loadAWSConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Region = region
+
+	client := p.newEC2Client(cfg)
+	describeOut, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{instanceID}})
+	if err != nil {
+		return nil, fmt.Errorf("describe EC2 instance %s: %w", instanceID, err)
+	}
+	ec2Instance := findInstance(describeOut, instanceID)
+	if ec2Instance == nil {
+		return nil, fmt.Errorf("describe EC2 instance %s: instance not found", instanceID)
+	}
+
+	publicIP := awsString(ec2Instance.PublicIpAddress)
+	privateIP := awsString(ec2Instance.PrivateIpAddress)
+	connectionInfo := "connection details unavailable"
+	if publicIP != "" {
+		connectionInfo = fmt.Sprintf("public IP: %s", publicIP)
+	} else if privateIP != "" {
+		connectionInfo = fmt.Sprintf("private IP: %s", privateIP)
+	}
+
+	return &provider.Instance{
+		ID:             instanceID,
+		Name:           instanceID,
+		Region:         region,
+		PublicIP:       publicIP,
+		PrivateIP:      privateIP,
+		ConnectionInfo: connectionInfo,
+	}, nil
+}
+
 func (p *Provider) defaultVpcID(ctx context.Context, client ec2Client) (string, error) {
 	out, err := client.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
 		Filters: []ec2types.Filter{{

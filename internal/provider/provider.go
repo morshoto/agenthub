@@ -9,6 +9,7 @@ type CloudProvider interface {
 	ListInstanceTypes(ctx context.Context, region string) ([]InstanceType, error)
 	ListBaseImages(ctx context.Context, region string) ([]BaseImage, error)
 	CreateInstance(ctx context.Context, req CreateInstanceRequest) (*Instance, error)
+	GetInstance(ctx context.Context, region, instanceID string) (*Instance, error)
 	DeleteInstance(ctx context.Context, instanceID string) error
 }
 
