@@ -162,6 +162,15 @@ type stubCloudProvider struct {
 	profile string
 }
 
+type authFailingCloudProvider struct {
+	stubCloudProvider
+	authErr error
+}
+
+func (s authFailingCloudProvider) AuthCheck(ctx context.Context) (provider.AuthStatus, error) {
+	return provider.AuthStatus{}, s.authErr
+}
+
 func (s stubCloudProvider) AuthCheck(ctx context.Context) (provider.AuthStatus, error) {
 	return provider.AuthStatus{
 		Profile: s.profile,

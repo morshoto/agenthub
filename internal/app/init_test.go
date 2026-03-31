@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"openclaw/internal/config"
 	"openclaw/internal/provider"
+	awsprovider "openclaw/internal/provider/aws"
 )
 
 func TestInitWritesConfigFile(t *testing.T) {
@@ -193,5 +195,54 @@ sandbox:
 	}
 	if loaded.Region.Name != "us-west-2" {
 		t.Fatalf("loaded region = %q, want us-west-2", loaded.Region.Name)
+	}
+}
+
+func TestInitContinuesWhenAWSAuthCheckIsPermissionDenied(t *testing.T) {
+	original := newAWSProvider
+	newAWSProvider = func(profile string) provider.CloudProvider {
+		return authFailingCloudProvider{
+			stubCloudProvider: stubCloudProvider{profile: profile},
+			authErr: &awsprovider.AuthError{
+				Kind:    "permission_denied",
+				Profile: profile,
+				Stage:   "api",
+				Cause:   errors.New("AccessDenied: denied"),
+			},
+		}
+	}
+	defer func() { newAWSProvider = original }()
+
+	dir := t.TempDir()
+	output := filepath.Join(dir, "openclaw.yaml")
+	input := strings.Join([]string{
+		"1",                      // platform aws
+		"2",                      // region us-east-1
+		"",                       // accept default instance g5.xlarge
+		"1",                      // image ubuntu-24.04
+		"20",                     // disk size
+		"1",                      // network private
+		"y",                      // use NemoClaw
+		"http://localhost:11434", // endpoint
+		"llama3.2",               // model
+		"y",                      // confirm summary
+	}, "\n") + "\n"
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"openclaw", "init", "--output", output}
+
+	app := New()
+	cmd := newRootCommand(app)
+	cmd.SetIn(strings.NewReader(input))
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := stdout.String(); !strings.Contains(got, "Warning: AWS auth check could not verify caller identity") {
+		t.Fatalf("stdout = %q, want permission-denied warning", got)
 	}
 }

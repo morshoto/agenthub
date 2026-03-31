@@ -11,6 +11,7 @@ import (
 	"openclaw/internal/config"
 	"openclaw/internal/prompt"
 	"openclaw/internal/provider"
+	awsprovider "openclaw/internal/provider/aws"
 )
 
 type Wizard struct {
@@ -39,7 +40,12 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	}
 	if w.Provider != nil {
 		if _, err := w.Provider.AuthCheck(ctx); err != nil {
-			return nil, err
+			var authErr *awsprovider.AuthError
+			if errors.As(err, &authErr) && authErr.Kind == "permission_denied" {
+				fmt.Fprintf(w.Out, "Warning: AWS auth check could not verify caller identity: %v\n", err)
+			} else {
+				return nil, err
+			}
 		}
 	}
 
