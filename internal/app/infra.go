@@ -84,6 +84,9 @@ func validateInfraConfig(cfg *config.Config) error {
 			v.Add("platform.name", fmt.Sprintf("unsupported platform %q", cfg.Platform.Name))
 		}
 	}
+	if class := strings.TrimSpace(cfg.Compute.Class); class != "" && !config.IsValidComputeClass(class) {
+		v.Add("compute.class", fmt.Sprintf("unsupported compute class %q", class))
+	}
 	if strings.TrimSpace(cfg.Region.Name) == "" {
 		v.Add("region.name", "is required")
 	}

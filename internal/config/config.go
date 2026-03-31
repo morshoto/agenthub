@@ -127,7 +127,7 @@ func Validate(cfg *Config) error {
 
 	var v ValidationError
 
-	if class := strings.TrimSpace(cfg.Compute.Class); class != "" && !isValidComputeClass(class) {
+	if class := strings.TrimSpace(cfg.Compute.Class); class != "" && !IsValidComputeClass(class) {
 		v.Add("compute.class", fmt.Sprintf("unsupported compute class %q", class))
 	}
 
@@ -206,7 +206,7 @@ func EffectiveComputeClass(class string) string {
 	}
 }
 
-func isValidComputeClass(class string) bool {
+func IsValidComputeClass(class string) bool {
 	switch strings.ToLower(strings.TrimSpace(class)) {
 	case ComputeClassCPU, ComputeClassGPU:
 		return true
