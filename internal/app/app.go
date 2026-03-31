@@ -11,7 +11,7 @@ import (
 
 // version information is injected at build time.
 var (
-	Version  = "dev"
+	Version   = "dev"
 	CommitSHA = "none"
 	BuildDate = "unknown"
 )
