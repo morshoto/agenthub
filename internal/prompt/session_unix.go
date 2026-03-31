@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"syscall"
-	"unsafe"
+
+	"golang.org/x/term"
 )
 
 const (
@@ -84,26 +84,14 @@ func (s *Session) enableRawMode() (func() error, error) {
 		return nil, errors.New("raw mode requires a terminal")
 	}
 
-	var original syscall.Termios
-	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, s.inFile.Fd(), uintptr(syscall.TIOCGETA), uintptr(unsafe.Pointer(&original))); errno != 0 {
-		return nil, errno
-	}
-
-	raw := original
-	raw.Lflag &^= syscall.ECHO | syscall.ICANON
-	raw.Cc[syscall.VMIN] = 1
-	raw.Cc[syscall.VTIME] = 0
-
-	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, s.inFile.Fd(), uintptr(syscall.TIOCSETA), uintptr(unsafe.Pointer(&raw))); errno != 0 {
-		return nil, errno
+	fd := int(s.inFile.Fd())
+	originalState, err := term.MakeRaw(fd)
+	if err != nil {
+		return nil, err
 	}
 
 	return func() error {
-		_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, s.inFile.Fd(), uintptr(syscall.TIOCSETA), uintptr(unsafe.Pointer(&original)))
-		if errno != 0 {
-			return errno
-		}
-		return nil
+		return term.Restore(fd, originalState)
 	}, nil
 }
 
@@ -161,7 +149,7 @@ func renderMenu(out io.Writer, label string, options []string, defaultValue stri
 	if previousLines > 0 {
 		fmt.Fprintf(out, "\033[%dA", previousLines)
 	}
-	fmt.Fprintf(out, "%s\n", label)
+	writeMenuLine(out, label)
 	for i, option := range options {
 		prefix := "  "
 		if i == selected {
@@ -171,9 +159,13 @@ func renderMenu(out io.Writer, label string, options []string, defaultValue stri
 		if option == defaultValue {
 			marker = " (default)"
 		}
-		fmt.Fprintf(out, "%s%s%s\n", prefix, option, marker)
+		writeMenuLine(out, fmt.Sprintf("%s%s%s", prefix, option, marker))
 	}
 	return len(options) + 1
+}
+
+func writeMenuLine(out io.Writer, text string) {
+	fmt.Fprintf(out, "\r\033[2K%s\n", text)
 }
 
 func isTerminalFile(f *os.File) bool {

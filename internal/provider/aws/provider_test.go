@@ -7,6 +7,8 @@ import (
 
 	awsbase "github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/servicequotas"
+	sqtypes "github.com/aws/aws-sdk-go-v2/service/servicequotas/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
@@ -144,6 +146,66 @@ func TestListBaseImagesResolvesRegionSpecificAMI(t *testing.T) {
 	}
 }
 
+func TestCheckGPUQuotaUsesServiceQuotasUtilizationReport(t *testing.T) {
+	p := &Provider{
+		Config: Config{Profile: "test-profile"},
+		loadDefaultConfig: func(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (awsbase.Config, error) {
+			return awsbase.Config{
+				Region:      "us-east-1",
+				Credentials: awsbase.NewCredentialsCache(staticCredentialsProvider{}),
+			}, nil
+		},
+		newSQClient: func(cfg awsbase.Config) serviceQuotasClient {
+			if cfg.Region != "ap-northeast-1" {
+				t.Fatalf("cfg.Region = %q, want ap-northeast-1", cfg.Region)
+			}
+			return fakeServiceQuotasClient{
+				startOut: &servicequotas.StartQuotaUtilizationReportOutput{
+					ReportId: awsbase.String("report-123"),
+					Status:   sqtypes.ReportStatusPending,
+				},
+				getOut: &servicequotas.GetQuotaUtilizationReportOutput{
+					Status: sqtypes.ReportStatusCompleted,
+					Quotas: []sqtypes.QuotaUtilizationInfo{
+						{
+							ServiceCode:  awsbase.String("ec2"),
+							QuotaName:    awsbase.String("Running On-Demand G and VT instances"),
+							AppliedValue: awsbase.Float64(2),
+							Utilization:  awsbase.Float64(50),
+						},
+						{
+							ServiceCode:  awsbase.String("ec2"),
+							QuotaName:    awsbase.String("All G and VT Spot Instance Requests"),
+							AppliedValue: awsbase.Float64(8),
+							Utilization:  awsbase.Float64(25),
+						},
+					},
+				},
+			}
+		},
+	}
+
+	report, err := p.CheckGPUQuota(context.Background(), "ap-northeast-1", "g5")
+	if err != nil {
+		t.Fatalf("CheckGPUQuota() error = %v", err)
+	}
+	if report.Source != QuotaSourceServiceQuotas {
+		t.Fatalf("report.Source = %q, want %q", report.Source, QuotaSourceServiceQuotas)
+	}
+	if !report.LikelyCreatable {
+		t.Fatal("report.LikelyCreatable = false, want true")
+	}
+	if len(report.Checks) != 2 {
+		t.Fatalf("len(report.Checks) = %d, want 2", len(report.Checks))
+	}
+	if report.Checks[0].CurrentLimit != 2 || report.Checks[0].EstimatedRemaining != 1 || report.Checks[0].UsageIsEstimated {
+		t.Fatalf("first quota check = %#v", report.Checks[0])
+	}
+	if report.Checks[1].CurrentLimit != 8 || report.Checks[1].EstimatedRemaining != 6 || report.Checks[1].UsageIsEstimated {
+		t.Fatalf("second quota check = %#v", report.Checks[1])
+	}
+}
+
 func mustAuthError(t *testing.T, err error) *AuthError {
 	t.Helper()
 	var authErr *AuthError
@@ -214,4 +276,17 @@ func (f fakeSSMClient) GetParameter(ctx context.Context, params *ssm.GetParamete
 			Value: awsbase.String(f.value),
 		},
 	}, nil
+}
+
+type fakeServiceQuotasClient struct {
+	startOut *servicequotas.StartQuotaUtilizationReportOutput
+	getOut   *servicequotas.GetQuotaUtilizationReportOutput
+}
+
+func (f fakeServiceQuotasClient) StartQuotaUtilizationReport(ctx context.Context, params *servicequotas.StartQuotaUtilizationReportInput, optFns ...func(*servicequotas.Options)) (*servicequotas.StartQuotaUtilizationReportOutput, error) {
+	return f.startOut, nil
+}
+
+func (f fakeServiceQuotasClient) GetQuotaUtilizationReport(ctx context.Context, params *servicequotas.GetQuotaUtilizationReportInput, optFns ...func(*servicequotas.Options)) (*servicequotas.GetQuotaUtilizationReportOutput, error) {
+	return f.getOut, nil
 }

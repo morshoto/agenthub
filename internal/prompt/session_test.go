@@ -80,3 +80,18 @@ func TestSessionReadMenuKeyParsesArrowsAndDigits(t *testing.T) {
 		t.Fatalf("third key = %+v, want digit index 1", key)
 	}
 }
+
+func TestRenderMenuClearsPreviousLinesBeforeRedraw(t *testing.T) {
+	var out bytes.Buffer
+
+	lines := renderMenu(&out, "Select platform", []string{"aws", "gcp"}, "aws", 0, 0)
+	renderMenu(&out, "Select platform", []string{"aws", "gcp"}, "aws", 1, lines)
+
+	got := out.String()
+	if count := strings.Count(got, "\033[2K"); count != 6 {
+		t.Fatalf("rendered output contains %d clear-line sequences, want 6; output=%q", count, got)
+	}
+	if !strings.Contains(got, "> gcp") {
+		t.Fatalf("rendered output = %q, want selected option marker", got)
+	}
+}

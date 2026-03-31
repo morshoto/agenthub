@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"openclaw/internal/provider"
+	awsprovider "openclaw/internal/provider/aws"
 )
 
 func TestConfigValidateCommandAcceptsConfigFlagAfterSubcommand(t *testing.T) {
@@ -89,7 +90,7 @@ runtime:
 	}
 }
 
-func TestQuotaCheckCommandReportsMockStatus(t *testing.T) {
+func TestQuotaCheckCommandReportsLiveQuotaStatus(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()
 
@@ -109,9 +110,10 @@ func TestQuotaCheckCommandReportsMockStatus(t *testing.T) {
 	got := stdout.String()
 	for _, fragment := range []string{
 		"Quota report for g5 in ap-northeast-1",
-		"Data source: mock",
-		"Live AWS Service Quotas integration is not wired yet.",
-		"Creatability assessment: unavailable",
+		"Data source: aws-service-quotas",
+		"Likely creatable: true",
+		"Notes:",
+		"quota check complete",
 	} {
 		if !strings.Contains(got, fragment) {
 			t.Fatalf("stdout = %q, want %q", got, fragment)
@@ -194,11 +196,20 @@ func (s stubCloudProvider) ListRegions(ctx context.Context) ([]string, error) {
 }
 
 func (s stubCloudProvider) CheckGPUQuota(ctx context.Context, region, instanceFamily string) (provider.GPUQuotaReport, error) {
+	quotaUsage := 1
 	return provider.GPUQuotaReport{
-		Source:         "mock",
+		Source:         awsprovider.QuotaSourceServiceQuotas,
 		Region:         region,
 		InstanceFamily: instanceFamily,
-		Notes:          []string{"stub"},
+		Checks: []provider.GPUQuotaCheck{{
+			QuotaName:          "Running On-Demand G and VT instances",
+			CurrentLimit:       2,
+			CurrentUsage:       &quotaUsage,
+			EstimatedRemaining: 1,
+			UsageIsEstimated:   false,
+		}},
+		LikelyCreatable: true,
+		Notes:           []string{"quota check complete"},
 	}, nil
 }
 

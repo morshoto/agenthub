@@ -230,11 +230,15 @@ func existingConfig(path string) (*config.Config, error) {
 
 func printQuotaReport(out io.Writer, report provider.GPUQuotaReport) {
 	fmt.Fprintf(out, "Quota report for %s in %s\n", report.InstanceFamily, report.Region)
-	if report.Source == awsprovider.QuotaSourceMock {
+	switch report.Source {
+	case awsprovider.QuotaSourceMock:
 		fmt.Fprintln(out, "Data source: mock")
 		fmt.Fprintln(out, "Live AWS Service Quotas integration is not wired yet.")
 		fmt.Fprintln(out, "Creatability assessment: unavailable")
-	} else {
+	default:
+		if strings.TrimSpace(report.Source) != "" {
+			fmt.Fprintf(out, "Data source: %s\n", report.Source)
+		}
 		fmt.Fprintf(out, "Likely creatable: %t\n", report.LikelyCreatable)
 	}
 	for _, check := range report.Checks {
@@ -253,11 +257,7 @@ func printQuotaReport(out io.Writer, report provider.GPUQuotaReport) {
 		}
 	}
 	if len(report.Notes) > 0 {
-		if report.Source == awsprovider.QuotaSourceMock {
-			fmt.Fprintln(out, "Notes:")
-		} else {
-			fmt.Fprintln(out, "Next steps:")
-		}
+		fmt.Fprintln(out, "Notes:")
 		for _, note := range report.Notes {
 			fmt.Fprintf(out, "- %s\n", note)
 		}

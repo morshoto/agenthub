@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
+	"time"
 
 	awsbase "github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/servicequotas"
+	sqtypes "github.com/aws/aws-sdk-go-v2/service/servicequotas/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
@@ -27,6 +31,7 @@ type Provider struct {
 	loadDefaultConfig func(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (awsbase.Config, error)
 	newSSMClient      func(cfg awsbase.Config) ssmClient
 	newSTSClient      func(cfg awsbase.Config) stsClient
+	newSQClient       func(cfg awsbase.Config) serviceQuotasClient
 }
 
 type ssmClient interface {
@@ -37,7 +42,26 @@ type stsClient interface {
 	GetCallerIdentity(ctx context.Context, params *sts.GetCallerIdentityInput, optFns ...func(*sts.Options)) (*sts.GetCallerIdentityOutput, error)
 }
 
-const QuotaSourceMock = "mock"
+type serviceQuotasClient interface {
+	StartQuotaUtilizationReport(ctx context.Context, params *servicequotas.StartQuotaUtilizationReportInput, optFns ...func(*servicequotas.Options)) (*servicequotas.StartQuotaUtilizationReportOutput, error)
+	GetQuotaUtilizationReport(ctx context.Context, params *servicequotas.GetQuotaUtilizationReportInput, optFns ...func(*servicequotas.Options)) (*servicequotas.GetQuotaUtilizationReportOutput, error)
+}
+
+const (
+	QuotaSourceMock            = "mock"
+	QuotaSourceServiceQuotas   = "aws-service-quotas"
+	serviceCodeEC2             = "ec2"
+	quotaReportPollInterval    = 2 * time.Second
+	quotaReportPollAttempts    = 5
+	defaultQuotaReportPageSize = int32(1000)
+)
+
+var gpuQuotaFamilyNames = map[string][]string{
+	"g5":   {"Running On-Demand G and VT instances", "All G and VT Spot Instance Requests"},
+	"g4dn": {"Running On-Demand G and VT instances", "All G and VT Spot Instance Requests"},
+	"g4ad": {"Running On-Demand G and VT instances", "All G and VT Spot Instance Requests"},
+	"g6":   {"Running On-Demand G and VT instances", "All G and VT Spot Instance Requests"},
+}
 
 func New(cfg Config) *Provider {
 	return &Provider{
@@ -45,6 +69,7 @@ func New(cfg Config) *Provider {
 		loadDefaultConfig: awsconfig.LoadDefaultConfig,
 		newSSMClient:      func(cfg awsbase.Config) ssmClient { return ssm.NewFromConfig(cfg) },
 		newSTSClient:      func(cfg awsbase.Config) stsClient { return sts.NewFromConfig(cfg) },
+		newSQClient:       func(cfg awsbase.Config) serviceQuotasClient { return servicequotas.NewFromConfig(cfg) },
 	}
 }
 
@@ -80,45 +105,39 @@ func (p *Provider) ListRegions(ctx context.Context) ([]string, error) {
 }
 
 func (p *Provider) CheckGPUQuota(ctx context.Context, region, instanceFamily string) (provider.GPUQuotaReport, error) {
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return provider.GPUQuotaReport{}, errors.New("region is required")
+	}
+
 	family := strings.ToLower(strings.TrimSpace(instanceFamily))
 	if family == "" {
 		family = "g5"
 	}
 
-	switch family {
-	case "g5", "g4dn", "g4ad", "g6":
-	default:
+	quotaNames, ok := gpuQuotaFamilyNames[family]
+	if !ok {
 		return provider.GPUQuotaReport{}, fmt.Errorf("unsupported GPU family %q", instanceFamily)
 	}
 
-	report := provider.GPUQuotaReport{
-		Source:         QuotaSourceMock,
-		Region:         region,
-		InstanceFamily: family,
-		Checks: []provider.GPUQuotaCheck{
-			{
-				QuotaName:          "Running On-Demand G and VT instances",
-				CurrentLimit:       0,
-				CurrentUsage:       nil,
-				EstimatedRemaining: 0,
-				UsageIsEstimated:   true,
-			},
-			{
-				QuotaName:          "All G and VT Spot Instance Requests",
-				CurrentLimit:       0,
-				CurrentUsage:       nil,
-				EstimatedRemaining: 0,
-				UsageIsEstimated:   true,
-			},
-		},
-		LikelyCreatable: false,
-		Notes: []string{
-			"Mock report only: live AWS Service Quotas access is not wired yet.",
-			"Do not treat these values as a real capacity check.",
-		},
+	cfg, err := p.loadAWSConfig(ctx)
+	if err != nil {
+		return provider.GPUQuotaReport{}, err
+	}
+	cfg.Region = region
+
+	client := p.newSQClient(cfg)
+	reportID, err := p.startQuotaUtilizationReport(ctx, client)
+	if err != nil {
+		return provider.GPUQuotaReport{}, err
 	}
 
-	return report, nil
+	utilization, err := p.waitForQuotaUtilizationReport(ctx, client, reportID)
+	if err != nil {
+		return provider.GPUQuotaReport{}, err
+	}
+
+	return buildQuotaReport(region, family, quotaNames, utilization), nil
 }
 
 func (p *Provider) ListInstanceTypes(ctx context.Context, region string) ([]provider.InstanceType, error) {
@@ -280,6 +299,181 @@ func (p *Provider) ensureDeps() {
 	if p.newSTSClient == nil {
 		p.newSTSClient = func(cfg awsbase.Config) stsClient { return sts.NewFromConfig(cfg) }
 	}
+	if p.newSQClient == nil {
+		p.newSQClient = func(cfg awsbase.Config) serviceQuotasClient { return servicequotas.NewFromConfig(cfg) }
+	}
+}
+
+func (p *Provider) startQuotaUtilizationReport(ctx context.Context, client serviceQuotasClient) (string, error) {
+	out, err := client.StartQuotaUtilizationReport(ctx, &servicequotas.StartQuotaUtilizationReportInput{})
+	if err != nil {
+		return "", fmt.Errorf("start Service Quotas utilization report: %w", err)
+	}
+	if out == nil || strings.TrimSpace(awsString(out.ReportId)) == "" {
+		return "", errors.New("start Service Quotas utilization report: missing report id")
+	}
+	return awsString(out.ReportId), nil
+}
+
+func (p *Provider) waitForQuotaUtilizationReport(ctx context.Context, client serviceQuotasClient, reportID string) ([]sqtypes.QuotaUtilizationInfo, error) {
+	var lastErr error
+	for attempt := 0; attempt < quotaReportPollAttempts; attempt++ {
+		out, err := client.GetQuotaUtilizationReport(ctx, &servicequotas.GetQuotaUtilizationReportInput{
+			ReportId:   awsbase.String(reportID),
+			MaxResults: awsbase.Int32(defaultQuotaReportPageSize),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("get Service Quotas utilization report: %w", err)
+		}
+		if out == nil {
+			return nil, errors.New("get Service Quotas utilization report: empty response")
+		}
+
+		switch out.Status {
+		case sqtypes.ReportStatusCompleted:
+			return p.collectQuotaUtilizationPages(ctx, client, reportID, out)
+		case sqtypes.ReportStatusFailed:
+			if out.ErrorMessage != nil && strings.TrimSpace(*out.ErrorMessage) != "" {
+				return nil, fmt.Errorf("service quotas utilization report failed: %s", *out.ErrorMessage)
+			}
+			return nil, errors.New("service quotas utilization report failed")
+		case sqtypes.ReportStatusPending, sqtypes.ReportStatusInProgress:
+			lastErr = fmt.Errorf("service quotas utilization report status: %s", out.Status)
+		default:
+			lastErr = fmt.Errorf("service quotas utilization report status: %s", out.Status)
+		}
+
+		if attempt < quotaReportPollAttempts-1 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(quotaReportPollInterval):
+			}
+		}
+	}
+
+	if lastErr == nil {
+		lastErr = errors.New("service quotas utilization report not ready")
+	}
+	return nil, lastErr
+}
+
+func (p *Provider) collectQuotaUtilizationPages(ctx context.Context, client serviceQuotasClient, reportID string, first *servicequotas.GetQuotaUtilizationReportOutput) ([]sqtypes.QuotaUtilizationInfo, error) {
+	var quotas []sqtypes.QuotaUtilizationInfo
+	appendQuotas := func(items []sqtypes.QuotaUtilizationInfo) {
+		quotas = append(quotas, items...)
+	}
+
+	if first != nil {
+		appendQuotas(first.Quotas)
+	}
+	nextToken := awsString(first.NextToken)
+	for strings.TrimSpace(nextToken) != "" {
+		out, err := client.GetQuotaUtilizationReport(ctx, &servicequotas.GetQuotaUtilizationReportInput{
+			ReportId:   awsbase.String(reportID),
+			NextToken:  awsbase.String(nextToken),
+			MaxResults: awsbase.Int32(defaultQuotaReportPageSize),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("get Service Quotas utilization report page: %w", err)
+		}
+		if out == nil {
+			return nil, errors.New("get Service Quotas utilization report page: empty response")
+		}
+		appendQuotas(out.Quotas)
+		nextToken = awsString(out.NextToken)
+	}
+
+	return quotas, nil
+}
+
+func buildQuotaReport(region, family string, targetQuotaNames []string, utilization []sqtypes.QuotaUtilizationInfo) provider.GPUQuotaReport {
+	records := make(map[string]sqtypes.QuotaUtilizationInfo, len(utilization))
+	for _, item := range utilization {
+		if strings.TrimSpace(awsString(item.ServiceCode)) != serviceCodeEC2 {
+			continue
+		}
+		name := strings.TrimSpace(awsString(item.QuotaName))
+		if name == "" {
+			continue
+		}
+		records[name] = item
+	}
+
+	notes := make([]string, 0, 2)
+	checks := make([]provider.GPUQuotaCheck, 0, len(targetQuotaNames))
+	likelyCreatable := false
+
+	for _, quotaName := range targetQuotaNames {
+		item, ok := records[quotaName]
+		if !ok {
+			notes = append(notes, fmt.Sprintf("Service Quotas utilization report did not include %q.", quotaName))
+			continue
+		}
+
+		check := provider.GPUQuotaCheck{QuotaName: quotaName}
+		limit, limitAvailable := firstAvailableQuotaValue(item.AppliedValue, item.DefaultValue)
+		if limitAvailable {
+			check.CurrentLimit = quotaValueToInt(limit)
+		}
+
+		if item.Utilization != nil && limitAvailable {
+			usage := (limit * *item.Utilization) / 100
+			usageValue := quotaValueToInt(usage)
+			check.CurrentUsage = &usageValue
+			check.UsageIsEstimated = false
+			check.EstimatedRemaining = maxInt(check.CurrentLimit-usageValue, 0)
+		} else if limitAvailable {
+			check.UsageIsEstimated = true
+			check.EstimatedRemaining = check.CurrentLimit
+		} else {
+			check.UsageIsEstimated = true
+			notes = append(notes, fmt.Sprintf("Quota limit for %q was not available in the utilization report.", quotaName))
+		}
+
+		if check.EstimatedRemaining > 0 {
+			likelyCreatable = true
+		}
+		checks = append(checks, check)
+	}
+
+	if len(checks) == 0 {
+		notes = append(notes, "No matching EC2 GPU quota records were found in the Service Quotas utilization report.")
+	}
+	if likelyCreatable {
+		notes = append(notes, "At least one relevant EC2 GPU quota has remaining headroom.")
+	} else if len(checks) > 0 {
+		notes = append(notes, "The relevant EC2 GPU quotas appear exhausted or unavailable.")
+	}
+
+	return provider.GPUQuotaReport{
+		Source:          QuotaSourceServiceQuotas,
+		Region:          region,
+		InstanceFamily:  family,
+		Checks:          checks,
+		LikelyCreatable: likelyCreatable,
+		Notes:           notes,
+	}
+}
+
+func firstAvailableQuotaValue(values ...*float64) (float64, bool) {
+	for _, value := range values {
+		if value != nil {
+			return *value, true
+		}
+	}
+	return 0, false
+}
+
+func quotaValueToInt(value float64) int {
+	return int(math.Round(value))
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (p *Provider) resolveDLAMIGPUUbuntu2204(ctx context.Context, cfg awsbase.Config) (provider.BaseImage, error) {
