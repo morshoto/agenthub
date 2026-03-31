@@ -11,9 +11,9 @@ import (
 
 // version information is injected at build time.
 var (
-	Version   = "dev"
-	CommitSHA  = "none"
-	BuildDate  = "unknown"
+	Version  = "dev"
+	CommitSHA = "none"
+	BuildDate = "unknown"
 )
 
 type Options struct {
@@ -23,17 +23,25 @@ type Options struct {
 	Debug      bool
 }
 
-func Execute() error {
-	return newRootCommand().Execute()
+type App struct {
+	opts Options
 }
 
-func applyRuntime(ctx context.Context, opts Options) (context.Context, *config.Config, error) {
-	cfg, err := config.Load(opts.ConfigPath, opts.Profile)
+func New() *App {
+	return &App{}
+}
+
+func (a *App) Execute() error {
+	return newRootCommand(a).Execute()
+}
+
+func (a *App) applyRuntime(ctx context.Context) (context.Context, *config.Config, error) {
+	cfg, err := config.Load(a.opts.ConfigPath, a.opts.Profile)
 	if err != nil {
 		return ctx, nil, err
 	}
 
-	logger := runtime.NewLogger(opts.Verbose, opts.Debug)
+	logger := runtime.NewLogger(a.opts.Verbose, a.opts.Debug)
 	slog.SetDefault(logger)
 	logger.Debug("runtime initialized")
 
@@ -43,6 +51,6 @@ func applyRuntime(ctx context.Context, opts Options) (context.Context, *config.C
 	return ctx, cfg, nil
 }
 
-func versionString() string {
+func (a *App) versionString() string {
 	return fmt.Sprintf("openclaw %s\ncommit: %s\nbuild date: %s", Version, CommitSHA, BuildDate)
 }

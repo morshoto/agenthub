@@ -10,15 +10,14 @@ import (
 	"openclaw/internal/runtime"
 )
 
-func newRootCommand() *cobra.Command {
-	opts := Options{}
+func newRootCommand(app *App) *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:   "openclaw",
 		Short: "OpenClaw CLI",
 	}
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		ctx, _, err := applyRuntime(cmd.Context(), opts)
+		ctx, _, err := app.applyRuntime(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -27,12 +26,12 @@ func newRootCommand() *cobra.Command {
 		return nil
 	}
 
-	rootCmd.PersistentFlags().BoolVar(&opts.Verbose, "verbose", false, "enable informational logs")
-	rootCmd.PersistentFlags().BoolVar(&opts.Debug, "debug", false, "enable debug logging")
-	rootCmd.PersistentFlags().StringVar(&opts.ConfigPath, "config", "", "path to the configuration file")
-	rootCmd.PersistentFlags().StringVar(&opts.Profile, "profile", "", "AWS profile to use")
+	rootCmd.PersistentFlags().BoolVar(&app.opts.Verbose, "verbose", false, "enable informational logs")
+	rootCmd.PersistentFlags().BoolVar(&app.opts.Debug, "debug", false, "enable debug logging")
+	rootCmd.PersistentFlags().StringVar(&app.opts.ConfigPath, "config", "", "path to the configuration file")
+	rootCmd.PersistentFlags().StringVar(&app.opts.Profile, "profile", "", "AWS profile to use")
 
-	rootCmd.AddCommand(newVersionCommand())
+	rootCmd.AddCommand(newVersionCommand(app))
 	rootCmd.AddCommand(newDoctorCommand())
 
 	return rootCmd

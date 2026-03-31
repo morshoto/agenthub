@@ -8,9 +8,8 @@ import (
 )
 
 func main() {
-	if err := app.Execute(); err != nil {
+	if err := app.New().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
-
