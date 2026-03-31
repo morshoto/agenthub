@@ -34,6 +34,8 @@ type InfraOutput struct {
 type TerraformBackend struct {
 	Binary    string
 	ModuleDir string
+	Profile   string
+	Region    string
 }
 
 func New(moduleDir string) *TerraformBackend {
@@ -89,6 +91,7 @@ func (t *TerraformBackend) Output(ctx context.Context, workdir string) (*InfraOu
 	}
 	cmd := exec.CommandContext(ctx, t.binary(), "output", "-json")
 	cmd.Dir = workdir
+	cmd.Env = t.commandEnv()
 	data, err := cmd.Output()
 	if err != nil {
 		return nil, t.wrapCommandError(err, "output")
@@ -116,11 +119,49 @@ func (t *TerraformBackend) binary() string {
 func (t *TerraformBackend) run(ctx context.Context, workdir string, args ...string) error {
 	cmd := exec.CommandContext(ctx, t.binary(), args...)
 	cmd.Dir = workdir
+	cmd.Env = t.commandEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return t.wrapCommandErrorWithOutput(err, strings.Join(args, " "), out)
 	}
 	return nil
+}
+
+func (t *TerraformBackend) commandEnv() []string {
+	env := filterEnv(os.Environ(), "AWS_PROFILE", "AWS_SDK_LOAD_CONFIG", "AWS_REGION", "AWS_DEFAULT_REGION")
+	if profile := strings.TrimSpace(t.Profile); profile != "" {
+		env = append(env, "AWS_PROFILE="+profile)
+		env = append(env, "AWS_SDK_LOAD_CONFIG=1")
+	}
+	if region := strings.TrimSpace(t.Region); region != "" {
+		env = append(env, "AWS_REGION="+region)
+		env = append(env, "AWS_DEFAULT_REGION="+region)
+	}
+	return env
+}
+
+func filterEnv(env []string, keys ...string) []string {
+	if len(env) == 0 || len(keys) == 0 {
+		return append([]string(nil), env...)
+	}
+	blocked := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		blocked[key+"="] = struct{}{}
+	}
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		skip := false
+		for prefix := range blocked {
+			if strings.HasPrefix(entry, prefix) {
+				skip = true
+				break
+			}
+		}
+		if !skip {
+			out = append(out, entry)
+		}
+	}
+	return out
 }
 
 func (t *TerraformBackend) wrapCommandError(err error, command string) error {

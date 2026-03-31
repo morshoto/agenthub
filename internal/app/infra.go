@@ -43,8 +43,7 @@ func newInfraCreateCommand(app *App) *cobra.Command {
 			}
 			effectiveSSHKeyName := firstNonEmpty(sshKeyName, cfg.SSH.KeyName)
 			effectiveSSHCIDR := firstNonEmpty(sshCIDR, cfg.SSH.CIDR)
-			effectiveSSHKey := firstNonEmpty(cfg.SSH.PrivateKeyPath)
-			if err := validateInfraCreateFlags(cfg, effectiveSSHKeyName, effectiveSSHCIDR, effectiveSSHKey); err != nil {
+			if err := validateInfraCreateFlags(cfg, effectiveSSHKeyName, effectiveSSHCIDR); err != nil {
 				return err
 			}
 
@@ -114,20 +113,13 @@ func validateInfraConfig(cfg *config.Config) error {
 	return v.OrNil()
 }
 
-func validateInfraCreateFlags(cfg *config.Config, sshKeyName, sshCIDR, sshKeyPath string) error {
+func validateInfraCreateFlags(cfg *config.Config, sshKeyName, sshCIDR string) error {
 	sshKeyName = strings.TrimSpace(sshKeyName)
 	sshCIDR = strings.TrimSpace(sshCIDR)
-	sshKeyPath = strings.TrimSpace(sshKeyPath)
 	networkMode := config.EffectiveNetworkMode(cfg)
 	switch {
 	case networkMode == "private":
 		return errors.New("private networking is not supported yet; use public networking or add an SSM/bastion executor")
-	case sshKeyName == "" && sshCIDR != "":
-		return errors.New("ssh-key-name is required when ssh-cidr is set")
-	case sshKeyName == "":
-		return errors.New("ssh-key-name is required for public networking; set ssh.key_name or pass --ssh-key-name")
-	case sshKeyPath == "":
-		return errors.New("ssh private key path is required for public networking; set ssh.private_key_path or pass --ssh-key")
 	default:
 		return nil
 	}

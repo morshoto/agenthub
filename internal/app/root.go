@@ -155,6 +155,9 @@ func newInitCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := config.Validate(cfg); err != nil {
+				return err
+			}
 
 			if strings.TrimSpace(outputPath) == "" {
 				return errors.New("output path is required")

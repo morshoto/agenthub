@@ -59,6 +59,7 @@ type terraformVars struct {
 	NetworkMode  string `json:"network_mode"`
 	ImageID      string `json:"image_id"`
 	SSHKeyName   string `json:"ssh_key_name"`
+	SSHPublicKey string `json:"ssh_public_key"`
 	SSHCIDR      string `json:"ssh_cidr"`
 	SSHUser      string `json:"ssh_user"`
 	NamePrefix   string `json:"name_prefix"`
@@ -98,8 +99,15 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 	if strings.TrimSpace(sshKeyPath) == "" {
 		return nil, errors.New("ssh private key path is required for public networking")
 	}
+	sshPublicKey, err := deriveSSHPublicKeyFunc(ctx, sshKeyPath)
+	if err != nil {
+		return nil, err
+	}
 
 	adviser := newAWSProvider(profile, cfg.Compute.Class)
+	if _, err := adviser.CheckAuth(ctx); err != nil {
+		return nil, fmt.Errorf("aws auth check failed: %w", err)
+	}
 	image, err := resolveInfraImage(ctx, adviser, cfg)
 	if err != nil {
 		return nil, err
@@ -130,6 +138,7 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 		NetworkMode:  networkMode,
 		ImageID:      image.ID,
 		SSHKeyName:   sshKeyName,
+		SSHPublicKey: sshPublicKey,
 		SSHCIDR:      sshCIDR,
 		SSHUser:      sshUser,
 		NamePrefix:   "openclaw",
@@ -141,7 +150,7 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 		return nil, err
 	}
 
-	backend, err := newTerraformBackend(cfg)
+	backend, err := newTerraformBackend(profile, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -338,18 +347,14 @@ func resolveProvisioningSSH(ctx context.Context, cfg *config.Config, opts create
 		sshKeyName = strings.TrimSpace(cfg.SSH.KeyName)
 	}
 	if sshKeyName == "" {
-		return "", "", "", "", errors.New("ssh key pair name is required for public networking; set ssh.key_name or pass --ssh-key-name")
+		sshKeyName = defaultSSHKeyName()
 	}
 	sshCIDR := strings.TrimSpace(opts.SSHCIDR)
 	if sshCIDR == "" {
 		sshCIDR = strings.TrimSpace(cfg.SSH.CIDR)
 	}
-	if sshCIDR == "" && sshKeyName != "" {
-		var err error
-		sshCIDR, err = resolveSSHCIDR(ctx, sshKeyName, sshCIDR)
-		if err != nil {
-			return "", "", "", "", err
-		}
+	if sshCIDR == "" {
+		return "", "", "", "", errors.New("ssh cidr is required for public networking; run `openclaw init` or pass --ssh-cidr")
 	}
 	sshUser := strings.TrimSpace(opts.SSHUser)
 	if sshUser == "" {
@@ -363,7 +368,7 @@ func resolveProvisioningSSH(ctx context.Context, cfg *config.Config, opts create
 		sshKeyPath = strings.TrimSpace(cfg.SSH.PrivateKeyPath)
 	}
 	if sshKeyPath == "" {
-		return "", "", "", "", errors.New("ssh private key path is required for public networking; set ssh.private_key_path or pass --ssh-key")
+		sshKeyPath = defaultSSHPrivateKeyPath()
 	}
 
 	return sshKeyName, sshCIDR, sshUser, sshKeyPath, nil
@@ -385,9 +390,16 @@ func resolveInstallSSH(cfg *config.Config, userFlag, keyFlag string) (string, st
 		keyPath = strings.TrimSpace(cfg.SSH.PrivateKeyPath)
 	}
 	if keyPath == "" {
-		return "", "", errors.New("ssh private key path is required; pass --ssh-key or set ssh.private_key_path in config")
+		keyPath = defaultSSHPrivateKeyPath()
 	}
-	return user, keyPath, nil
+	resolved, err := resolveSSHPrivateKeyPath(keyPath)
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := os.Stat(resolved); err != nil {
+		return "", "", fmt.Errorf("ssh private key %q does not exist; pass --ssh-key or update ssh.private_key_path", resolved)
+	}
+	return user, resolved, nil
 }
 
 func prepareTerraformWorkdir() (string, error) {
@@ -428,7 +440,7 @@ func writeTerraformVars(workdir string, vars terraformVars) (string, error) {
 	return path, nil
 }
 
-var newTerraformBackend = func(cfg *config.Config) (infratf.InfraBackend, error) {
+var newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {
 	if cfg == nil {
 		return nil, errors.New("config is required")
 	}
@@ -437,6 +449,8 @@ var newTerraformBackend = func(cfg *config.Config) (infratf.InfraBackend, error)
 		return nil, err
 	}
 	backend := infratf.New(moduleDir)
+	backend.Profile = strings.TrimSpace(profile)
+	backend.Region = strings.TrimSpace(cfg.Region.Name)
 	return backend, nil
 }
 

@@ -162,7 +162,15 @@ func TestInfraCreateCommandReportsCreatedInstance(t *testing.T) {
 	defer func() { newAWSProvider = original }()
 
 	originalBackend := newTerraformBackend
-	newTerraformBackend = func(cfg *config.Config) (infratf.InfraBackend, error) {
+	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
+	originalEnsureSSHPrivateKey := ensureSSHPrivateKeyFunc
+	ensureSSHPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return privateKeyPath, nil
+	}
+	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey openclaw", nil
+	}
+	newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {
 		return fakeTerraformBackend{
 			output: &infratf.InfraOutput{
 				InstanceID:        "i-0123456789abcdef0",
@@ -177,6 +185,8 @@ func TestInfraCreateCommandReportsCreatedInstance(t *testing.T) {
 		}, nil
 	}
 	defer func() { newTerraformBackend = originalBackend }()
+	defer func() { deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey }()
+	defer func() { ensureSSHPrivateKeyFunc = originalEnsureSSHPrivateKey }()
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "openclaw.yaml")
@@ -197,6 +207,7 @@ instance:
 image:
   id: ami-0123456789abcdef0
 sandbox:
+  enabled: true
   network_mode: public
 `)
 
@@ -267,8 +278,8 @@ sandbox:
 	if err == nil {
 		t.Fatal("Execute() error = nil")
 	}
-	if !strings.Contains(err.Error(), "ssh-key-name is required for `create`") {
-		t.Fatalf("error = %v, want ssh access validation", err)
+	if !strings.Contains(err.Error(), "ssh cidr is required for public networking") {
+		t.Fatalf("error = %v, want SSH config validation", err)
 	}
 }
 
@@ -309,15 +320,25 @@ func TestInstallCommandRunsWorkflowAgainstResolvedInstance(t *testing.T) {
 	defer func() { newSSHExecutor = originalExecutor }()
 
 	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "demo.pem")
+	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
 	path := filepath.Join(dir, "openclaw.yaml")
 	writeConfig(t, path, `
 platform:
   name: aws
 region:
   name: us-east-1
+ssh:
+  key_name: demo-key
+  private_key_path: `+keyPath+`
+  cidr: 203.0.113.0/24
+  user: ubuntu
 instance:
   type: g5.xlarge
   disk_size_gb: 40
+  network_mode: public
 image:
   name: ubuntu-24.04
 runtime:
@@ -331,7 +352,7 @@ sandbox:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--config", path, "install", "--target", "i-0123456789abcdef0", "--working-dir", "/opt/openclaw", "--ssh-user", "ubuntu", "--ssh-key", "/tmp/demo.pem"}
+	os.Args = []string{"openclaw", "--config", path, "install", "--target", "i-0123456789abcdef0", "--working-dir", "/opt/openclaw", "--ssh-user", "ubuntu", "--ssh-key", keyPath}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -417,7 +438,15 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 	defer restore()
 
 	originalBackend := newTerraformBackend
-	newTerraformBackend = func(cfg *config.Config) (infratf.InfraBackend, error) {
+	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
+	originalEnsureSSHPrivateKey := ensureSSHPrivateKeyFunc
+	ensureSSHPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return privateKeyPath, nil
+	}
+	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey openclaw", nil
+	}
+	newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {
 		return fakeTerraformBackend{
 			output: &infratf.InfraOutput{
 				InstanceID:        "i-0123456789abcdef0",
@@ -432,6 +461,8 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 		}, nil
 	}
 	defer func() { newTerraformBackend = originalBackend }()
+	defer func() { deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey }()
+	defer func() { ensureSSHPrivateKeyFunc = originalEnsureSSHPrivateKey }()
 
 	original := newSSHExecutor
 	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
@@ -468,6 +499,10 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 	defer func() { newSSHExecutor = original }()
 
 	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "demo.pem")
+	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
 	path := filepath.Join(dir, "openclaw.yaml")
 	writeConfig(t, path, `
 platform:
@@ -476,7 +511,7 @@ region:
   name: us-east-1
 ssh:
   key_name: demo-key
-  private_key_path: /tmp/demo.pem
+  private_key_path: `+keyPath+`
   cidr: 203.0.113.0/24
   user: ubuntu
 instance:

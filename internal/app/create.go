@@ -37,11 +37,10 @@ func newCreateCommand(app *App) *cobra.Command {
 			}
 			effectiveSSHKeyName := firstNonEmpty(sshKeyName, cfg.SSH.KeyName)
 			effectiveSSHCIDR := firstNonEmpty(sshCIDR, cfg.SSH.CIDR)
-			effectiveSSHKey := firstNonEmpty(sshKey, cfg.SSH.PrivateKeyPath)
-			if err := validateCreateWorkflowSSHFlags(cfg, effectiveSSHKeyName, effectiveSSHCIDR, effectiveSSHKey); err != nil {
+			if err := validateCreateWorkflowSSHFlags(cfg, effectiveSSHKeyName, effectiveSSHCIDR); err != nil {
 				return err
 			}
-			if err := validateInfraCreateFlags(cfg, effectiveSSHKeyName, effectiveSSHCIDR, effectiveSSHKey); err != nil {
+			if err := validateInfraCreateFlags(cfg, effectiveSSHKeyName, effectiveSSHCIDR); err != nil {
 				return err
 			}
 
@@ -85,21 +84,13 @@ func newCreateCommand(app *App) *cobra.Command {
 	return cmd
 }
 
-func validateCreateWorkflowSSHFlags(cfg *config.Config, sshKeyName, sshCIDR, sshKey string) error {
+func validateCreateWorkflowSSHFlags(cfg *config.Config, sshKeyName, sshCIDR string) error {
 	sshKeyName = strings.TrimSpace(sshKeyName)
 	sshCIDR = strings.TrimSpace(sshCIDR)
-	sshKey = strings.TrimSpace(sshKey)
 	networkMode := config.EffectiveNetworkMode(cfg)
 	switch {
 	case networkMode == "private":
 		return errors.New("private networking is not supported yet; use public networking or add an SSM/bastion executor")
-	case sshKeyName == "":
-		if sshCIDR == "" {
-			return errors.New("ssh-key-name is required for `create` so Terraform can open SSH access safely")
-		}
-		return errors.New("ssh-key-name is required when ssh-cidr is set")
-	case sshKey == "":
-		return errors.New("ssh private key path is required for `create`; pass --ssh-key or set ssh.private_key_path")
 	default:
 		return nil
 	}

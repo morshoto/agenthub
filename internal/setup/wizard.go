@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/netip"
 	"path/filepath"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -25,6 +28,7 @@ type Wizard struct {
 }
 
 const initAWSLookupTimeout = 5 * time.Second
+var detectInitSSHCIDR = defaultDetectInitSSHCIDR
 
 func NewWizard(prompter *prompt.Session, out io.Writer, factory func(platform, computeClass string) provider.CloudProvider, existing *config.Config) *Wizard {
 	return &Wizard{Prompter: prompter, Out: out, ProviderFactory: factory, Existing: existing}
@@ -109,19 +113,29 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	}
 
 	sshKeyName := ""
-	sshPrivateKeyPath := ""
+	sshPrivateKeyPath := defaultSSHPrivateKeyPath()
 	sshCIDR := ""
 	sshUser := ""
 	if w.Existing != nil {
 		sshKeyName = strings.TrimSpace(w.Existing.SSH.KeyName)
-		sshPrivateKeyPath = strings.TrimSpace(w.Existing.SSH.PrivateKeyPath)
+		if existingPath := strings.TrimSpace(w.Existing.SSH.PrivateKeyPath); existingPath != "" {
+			sshPrivateKeyPath = existingPath
+		}
 		sshCIDR = strings.TrimSpace(w.Existing.SSH.CIDR)
 		sshUser = strings.TrimSpace(w.Existing.SSH.User)
+	}
+	if sshKeyName == "" {
+		sshKeyName = defaultSSHKeyName()
 	}
 	if networkMode == "public" {
 		sshKeyName, err = w.Prompter.Text("SSH key pair name", sshKeyName)
 		if err != nil {
 			return nil, err
+		}
+		if sshCIDR == "" {
+			if detected, detectErr := detectInitSSHCIDR(ctx); detectErr == nil {
+				sshCIDR = detected
+			}
 		}
 		sshPrivateKeyPath, err = w.Prompter.Text("SSH private key path", sshPrivateKeyPath)
 		if err != nil {
@@ -345,6 +359,57 @@ func defaultEndpoint(computeClass string) string {
 		return "https://nim.example.com"
 	}
 	return "http://localhost:11434"
+}
+
+func defaultSSHPrivateKeyPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return "~/.ssh/id_ed25519"
+	}
+	return filepath.Join(home, ".ssh", "id_ed25519")
+}
+
+func defaultSSHKeyName() string {
+	return "openclaw"
+}
+
+func defaultDetectInitSSHCIDR(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.ipify.org", nil)
+	if err != nil {
+		return "", err
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("unexpected status %s", resp.Status)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	value := strings.TrimSpace(string(body))
+	if value == "" {
+		return "", errors.New("empty public IP")
+	}
+	if strings.Contains(value, "/") {
+		prefix, err := netip.ParsePrefix(value)
+		if err != nil {
+			return "", err
+		}
+		return prefix.String(), nil
+	}
+	addr, err := netip.ParseAddr(value)
+	if err != nil {
+		return "", err
+	}
+	if addr.Is4() {
+		return addr.String() + "/32", nil
+	}
+	return addr.String() + "/128", nil
 }
 
 func sshUsernameForImage(imageName, imageID string) string {
