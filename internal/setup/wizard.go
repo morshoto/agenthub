@@ -7,6 +7,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"time"
 
 	"openclaw/internal/config"
 	"openclaw/internal/prompt"
@@ -21,6 +22,8 @@ type Wizard struct {
 	Provider        provider.CloudProvider
 	Existing        *config.Config
 }
+
+const initAWSLookupTimeout = 5 * time.Second
 
 func NewWizard(prompter *prompt.Session, out io.Writer, factory func(platform string) provider.CloudProvider, existing *config.Config) *Wizard {
 	return &Wizard{Prompter: prompter, Out: out, ProviderFactory: factory, Existing: existing}
@@ -39,7 +42,9 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		w.Provider = w.ProviderFactory(platform)
 	}
 	if w.Provider != nil {
-		if _, err := w.Provider.AuthCheck(ctx); err != nil {
+		authCtx, cancel := bestEffortAWSContext(ctx)
+		if _, err := w.Provider.AuthCheck(authCtx); err != nil {
+			cancel()
 			var authErr *awsprovider.AuthError
 			if errors.As(err, &authErr) {
 				fmt.Fprintln(w.Out, "Warning: AWS auth check unavailable; continuing.")
@@ -47,6 +52,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 				return nil, err
 			}
 		}
+		cancel()
 	}
 
 	regions, err := w.listRegions(ctx)
@@ -77,13 +83,8 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 
 	images, err := w.listImages(ctx, region)
 	if err != nil {
-		var authErr *awsprovider.AuthError
-		if errors.As(err, &authErr) && (authErr.Kind == "permission_denied" || authErr.Kind == "no_credentials") {
-			fmt.Fprintln(w.Out, "Warning: AWS image lookup unavailable; using bundled fallback images.")
-			images = fallbackAWSBaseImages(region)
-		} else {
-			return nil, err
-		}
+		fmt.Fprintln(w.Out, "Warning: AWS image lookup unavailable; using bundled fallback images.")
+		images = fallbackAWSBaseImages(region)
 	}
 	image, err := selectBaseImage(w.Prompter, images)
 	if err != nil {
@@ -184,13 +185,10 @@ func (w *Wizard) listImages(ctx context.Context, region string) ([]provider.Base
 	if w.Provider == nil {
 		return fallbackAWSBaseImages(region), nil
 	}
-	items, err := w.Provider.ListBaseImages(ctx, region)
+	imageCtx, cancel := bestEffortAWSContext(ctx)
+	defer cancel()
+	items, err := w.Provider.ListBaseImages(imageCtx, region)
 	if err != nil {
-		var authErr *awsprovider.AuthError
-		if errors.As(err, &authErr) {
-			fmt.Fprintln(w.Out, "Warning: AWS image lookup unavailable; using bundled fallback images.")
-			return fallbackAWSBaseImages(region), nil
-		}
 		return nil, err
 	}
 	if len(items) == 0 {
@@ -203,7 +201,9 @@ func (w *Wizard) warnOnQuota(ctx context.Context, region string) error {
 	if w.Provider == nil {
 		return nil
 	}
-	report, err := w.Provider.CheckGPUQuota(ctx, region, "g5")
+	quotaCtx, cancel := bestEffortAWSContext(ctx)
+	defer cancel()
+	report, err := w.Provider.CheckGPUQuota(quotaCtx, region, "g5")
 	if err != nil {
 		fmt.Fprintln(w.Out, "Warning: GPU quota check unavailable; continuing.")
 		return nil
@@ -303,4 +303,8 @@ func fallbackAWSBaseImages(region string) []provider.BaseImage {
 		Source:             "fallback",
 		SSMParameter:       "/aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id",
 	}}
+}
+
+func bestEffortAWSContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, initAWSLookupTimeout)
 }
