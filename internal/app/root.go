@@ -140,11 +140,12 @@ func newInitCommand(app *App) *cobra.Command {
 				return err
 			}
 			session := prompt.NewSession(cmd.InOrStdin(), cmd.OutOrStdout())
-			provider := newAWSProvider(app.opts.Profile)
-			if _, err := provider.AuthCheck(cmd.Context()); err != nil {
-				return err
-			}
-			wizard := setup.NewWizard(session, cmd.OutOrStdout(), provider, existing)
+			wizard := setup.NewWizard(session, cmd.OutOrStdout(), func(platform string) provider.CloudProvider {
+				if platform != config.PlatformAWS {
+					return nil
+				}
+				return newAWSProvider(app.opts.Profile)
+			}, existing)
 			cfg, err := wizard.Run(cmd.Context())
 			if err != nil {
 				return err

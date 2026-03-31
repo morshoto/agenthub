@@ -14,24 +14,33 @@ import (
 )
 
 type Wizard struct {
-	Prompter *prompt.Session
-	Out      io.Writer
-	Provider provider.CloudProvider
-	Existing *config.Config
+	Prompter        *prompt.Session
+	Out             io.Writer
+	ProviderFactory func(platform string) provider.CloudProvider
+	Provider        provider.CloudProvider
+	Existing        *config.Config
 }
 
-func NewWizard(prompter *prompt.Session, out io.Writer, p provider.CloudProvider, existing *config.Config) *Wizard {
-	return &Wizard{Prompter: prompter, Out: out, Provider: p, Existing: existing}
+func NewWizard(prompter *prompt.Session, out io.Writer, factory func(platform string) provider.CloudProvider, existing *config.Config) *Wizard {
+	return &Wizard{Prompter: prompter, Out: out, ProviderFactory: factory, Existing: existing}
 }
 
 func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
-	_ = ctx
 	platform, err := w.Prompter.Select("Select platform", []string{"aws", "gcp", "azure"}, config.PlatformAWS)
 	if err != nil {
 		return nil, err
 	}
 	if platform != config.PlatformAWS {
 		return nil, fmt.Errorf("%s is not implemented yet", platform)
+	}
+
+	if w.Provider == nil && w.ProviderFactory != nil {
+		w.Provider = w.ProviderFactory(platform)
+	}
+	if w.Provider != nil {
+		if _, err := w.Provider.AuthCheck(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	regions, err := w.listRegions(ctx)

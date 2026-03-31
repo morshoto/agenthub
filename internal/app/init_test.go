@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"openclaw/internal/config"
+	"openclaw/internal/provider"
 )
 
 func TestInitWritesConfigFile(t *testing.T) {
@@ -95,6 +96,42 @@ func TestInitRejectsNonAWSPlatform(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not implemented yet") {
 		t.Fatalf("error = %v, want not implemented", err)
+	}
+}
+
+func TestInitDoesNotCreateAWSProviderBeforePlatformSelection(t *testing.T) {
+	called := false
+	original := newAWSProvider
+	newAWSProvider = func(profile string) provider.CloudProvider {
+		called = true
+		return stubCloudProvider{profile: profile}
+	}
+	defer func() { newAWSProvider = original }()
+
+	input := strings.Join([]string{
+		"2", // gcp
+	}, "\n") + "\n"
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"openclaw", "init", "--output", filepath.Join(t.TempDir(), "openclaw.yaml")}
+
+	app := New()
+	cmd := newRootCommand(app)
+	cmd.SetIn(strings.NewReader(input))
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil")
+	}
+	if !strings.Contains(err.Error(), "not implemented yet") {
+		t.Fatalf("error = %v, want not implemented", err)
+	}
+	if called {
+		t.Fatal("AWS provider should not be created before platform selection")
 	}
 }
 

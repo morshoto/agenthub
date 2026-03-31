@@ -66,21 +66,23 @@ func TestWizardWarnsAndContinuesWhenQuotaInsufficient(t *testing.T) {
 	wizard := NewWizard(
 		prompt.NewSession(strings.NewReader(input), &bytes.Buffer{}),
 		&bytes.Buffer{},
-		fakeProvider{
-			regions: []string{"us-east-1", "us-west-2"},
-			report: provider.GPUQuotaReport{
-				Region:         "us-east-1",
-				InstanceFamily: "g5",
-				Checks: []provider.GPUQuotaCheck{{
-					QuotaName:          "Running On-Demand G and VT instances",
-					CurrentLimit:       0,
-					CurrentUsage:       &quotaUsage,
-					EstimatedRemaining: 0,
-					UsageIsEstimated:   true,
-				}},
-				LikelyCreatable: false,
-				Notes:           []string{"request more quota"},
-			},
+		func(platform string) provider.CloudProvider {
+			return fakeProvider{
+				regions: []string{"us-east-1", "us-west-2"},
+				report: provider.GPUQuotaReport{
+					Region:         "us-east-1",
+					InstanceFamily: "g5",
+					Checks: []provider.GPUQuotaCheck{{
+						QuotaName:          "Running On-Demand G and VT instances",
+						CurrentLimit:       0,
+						CurrentUsage:       &quotaUsage,
+						EstimatedRemaining: 0,
+						UsageIsEstimated:   true,
+					}},
+					LikelyCreatable: false,
+					Notes:           []string{"request more quota"},
+				},
+			}
 		},
 		&config.Config{Region: config.RegionConfig{Name: "us-west-2"}},
 	)
