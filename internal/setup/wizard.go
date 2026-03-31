@@ -55,7 +55,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	instanceType, err := w.Prompter.Select("Select instance type", instanceTypes, defaultOption(instanceTypes, "t3.medium"))
+	instanceType, err := w.Prompter.Select("Select instance type", instanceTypes, defaultOption(instanceTypes, "g5.xlarge"))
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +140,7 @@ func (w *Wizard) listRegions(ctx context.Context) ([]string, error) {
 
 func (w *Wizard) listInstanceTypes(ctx context.Context, region string) ([]string, error) {
 	if w.Provider == nil {
-		return []string{"t3.medium", "g4dn.xlarge", "g5.xlarge"}, nil
+		return []string{"g5.xlarge", "g4dn.xlarge", "t3.medium"}, nil
 	}
 	items, err := w.Provider.ListInstanceTypes(ctx, region)
 	if err != nil {
@@ -151,7 +151,7 @@ func (w *Wizard) listInstanceTypes(ctx context.Context, region string) ([]string
 		options = append(options, item.Name)
 	}
 	if len(options) == 0 {
-		return []string{"t3.medium"}, nil
+		return []string{"g5.xlarge"}, nil
 	}
 	return options, nil
 }

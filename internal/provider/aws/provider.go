@@ -77,9 +77,9 @@ func (p *Provider) CheckGPUQuota(ctx context.Context, region, instanceFamily str
 
 func (p *Provider) ListInstanceTypes(ctx context.Context, region string) ([]provider.InstanceType, error) {
 	return []provider.InstanceType{
-		{Name: "t3.medium", MemoryGB: 4},
-		{Name: "g4dn.xlarge", GPUCount: 1, MemoryGB: 16},
 		{Name: "g5.xlarge", GPUCount: 1, MemoryGB: 16},
+		{Name: "g4dn.xlarge", GPUCount: 1, MemoryGB: 16},
+		{Name: "t3.medium", MemoryGB: 4},
 	}, nil
 }
 

@@ -40,7 +40,7 @@ func TestWizardWarnsAndContinuesWhenQuotaInsufficient(t *testing.T) {
 		"1", // platform aws
 		"1", // region
 		"y", // continue despite quota warning
-		"1", // instance type
+		"",  // accept default instance type (g5.xlarge)
 		"1", // base image
 		"20",
 		"1",

@@ -16,7 +16,7 @@ func TestInitWritesConfigFile(t *testing.T) {
 	input := strings.Join([]string{
 		"1",                      // platform aws
 		"2",                      // region us-east-1
-		"1",                      // instance t3.medium
+		"",                       // accept default instance g5.xlarge
 		"1",                      // image ubuntu-24.04
 		"20",                     // disk size
 		"1",                      // network private
@@ -115,7 +115,7 @@ sandbox:
 	input := strings.Join([]string{
 		"1", // platform aws
 		"",  // accept preselected region from existing config
-		"1", // instance
+		"",  // accept default instance g5.xlarge
 		"1", // image
 		"20",
 		"1",
