@@ -83,6 +83,7 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(dir, "openclaw.yaml")
 	cfg := &Config{
 		Platform: PlatformConfig{Name: PlatformAWS},
+		Compute:  ComputeConfig{Class: ComputeClassCPU},
 		Region:   RegionConfig{Name: "us-east-1"},
 		Instance: InstanceConfig{Type: "t3.medium", DiskSizeGB: 20},
 		Image:    ImageConfig{Name: "AWS Deep Learning AMI GPU Ubuntu 22.04", ID: "ami-0123456789abcdef0"},
@@ -98,7 +99,7 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if loaded.Platform.Name != cfg.Platform.Name || loaded.Image.ID != cfg.Image.ID || loaded.Sandbox.NetworkMode != "private" || !loaded.Sandbox.UseNemoClaw {
+	if loaded.Platform.Name != cfg.Platform.Name || loaded.Compute.Class != cfg.Compute.Class || loaded.Image.ID != cfg.Image.ID || loaded.Sandbox.NetworkMode != "private" || !loaded.Sandbox.UseNemoClaw {
 		t.Fatalf("round trip mismatch: %#v", loaded)
 	}
 	if len(loaded.Sandbox.FilesystemAllow) != 2 || loaded.Sandbox.FilesystemAllow[0] != "/tmp" {

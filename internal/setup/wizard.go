@@ -102,7 +102,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		return nil, err
 	}
 
-	networkMode, err := w.Prompter.Select("Select network mode", []string{"public", "private"}, defaultNetworkMode(computeClass))
+	networkMode, err := w.Prompter.Select("Select network mode", []string{"private", "public"}, defaultNetworkMode(computeClass))
 	if err != nil {
 		return nil, err
 	}

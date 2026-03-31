@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -71,6 +72,64 @@ func TestInitWritesConfigFile(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Summary") {
 		t.Fatalf("stdout = %q, want summary", stdout.String())
+	}
+}
+
+func TestInitSupportsCPUComputeMode(t *testing.T) {
+	original := newAWSProvider
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+		if computeClass == config.ComputeClassCPU {
+			return cpuInitCloudProvider{stubCloudProvider: stubCloudProvider{profile: profile}}
+		}
+		return stubCloudProvider{profile: profile}
+	}
+	defer func() { newAWSProvider = original }()
+
+	dir := t.TempDir()
+	output := filepath.Join(dir, "openclaw.yaml")
+	input := strings.Join([]string{
+		"1", // platform aws
+		"1", // cpu compute mode
+		"2", // region us-east-1
+		"",  // accept default instance t3.xlarge
+		"1", // Ubuntu 22.04 LTS
+		"20",
+		"", // accept default public network mode
+		"y",
+		"", // accept placeholder external endpoint
+		"", // accept default model
+		"y",
+	}, "\n") + "\n"
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"openclaw", "init", "--output", output}
+
+	app := New()
+	cmd := newRootCommand(app)
+	cmd.SetIn(strings.NewReader(input))
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	loaded, err := config.Load(output)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.Compute.Class != config.ComputeClassCPU {
+		t.Fatalf("loaded compute class = %q, want cpu", loaded.Compute.Class)
+	}
+	if loaded.Instance.Type != "t3.xlarge" {
+		t.Fatalf("loaded instance type = %q, want t3.xlarge", loaded.Instance.Type)
+	}
+	if loaded.Image.Name != "Ubuntu 22.04 LTS" {
+		t.Fatalf("loaded image = %q, want Ubuntu 22.04 LTS", loaded.Image.Name)
+	}
+	if loaded.Sandbox.NetworkMode != "public" {
+		t.Fatalf("loaded network mode = %q, want public", loaded.Sandbox.NetworkMode)
 	}
 }
 
@@ -355,4 +414,22 @@ func TestInitFallsBackWhenAWSImageLookupIsPermissionDenied(t *testing.T) {
 			t.Fatalf("stdout = %q, want %q", got, fragment)
 		}
 	}
+}
+
+type cpuInitCloudProvider struct {
+	stubCloudProvider
+}
+
+func (cpuInitCloudProvider) ListBaseImages(ctx context.Context, region string) ([]provider.BaseImage, error) {
+	return []provider.BaseImage{{
+		Name:               "Ubuntu 22.04 LTS",
+		ID:                 "ami-0ubuntu1234567890",
+		Architecture:       "x86_64",
+		Owner:              "canonical",
+		VirtualizationType: "hvm",
+		RootDeviceType:     "ebs",
+		Region:             region,
+		Source:             "mock",
+		SSMParameter:       "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id",
+	}}, nil
 }

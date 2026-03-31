@@ -64,6 +64,27 @@ func TestPrereqCheckerUsesHostExecutor(t *testing.T) {
 	}
 }
 
+func TestPrereqCheckerSkipsGPUChecksForCPUComputeClass(t *testing.T) {
+	exec := &fakeExecutor{
+		results: map[string]host.CommandResult{
+			"docker info": {Stdout: "Docker Engine"},
+		},
+	}
+
+	report, err := PrereqChecker{Host: exec, ComputeClass: config.ComputeClassCPU}.Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	if !report.Ready() {
+		t.Fatalf("report.Ready() = false, want true: %#v", report)
+	}
+	for _, check := range report.Checks {
+		if check.Name == "nvidia-smi" || check.Name == "docker-gpu" {
+			t.Fatalf("unexpected GPU check in CPU mode: %#v", report.Checks)
+		}
+	}
+}
+
 func TestInstallerUploadsConfigAndRunsScript(t *testing.T) {
 	exec := &fakeExecutor{
 		results: map[string]host.CommandResult{
@@ -90,6 +111,43 @@ func TestInstallerUploadsConfigAndRunsScript(t *testing.T) {
 	}
 	if len(exec.uploads) != 2 {
 		t.Fatalf("uploads = %#v, want 2 uploads", exec.uploads)
+	}
+}
+
+func TestInstallerSkipsGPUChecksForCPUComputeClass(t *testing.T) {
+	exec := &fakeExecutor{
+		results: map[string]host.CommandResult{
+			"docker info": {Stdout: "Docker Engine"},
+			"mkdir -p /opt/openclaw":                                 {},
+			"chmod +x /opt/openclaw/install.sh":                      {},
+			"sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml": {Stdout: "OpenClaw runtime installation complete"},
+		},
+	}
+
+	inst := Installer{Host: exec}
+	_, err := inst.Install(context.Background(), Request{
+		Config: &config.Config{
+			Compute: config.ComputeConfig{Class: config.ComputeClassCPU},
+			Runtime: config.RuntimeConfig{Endpoint: "https://nim.example.com", Model: "llama3.2"},
+			Sandbox: config.SandboxConfig{Enabled: true, NetworkMode: "public", UseNemoClaw: true},
+		},
+		WorkingDir:  "/opt/openclaw",
+		ComputeClass: config.ComputeClassCPU,
+	})
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	for _, key := range exec.results {
+		_ = key
+	}
+	for _, key := range []string{
+		"nvidia-smi -L",
+		"docker info --format {{json .Runtimes}}",
+		"docker run --rm --gpus all --pull=never nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi",
+	} {
+		if _, ok := exec.results[key]; ok {
+			t.Fatalf("unexpected GPU prereq command %q in CPU mode", key)
+		}
 	}
 }
 

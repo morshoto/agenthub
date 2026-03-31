@@ -178,7 +178,11 @@ func (p *Provider) ListBaseImages(ctx context.Context, region string) ([]provide
 
 	switch config.EffectiveComputeClass(p.Config.ComputeClass) {
 	case config.ComputeClassCPU:
-		return []provider.BaseImage{p.resolveUbuntu2204(ctx, cfg)}, nil
+		image, err := p.resolveUbuntu2204(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		return []provider.BaseImage{image}, nil
 	default:
 		image, err := p.resolveDLAMIGPUUbuntu2204(ctx, cfg)
 		if err != nil {
@@ -837,35 +841,23 @@ func (p *Provider) resolveDLAMIGPUUbuntu2204(ctx context.Context, cfg awsbase.Co
 	}, nil
 }
 
-func (p *Provider) resolveUbuntu2204(ctx context.Context, cfg awsbase.Config) provider.BaseImage {
+func (p *Provider) resolveUbuntu2204(ctx context.Context, cfg awsbase.Config) (provider.BaseImage, error) {
 	client := p.newSSMClient(cfg)
 	const parameterName = "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id"
 	out, err := client.GetParameter(ctx, &ssm.GetParameterInput{Name: awsbase.String(parameterName)})
 	if err != nil {
-		return provider.BaseImage{
-			Name:               "Ubuntu 22.04 LTS",
-			Description:        "Ubuntu Server 22.04 LTS",
-			Architecture:       "x86_64",
-			Owner:              "canonical",
-			VirtualizationType: "hvm",
-			RootDeviceType:     "ebs",
-			Region:             cfg.Region,
-			Source:             "canonical-ssm-public-parameter",
-			SSMParameter:       parameterName,
+		if isPermissionDenied(err) {
+			return provider.BaseImage{}, &AuthError{
+				Kind:    "permission_denied",
+				Profile: p.Config.Profile,
+				Stage:   authStageAPI,
+				Cause:   fmt.Errorf("resolve Ubuntu 22.04 LTS for region %s: %w", cfg.Region, err),
+			}
 		}
+		return provider.BaseImage{}, fmt.Errorf("resolve Ubuntu 22.04 LTS for region %s: %w", cfg.Region, err)
 	}
 	if out == nil || out.Parameter == nil || strings.TrimSpace(awsString(out.Parameter.Value)) == "" {
-		return provider.BaseImage{
-			Name:               "Ubuntu 22.04 LTS",
-			Description:        "Ubuntu Server 22.04 LTS",
-			Architecture:       "x86_64",
-			Owner:              "canonical",
-			VirtualizationType: "hvm",
-			RootDeviceType:     "ebs",
-			Region:             cfg.Region,
-			Source:             "canonical-ssm-public-parameter",
-			SSMParameter:       parameterName,
-		}
+		return provider.BaseImage{}, fmt.Errorf("resolve Ubuntu 22.04 LTS for region %s: empty SSM parameter %s", cfg.Region, parameterName)
 	}
 	return provider.BaseImage{
 		Name:               "Ubuntu 22.04 LTS",
@@ -878,5 +870,5 @@ func (p *Provider) resolveUbuntu2204(ctx context.Context, cfg awsbase.Config) pr
 		Region:             cfg.Region,
 		Source:             "canonical-ssm-public-parameter",
 		SSMParameter:       parameterName,
-	}
+	}, nil
 }
