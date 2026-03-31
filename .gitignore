@@ -1,0 +1,16 @@
+# Application
+.vscode/
+.log/
+.tool-versions
+
+# Terraform local variable files
+terraform/**/terraform.tfvars
+terraform/modules/custom_message_lambda/lambda_package.zip
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Plan
+doc/plan/*
