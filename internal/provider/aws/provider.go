@@ -9,6 +9,7 @@ import (
 
 	awsbase "github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
@@ -24,7 +25,12 @@ type Provider struct {
 	Config Config
 
 	loadDefaultConfig func(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (awsbase.Config, error)
+	newSSMClient      func(cfg awsbase.Config) ssmClient
 	newSTSClient      func(cfg awsbase.Config) stsClient
+}
+
+type ssmClient interface {
+	GetParameter(ctx context.Context, params *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error)
 }
 
 type stsClient interface {
@@ -37,6 +43,7 @@ func New(cfg Config) *Provider {
 	return &Provider{
 		Config:            cfg,
 		loadDefaultConfig: awsconfig.LoadDefaultConfig,
+		newSSMClient:      func(cfg awsbase.Config) ssmClient { return ssm.NewFromConfig(cfg) },
 		newSTSClient:      func(cfg awsbase.Config) stsClient { return sts.NewFromConfig(cfg) },
 	}
 }
@@ -123,10 +130,22 @@ func (p *Provider) ListInstanceTypes(ctx context.Context, region string) ([]prov
 }
 
 func (p *Provider) ListBaseImages(ctx context.Context, region string) ([]provider.BaseImage, error) {
-	return []provider.BaseImage{
-		{Name: "ubuntu-24.04", ID: "ubuntu-24.04"},
-		{Name: "amazon-linux-2023", ID: "amazon-linux-2023"},
-	}, nil
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return nil, errors.New("region is required")
+	}
+
+	cfg, err := p.loadAWSConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Region = region
+
+	image, err := p.resolveDLAMIGPUUbuntu2204(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return []provider.BaseImage{image}, nil
 }
 
 func (p *Provider) CreateInstance(ctx context.Context, req provider.CreateInstanceRequest) (*provider.Instance, error) {
@@ -255,7 +274,34 @@ func (p *Provider) ensureDeps() {
 	if p.loadDefaultConfig == nil {
 		p.loadDefaultConfig = awsconfig.LoadDefaultConfig
 	}
+	if p.newSSMClient == nil {
+		p.newSSMClient = func(cfg awsbase.Config) ssmClient { return ssm.NewFromConfig(cfg) }
+	}
 	if p.newSTSClient == nil {
 		p.newSTSClient = func(cfg awsbase.Config) stsClient { return sts.NewFromConfig(cfg) }
 	}
+}
+
+func (p *Provider) resolveDLAMIGPUUbuntu2204(ctx context.Context, cfg awsbase.Config) (provider.BaseImage, error) {
+	client := p.newSSMClient(cfg)
+	const parameterName = "/aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id"
+	out, err := client.GetParameter(ctx, &ssm.GetParameterInput{Name: awsbase.String(parameterName)})
+	if err != nil {
+		return provider.BaseImage{}, fmt.Errorf("resolve Deep Learning AMI GPU Ubuntu 22.04 for region %s: %w", cfg.Region, err)
+	}
+	if out == nil || out.Parameter == nil || strings.TrimSpace(awsString(out.Parameter.Value)) == "" {
+		return provider.BaseImage{}, fmt.Errorf("resolve Deep Learning AMI GPU Ubuntu 22.04 for region %s: empty SSM parameter %s", cfg.Region, parameterName)
+	}
+	return provider.BaseImage{
+		Name:               "AWS Deep Learning AMI GPU Ubuntu 22.04",
+		ID:                 awsString(out.Parameter.Value),
+		Description:        "Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04)",
+		Architecture:       "x86_64",
+		Owner:              "amazon",
+		VirtualizationType: "hvm",
+		RootDeviceType:     "ebs",
+		Region:             cfg.Region,
+		Source:             "aws-ssm-public-parameter",
+		SSMParameter:       parameterName,
+	}, nil
 }

@@ -64,7 +64,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	image, err := w.Prompter.Select("Select base image", images, defaultOption(images, "ubuntu-24.04"))
+	image, err := selectBaseImage(w.Prompter, images)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		Platform: config.PlatformConfig{Name: platform},
 		Region:   config.RegionConfig{Name: region},
 		Instance: config.InstanceConfig{Type: instanceType, DiskSizeGB: diskSize},
-		Image:    config.ImageConfig{Name: image},
+		Image:    config.ImageConfig{Name: image.Name, ID: image.ID},
 		Runtime:  config.RuntimeConfig{Endpoint: nimEndpoint, Model: model},
 		Sandbox: config.SandboxConfig{
 			Enabled:     true,
@@ -114,6 +114,9 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	fmt.Fprintf(w.Out, "region: %s\n", cfg.Region.Name)
 	fmt.Fprintf(w.Out, "instance: %s\n", cfg.Instance.Type)
 	fmt.Fprintf(w.Out, "image: %s\n", cfg.Image.Name)
+	if cfg.Image.ID != "" {
+		fmt.Fprintf(w.Out, "image id: %s\n", cfg.Image.ID)
+	}
 	fmt.Fprintf(w.Out, "disk size: %d GB\n", cfg.Instance.DiskSizeGB)
 	fmt.Fprintf(w.Out, "network mode: %s\n", cfg.Sandbox.NetworkMode)
 	fmt.Fprintf(w.Out, "use NemoClaw: %t\n", cfg.Sandbox.UseNemoClaw)
@@ -156,22 +159,40 @@ func (w *Wizard) listInstanceTypes(ctx context.Context, region string) ([]string
 	return options, nil
 }
 
-func (w *Wizard) listImages(ctx context.Context, region string) ([]string, error) {
+func (w *Wizard) listImages(ctx context.Context, region string) ([]provider.BaseImage, error) {
 	if w.Provider == nil {
-		return []string{"ubuntu-24.04", "amazon-linux-2023"}, nil
+		return []provider.BaseImage{{
+			Name:               "AWS Deep Learning AMI GPU Ubuntu 22.04",
+			ID:                 "ami-0exampledlami",
+			Description:        "Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04)",
+			Architecture:       "x86_64",
+			Owner:              "amazon",
+			VirtualizationType: "hvm",
+			RootDeviceType:     "ebs",
+			Region:             region,
+			Source:             "mock",
+			SSMParameter:       "/aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id",
+		}}, nil
 	}
 	items, err := w.Provider.ListBaseImages(ctx, region)
 	if err != nil {
 		return nil, err
 	}
-	options := make([]string, 0, len(items))
-	for _, item := range items {
-		options = append(options, item.Name)
+	if len(items) == 0 {
+		return []provider.BaseImage{
+			{
+				Name:               "AWS Deep Learning AMI GPU Ubuntu 22.04",
+				Architecture:       "x86_64",
+				Owner:              "amazon",
+				VirtualizationType: "hvm",
+				RootDeviceType:     "ebs",
+				Region:             region,
+				Source:             "fallback",
+				SSMParameter:       "/aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id",
+			},
+		}, nil
 	}
-	if len(options) == 0 {
-		return []string{"ubuntu-24.04"}, nil
-	}
-	return options, nil
+	return items, nil
 }
 
 func (w *Wizard) warnOnQuota(ctx context.Context, region string) error {
@@ -223,6 +244,40 @@ func defaultOption(options []string, fallback string) string {
 		}
 	}
 	return options[0]
+}
+
+func selectBaseImage(prompter *prompt.Session, images []provider.BaseImage) (provider.BaseImage, error) {
+	if len(images) == 0 {
+		return provider.BaseImage{}, errors.New("no base images available")
+	}
+
+	options := make([]string, 0, len(images))
+	for _, image := range images {
+		options = append(options, image.Name)
+	}
+	defaultName := images[0].Name
+	if preferred := findBaseImage(images, "AWS Deep Learning AMI GPU Ubuntu 22.04"); preferred.Name != "" {
+		defaultName = preferred.Name
+	}
+
+	selected, err := prompter.Select("Select base image", options, defaultName)
+	if err != nil {
+		return provider.BaseImage{}, err
+	}
+	image := findBaseImage(images, selected)
+	if image.Name == "" {
+		return provider.BaseImage{}, fmt.Errorf("base image %q not found", selected)
+	}
+	return image, nil
+}
+
+func findBaseImage(images []provider.BaseImage, name string) provider.BaseImage {
+	for _, image := range images {
+		if image.Name == name {
+			return image
+		}
+	}
+	return provider.BaseImage{}
 }
 
 func formatUsage(value *int) string {

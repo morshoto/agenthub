@@ -30,7 +30,17 @@ func (f fakeProvider) ListInstanceTypes(ctx context.Context, region string) ([]p
 	return []provider.InstanceType{{Name: "t3.medium"}, {Name: "g5.xlarge"}}, nil
 }
 func (f fakeProvider) ListBaseImages(ctx context.Context, region string) ([]provider.BaseImage, error) {
-	return []provider.BaseImage{{Name: "ubuntu-24.04"}}, nil
+	return []provider.BaseImage{{
+		Name:               "AWS Deep Learning AMI GPU Ubuntu 22.04",
+		ID:                 "ami-0123456789abcdef0",
+		Architecture:       "x86_64",
+		Owner:              "amazon",
+		VirtualizationType: "hvm",
+		RootDeviceType:     "ebs",
+		Region:             region,
+		Source:             "mock",
+		SSMParameter:       "/aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id",
+	}}, nil
 }
 func (f fakeProvider) CreateInstance(ctx context.Context, req provider.CreateInstanceRequest) (*provider.Instance, error) {
 	return nil, errors.New("not implemented")

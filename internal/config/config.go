@@ -38,6 +38,7 @@ type InstanceConfig struct {
 
 type ImageConfig struct {
 	Name string `yaml:"name"`
+	ID   string `yaml:"id,omitempty"`
 }
 
 type RuntimeConfig struct {

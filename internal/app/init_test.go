@@ -54,6 +54,8 @@ func TestInitWritesConfigFile(t *testing.T) {
 		"name: aws",
 		"region:",
 		"disk_size_gb: 20",
+		"image:",
+		"id: ami-0123456789abcdef0",
 		"network_mode: private",
 		"use_nemoclaw: true",
 		"endpoint: http://localhost:11434",

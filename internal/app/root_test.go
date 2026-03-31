@@ -189,7 +189,18 @@ func (s stubCloudProvider) ListInstanceTypes(ctx context.Context, region string)
 }
 
 func (s stubCloudProvider) ListBaseImages(ctx context.Context, region string) ([]provider.BaseImage, error) {
-	return []provider.BaseImage{{Name: "ubuntu-24.04"}}, nil
+	return []provider.BaseImage{{
+		Name:               "AWS Deep Learning AMI GPU Ubuntu 22.04",
+		ID:                 "ami-0123456789abcdef0",
+		Description:        "Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04)",
+		Architecture:       "x86_64",
+		Owner:              "amazon",
+		VirtualizationType: "hvm",
+		RootDeviceType:     "ebs",
+		Region:             region,
+		Source:             "mock",
+		SSMParameter:       "/aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id",
+	}}, nil
 }
 
 func (s stubCloudProvider) CreateInstance(ctx context.Context, req provider.CreateInstanceRequest) (*provider.Instance, error) {

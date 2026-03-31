@@ -7,6 +7,8 @@ import (
 
 	awsbase "github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 )
@@ -107,6 +109,41 @@ func TestAuthCheckReturnsCallerIdentity(t *testing.T) {
 	}
 }
 
+func TestListBaseImagesResolvesRegionSpecificAMI(t *testing.T) {
+	p := &Provider{
+		Config: Config{Profile: "test-profile"},
+		loadDefaultConfig: func(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (awsbase.Config, error) {
+			return awsbase.Config{Region: "us-east-1"}, nil
+		},
+		newSSMClient: func(cfg awsbase.Config) ssmClient {
+			if cfg.Region != "ap-northeast-1" {
+				t.Fatalf("cfg.Region = %q, want ap-northeast-1", cfg.Region)
+			}
+			return fakeSSMClient{
+				value: "ami-0123456789abcdef0",
+			}
+		},
+	}
+
+	images, err := p.ListBaseImages(context.Background(), "ap-northeast-1")
+	if err != nil {
+		t.Fatalf("ListBaseImages() error = %v", err)
+	}
+	if len(images) != 1 {
+		t.Fatalf("ListBaseImages() len = %d, want 1", len(images))
+	}
+	got := images[0]
+	if got.Name != "AWS Deep Learning AMI GPU Ubuntu 22.04" {
+		t.Fatalf("image name = %q", got.Name)
+	}
+	if got.ID != "ami-0123456789abcdef0" {
+		t.Fatalf("image ID = %q", got.ID)
+	}
+	if got.Region != "ap-northeast-1" || got.SSMParameter == "" || got.Source != "aws-ssm-public-parameter" {
+		t.Fatalf("image metadata = %#v", got)
+	}
+}
+
 func mustAuthError(t *testing.T, err error) *AuthError {
 	t.Helper()
 	var authErr *AuthError
@@ -161,4 +198,20 @@ func (accessDeniedError) ErrorMessage() string {
 
 func (accessDeniedError) ErrorFault() smithy.ErrorFault {
 	return smithy.FaultClient
+}
+
+type fakeSSMClient struct {
+	value string
+	err   error
+}
+
+func (f fakeSSMClient) GetParameter(ctx context.Context, params *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &ssm.GetParameterOutput{
+		Parameter: &ssmtypes.Parameter{
+			Value: awsbase.String(f.value),
+		},
+	}, nil
 }

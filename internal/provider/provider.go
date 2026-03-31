@@ -43,8 +43,16 @@ type InstanceType struct {
 }
 
 type BaseImage struct {
-	Name string
-	ID   string
+	Name               string
+	ID                 string
+	Description        string
+	Architecture       string
+	Owner              string
+	VirtualizationType string
+	RootDeviceType     string
+	Region             string
+	Source             string
+	SSMParameter       string
 }
 
 type CreateInstanceRequest struct {
