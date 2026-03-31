@@ -1,0 +1,139 @@
+package app
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+
+	"github.com/spf13/cobra"
+
+	"openclaw/internal/config"
+	"openclaw/internal/provider"
+)
+
+func newInfraCommand(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "infra",
+		Short: "Provision infrastructure",
+	}
+	cmd.AddCommand(newInfraCreateCommand(app))
+	return cmd
+}
+
+func newInfraCreateCommand(app *App) *cobra.Command {
+	var sshKeyName string
+	var sshCIDR string
+
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create an EC2 instance from the current configuration",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(app.opts.ConfigPath) == "" {
+				return errors.New("config file is required: pass --config <path>")
+			}
+
+			cfg, err := config.Load(app.opts.ConfigPath)
+			if err != nil {
+				return err
+			}
+			if err := validateInfraConfig(cfg); err != nil {
+				return err
+			}
+
+			prov := newAWSProvider(app.opts.Profile)
+			req := provider.CreateInstanceRequest{
+				Region:           cfg.Region.Name,
+				InstanceType:     cfg.Instance.Type,
+				Image:            cfg.Image.ID,
+				DiskSizeGB:       cfg.Instance.DiskSizeGB,
+				NetworkMode:      cfg.Sandbox.NetworkMode,
+				ConnectionMethod: connectionMethodFor(sshKeyName, cfg.Sandbox.NetworkMode),
+				SSHKeyName:       sshKeyName,
+				SSHCIDR:          sshCIDR,
+			}
+
+			instance, err := prov.CreateInstance(cmd.Context(), req)
+			if err != nil {
+				return err
+			}
+
+			printCreatedInstance(cmd.OutOrStdout(), instance)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&sshKeyName, "ssh-key-name", "", "SSH key pair name to attach to the instance")
+	cmd.Flags().StringVar(&sshCIDR, "ssh-cidr", "", "CIDR allowed to reach port 22 when SSH access is configured")
+	return cmd
+}
+
+func validateInfraConfig(cfg *config.Config) error {
+	if cfg == nil {
+		return errors.New("config validation failed: config is nil")
+	}
+
+	var v config.ValidationError
+	if cfg.Platform.Name != config.PlatformAWS {
+		if cfg.Platform.Name == "" {
+			v.Add("platform.name", "is required")
+		} else {
+			v.Add("platform.name", fmt.Sprintf("unsupported platform %q", cfg.Platform.Name))
+		}
+	}
+	if strings.TrimSpace(cfg.Region.Name) == "" {
+		v.Add("region.name", "is required")
+	}
+	if strings.TrimSpace(cfg.Instance.Type) == "" {
+		v.Add("instance.type", "is required")
+	}
+	if cfg.Instance.DiskSizeGB <= 0 {
+		v.Add("instance.disk_size_gb", "must be greater than 0")
+	}
+	if strings.TrimSpace(cfg.Image.ID) == "" {
+		v.Add("image.id", "is required")
+	}
+	if mode := strings.TrimSpace(cfg.Sandbox.NetworkMode); mode != "" && mode != "public" && mode != "private" {
+		v.Add("sandbox.network_mode", "must be public or private")
+	}
+	return v.OrNil()
+}
+
+func connectionMethodFor(sshKeyName, networkMode string) string {
+	if strings.TrimSpace(sshKeyName) != "" {
+		return "ssh"
+	}
+	if strings.TrimSpace(networkMode) == "private" {
+		return "private-ip"
+	}
+	return "public-ip"
+}
+
+func printCreatedInstance(out io.Writer, instance *provider.Instance) {
+	if instance == nil {
+		fmt.Fprintln(out, "instance created")
+		return
+	}
+	fmt.Fprintf(out, "instance id: %s\n", instance.ID)
+	if strings.TrimSpace(instance.Region) != "" {
+		fmt.Fprintf(out, "region: %s\n", instance.Region)
+	}
+	if strings.TrimSpace(instance.PublicIP) != "" {
+		fmt.Fprintf(out, "public ip: %s\n", instance.PublicIP)
+	}
+	if strings.TrimSpace(instance.PrivateIP) != "" {
+		fmt.Fprintf(out, "private ip: %s\n", instance.PrivateIP)
+	}
+	if strings.TrimSpace(instance.ConnectionInfo) != "" {
+		fmt.Fprintf(out, "connection: %s\n", instance.ConnectionInfo)
+	}
+	if strings.TrimSpace(instance.SecurityGroupID) != "" {
+		fmt.Fprintf(out, "security group: %s\n", instance.SecurityGroupID)
+	}
+	if len(instance.SecurityGroupRules) > 0 {
+		fmt.Fprintln(out, "security group rules:")
+		for _, rule := range instance.SecurityGroupRules {
+			fmt.Fprintf(out, "  - %s\n", rule)
+		}
+	}
+}

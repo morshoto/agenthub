@@ -42,6 +42,7 @@ func newRootCommand(app *App) *cobra.Command {
 	rootCmd.AddCommand(newConfigCommand(app))
 	rootCmd.AddCommand(newQuotaCommand(app))
 	rootCmd.AddCommand(newInitCommand(app))
+	rootCmd.AddCommand(newInfraCommand(app))
 
 	return rootCmd
 }

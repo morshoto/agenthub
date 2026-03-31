@@ -56,17 +56,30 @@ type BaseImage struct {
 }
 
 type CreateInstanceRequest struct {
-	Region       string
-	InstanceType string
-	Image        string
-	DiskSizeGB   int
-	NetworkMode  string
-	UseNemoClaw  bool
-	NIMEndpoint  string
-	Model        string
+	Region           string
+	InstanceType     string
+	Image            string
+	DiskSizeGB       int
+	NetworkMode      string
+	ConnectionMethod string
+	SSHKeyName       string
+	SSHCIDR          string
+	UseNemoClaw      bool
+	NIMEndpoint      string
+	Model            string
 }
 
 type Instance struct {
-	ID   string
-	Name string
+	ID                 string
+	Name               string
+	Region             string
+	PublicIP           string
+	PrivateIP          string
+	ConnectionInfo     string
+	SecurityGroupID    string
+	SecurityGroupRules []string
 }
+
+type InstanceSpec = CreateInstanceRequest
+
+type CreatedInstance = Instance

@@ -150,6 +150,57 @@ func TestAuthCheckCommandReportsSuccess(t *testing.T) {
 	}
 }
 
+func TestInfraCreateCommandReportsCreatedInstance(t *testing.T) {
+	original := newAWSProvider
+	newAWSProvider = func(profile string) provider.CloudProvider {
+		return infraCreateStubCloudProvider{stubCloudProvider: stubCloudProvider{profile: profile}}
+	}
+	defer func() { newAWSProvider = original }()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "openclaw.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+image:
+  id: ami-0123456789abcdef0
+sandbox:
+  network_mode: public
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"openclaw", "--config", path, "infra", "create", "--ssh-key-name", "demo-key", "--ssh-cidr", "203.0.113.0/24"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	got := stdout.String()
+	for _, fragment := range []string{
+		"instance id: i-0123456789abcdef0",
+		"region: us-east-1",
+		"public ip: 203.0.113.10",
+		"connection: ssh -i <your-key>.pem ubuntu@203.0.113.10",
+		"security group rules:",
+		"allow tcp/22 from 203.0.113.0/24",
+	} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("stdout = %q, want %q", got, fragment)
+		}
+	}
+}
+
 func stubAWSProviderFactory() func() {
 	original := newAWSProvider
 	newAWSProvider = func(profile string) provider.CloudProvider {
@@ -233,10 +284,23 @@ func (s stubCloudProvider) ListBaseImages(ctx context.Context, region string) ([
 }
 
 func (s stubCloudProvider) CreateInstance(ctx context.Context, req provider.CreateInstanceRequest) (*provider.Instance, error) {
-	return nil, nil
+	return &provider.Instance{
+		ID:                 "i-0123456789abcdef0",
+		Name:               "i-0123456789abcdef0",
+		Region:             req.Region,
+		PublicIP:           "203.0.113.10",
+		PrivateIP:          "10.0.0.10",
+		ConnectionInfo:     "ssh -i <your-key>.pem ubuntu@203.0.113.10",
+		SecurityGroupID:    "sg-0123456789abcdef0",
+		SecurityGroupRules: []string{"allow tcp/22 from 203.0.113.0/24"},
+	}, nil
 }
 
 func (s stubCloudProvider) DeleteInstance(ctx context.Context, instanceID string) error { return nil }
+
+type infraCreateStubCloudProvider struct {
+	stubCloudProvider
+}
 
 func writeConfig(t *testing.T, path, contents string) {
 	t.Helper()
