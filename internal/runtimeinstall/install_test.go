@@ -117,9 +117,9 @@ func TestInstallerUploadsConfigAndRunsScript(t *testing.T) {
 func TestInstallerSkipsGPUChecksForCPUComputeClass(t *testing.T) {
 	exec := &fakeExecutor{
 		results: map[string]host.CommandResult{
-			"docker info": {Stdout: "Docker Engine"},
-			"mkdir -p /opt/openclaw":                                 {},
-			"chmod +x /opt/openclaw/install.sh":                      {},
+			"docker info":                       {Stdout: "Docker Engine"},
+			"mkdir -p /opt/openclaw":            {},
+			"chmod +x /opt/openclaw/install.sh": {},
 			"sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml": {Stdout: "OpenClaw runtime installation complete"},
 		},
 	}
@@ -131,7 +131,7 @@ func TestInstallerSkipsGPUChecksForCPUComputeClass(t *testing.T) {
 			Runtime: config.RuntimeConfig{Endpoint: "https://nim.example.com", Model: "llama3.2"},
 			Sandbox: config.SandboxConfig{Enabled: true, NetworkMode: "public", UseNemoClaw: true},
 		},
-		WorkingDir:  "/opt/openclaw",
+		WorkingDir:   "/opt/openclaw",
 		ComputeClass: config.ComputeClassCPU,
 	})
 	if err != nil {

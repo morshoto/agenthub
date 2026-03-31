@@ -25,7 +25,7 @@ type Wizard struct {
 
 const initAWSLookupTimeout = 5 * time.Second
 
-func NewWizard(prompter *prompt.Session, out io.Writer, factory func(platform string) provider.CloudProvider, existing *config.Config) *Wizard {
+func NewWizard(prompter *prompt.Session, out io.Writer, factory func(platform, computeClass string) provider.CloudProvider, existing *config.Config) *Wizard {
 	return &Wizard{Prompter: prompter, Out: out, ProviderFactory: factory, Existing: existing}
 }
 

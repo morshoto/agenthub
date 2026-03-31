@@ -157,11 +157,20 @@ func (p *Provider) CheckGPUQuota(ctx context.Context, region, instanceFamily str
 }
 
 func (p *Provider) ListInstanceTypes(ctx context.Context, region string) ([]provider.InstanceType, error) {
-	return []provider.InstanceType{
-		{Name: "g5.xlarge", GPUCount: 1, MemoryGB: 16},
-		{Name: "g4dn.xlarge", GPUCount: 1, MemoryGB: 16},
-		{Name: "t3.medium", MemoryGB: 4},
-	}, nil
+	switch config.EffectiveComputeClass(p.Config.ComputeClass) {
+	case config.ComputeClassCPU:
+		return []provider.InstanceType{
+			{Name: "t3.xlarge", MemoryGB: 16},
+			{Name: "t3.2xlarge", MemoryGB: 32},
+			{Name: "t3.medium", MemoryGB: 4},
+		}, nil
+	default:
+		return []provider.InstanceType{
+			{Name: "g5.xlarge", GPUCount: 1, MemoryGB: 16},
+			{Name: "g4dn.xlarge", GPUCount: 1, MemoryGB: 16},
+			{Name: "t3.medium", MemoryGB: 4},
+		}, nil
+	}
 }
 
 func (p *Provider) ListBaseImages(ctx context.Context, region string) ([]provider.BaseImage, error) {

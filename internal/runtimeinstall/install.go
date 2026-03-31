@@ -20,7 +20,7 @@ type Request struct {
 	Port          int
 	WorkingDir    string
 	RequirePython bool
-	ComputeClass   string
+	ComputeClass  string
 }
 
 // Result reports the outcome of an installation workflow.
@@ -95,7 +95,7 @@ func (i Installer) Install(ctx context.Context, req Request) (Result, error) {
 	report, err := PrereqChecker{
 		Host:          i.Host,
 		RequirePython: req.RequirePython || backend.RequirePython(),
-		ComputeClass:   req.ComputeClass,
+		ComputeClass:  req.ComputeClass,
 	}.Check(ctx)
 	if err != nil {
 		return Result{}, err
