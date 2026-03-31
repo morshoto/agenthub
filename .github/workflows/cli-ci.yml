@@ -39,6 +39,40 @@ jobs:
       - name: Build
         run: go build ./cmd/openclaw
 
+  lint:
+    name: Lint CLI
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        id: setup-go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Cache Go build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}-lint
+          restore-keys: |
+            go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}-
+            go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-
+
+      - name: Check formatting
+        shell: bash
+        run: |
+          test -z "$(gofmt -l .)"
+
+      - name: Go vet
+        run: go vet ./...
+
   test:
     name: Test CLI
     runs-on: ubuntu-latest
