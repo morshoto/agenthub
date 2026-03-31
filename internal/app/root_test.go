@@ -86,7 +86,7 @@ runtime:
 	}
 }
 
-func TestQuotaCheckCommandReportsInsufficientCapacity(t *testing.T) {
+func TestQuotaCheckCommandReportsMockStatus(t *testing.T) {
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	os.Args = []string{"openclaw", "quota", "check", "--platform", "aws", "--region", "ap-northeast-1", "--instance-family", "g5"}
@@ -102,10 +102,10 @@ func TestQuotaCheckCommandReportsInsufficientCapacity(t *testing.T) {
 	}
 	got := stdout.String()
 	for _, fragment := range []string{
-		"Quota status for g5 in ap-northeast-1",
-		"Likely creatable: false",
-		"estimated remaining capacity: 0",
-		"Suggested actions:",
+		"Quota report for g5 in ap-northeast-1",
+		"Data source: mock",
+		"Live AWS Service Quotas integration is not wired yet.",
+		"Creatability assessment: unavailable",
 	} {
 		if !strings.Contains(got, fragment) {
 			t.Fatalf("stdout = %q, want %q", got, fragment)

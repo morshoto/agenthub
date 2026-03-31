@@ -13,6 +13,7 @@ type CloudProvider interface {
 }
 
 type GPUQuotaReport struct {
+	Source          string
 	Region          string
 	InstanceFamily  string
 	Checks          []GPUQuotaCheck

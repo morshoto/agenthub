@@ -182,6 +182,13 @@ func (w *Wizard) warnOnQuota(ctx context.Context, region string) error {
 	if err != nil {
 		return err
 	}
+	if report.Source == "mock" {
+		fmt.Fprintln(w.Out, "Quota check is a mock report; live AWS Service Quotas access is not wired yet.")
+		for _, note := range report.Notes {
+			fmt.Fprintf(w.Out, "  - %s\n", note)
+		}
+		return nil
+	}
 	if report.LikelyCreatable {
 		return nil
 	}

@@ -17,6 +17,8 @@ type Provider struct {
 	Config Config
 }
 
+const QuotaSourceMock = "mock"
+
 func New(cfg Config) *Provider {
 	return &Provider{Config: cfg}
 }
@@ -44,39 +46,30 @@ func (p *Provider) CheckGPUQuota(ctx context.Context, region, instanceFamily str
 	}
 
 	report := provider.GPUQuotaReport{
+		Source:         QuotaSourceMock,
 		Region:         region,
 		InstanceFamily: family,
 		Checks: []provider.GPUQuotaCheck{
 			{
 				QuotaName:          "Running On-Demand G and VT instances",
-				CurrentLimit:       1,
-				CurrentUsage:       intPtr(0),
-				EstimatedRemaining: 1,
+				CurrentLimit:       0,
+				CurrentUsage:       nil,
+				EstimatedRemaining: 0,
 				UsageIsEstimated:   true,
 			},
 			{
 				QuotaName:          "All G and VT Spot Instance Requests",
-				CurrentLimit:       2,
+				CurrentLimit:       0,
 				CurrentUsage:       nil,
-				EstimatedRemaining: 2,
+				EstimatedRemaining: 0,
 				UsageIsEstimated:   true,
 			},
 		},
-		LikelyCreatable: true,
+		LikelyCreatable: false,
 		Notes: []string{
-			"Estimated from static regional defaults because live Service Quotas access is not wired yet.",
-			"Use the Service Quotas console to request more G and VT capacity if needed.",
+			"Mock report only: live AWS Service Quotas access is not wired yet.",
+			"Do not treat these values as a real capacity check.",
 		},
-	}
-
-	if region == "ap-northeast-1" {
-		report.Checks[0].CurrentLimit = 0
-		report.Checks[0].CurrentUsage = intPtr(0)
-		report.Checks[0].EstimatedRemaining = 0
-		report.Checks[1].CurrentLimit = 0
-		report.Checks[1].EstimatedRemaining = 0
-		report.LikelyCreatable = false
-		report.Notes = append(report.Notes, "ap-northeast-1 is treated as quota-constrained in this skeleton implementation.")
 	}
 
 	return report, nil
@@ -103,8 +96,4 @@ func (p *Provider) CreateInstance(ctx context.Context, req provider.CreateInstan
 
 func (p *Provider) DeleteInstance(ctx context.Context, instanceID string) error {
 	return errors.New("aws instance deletion not implemented yet")
-}
-
-func intPtr(v int) *int {
-	return &v
 }
