@@ -12,6 +12,7 @@ import (
 	awsbase "github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/servicequotas"
 	sqtypes "github.com/aws/aws-sdk-go-v2/service/servicequotas/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -227,7 +228,18 @@ func (p *Provider) GetInstance(ctx context.Context, region, instanceID string) (
 	if err != nil {
 		return nil, fmt.Errorf("describe EC2 instance %s: %w", instanceID, err)
 	}
-	ec2Instance := findInstance(describeOut, instanceID)
+	var ec2Instance *ec2types.Instance
+	for _, reservation := range describeOut.Reservations {
+		for i := range reservation.Instances {
+			if reservation.Instances[i].InstanceId != nil && *reservation.Instances[i].InstanceId == instanceID {
+				ec2Instance = &reservation.Instances[i]
+				break
+			}
+		}
+		if ec2Instance != nil {
+			break
+		}
+	}
 	if ec2Instance == nil {
 		return nil, fmt.Errorf("describe EC2 instance %s: instance not found", instanceID)
 	}
@@ -249,10 +261,6 @@ func (p *Provider) GetInstance(ctx context.Context, region, instanceID string) (
 		PrivateIP:      privateIP,
 		ConnectionInfo: connectionInfo,
 	}, nil
-}
-
-func (p *Provider) DeleteInstance(ctx context.Context, instanceID string) error {
-	return errors.New("aws instance deletion not implemented yet")
 }
 
 const (

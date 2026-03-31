@@ -347,6 +347,14 @@ func defaultEndpoint(computeClass string) string {
 	return "http://localhost:11434"
 }
 
+func sshUsernameForImage(imageName, imageID string) string {
+	lower := strings.ToLower(strings.TrimSpace(imageName) + " " + strings.TrimSpace(imageID))
+	if strings.Contains(lower, "ubuntu") {
+		return "ubuntu"
+	}
+	return "ec2-user"
+}
+
 func selectBaseImage(prompter *prompt.Session, images []provider.BaseImage) (provider.BaseImage, error) {
 	if len(images) == 0 {
 		return provider.BaseImage{}, errors.New("no base images available")

@@ -185,13 +185,16 @@ func Validate(cfg *Config) error {
 	if cfg.Infra.Backend != "" && strings.ToLower(strings.TrimSpace(cfg.Infra.Backend)) != "terraform" {
 		v.Add("infra.backend", "must be terraform")
 	}
-	if class := EffectiveComputeClass(cfg.Compute.Class); class == ComputeClassCPU {
-		if strings.TrimSpace(cfg.Instance.Type) != "" && !strings.HasPrefix(strings.TrimSpace(cfg.Instance.Type), "t3.") {
-			v.Add("instance.type", "cpu compute should use a general-purpose instance such as t3.xlarge")
-		}
-	} else if class == ComputeClassGPU {
-		if strings.TrimSpace(cfg.Instance.Type) != "" && !strings.HasPrefix(strings.TrimSpace(cfg.Instance.Type), "g") {
-			v.Add("instance.type", "gpu compute should use a GPU-capable instance such as g5.xlarge")
+	if class := strings.TrimSpace(cfg.Compute.Class); class != "" {
+		effective := EffectiveComputeClass(class)
+		if effective == ComputeClassCPU {
+			if strings.TrimSpace(cfg.Instance.Type) != "" && !strings.HasPrefix(strings.TrimSpace(cfg.Instance.Type), "t3.") {
+				v.Add("instance.type", "cpu compute should use a general-purpose instance such as t3.xlarge")
+			}
+		} else if effective == ComputeClassGPU {
+			if strings.TrimSpace(cfg.Instance.Type) != "" && !strings.HasPrefix(strings.TrimSpace(cfg.Instance.Type), "g") {
+				v.Add("instance.type", "gpu compute should use a GPU-capable instance such as g5.xlarge")
+			}
 		}
 	}
 
