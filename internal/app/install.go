@@ -1,23 +1,16 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"openclaw/internal/config"
-	"openclaw/internal/host"
 	"openclaw/internal/runtimeinstall"
 )
-
-var newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
-	return host.NewSSHExecutor(cfg)
-}
 
 func newInstallCommand(app *App) *cobra.Command {
 	var target string
@@ -47,41 +40,29 @@ func newInstallCommand(app *App) *cobra.Command {
 				return errors.New("target is required: pass --target <instance-id-or-host>")
 			}
 
-			resolvedTarget, err := resolveInstallTarget(cmd.Context(), app.opts.Profile, cfg, target)
-			if err != nil {
-				return err
-			}
-
-			user := strings.TrimSpace(sshUser)
-			if user == "" {
-				user = sshUsernameForImage(cfg.Image.Name, cfg.Image.ID)
-			}
-			exec := newSSHExecutor(host.SSHConfig{
-				Host:           resolvedTarget,
-				Port:           sshPort,
-				User:           user,
-				IdentityFile:   strings.TrimSpace(sshKey),
-				ConnectTimeout: 15 * time.Second,
-			})
-
-			useNemo := cfg.Sandbox.UseNemoClaw
-			if useNemoClaw {
-				useNemo = true
-			}
-			if disableNemoClaw {
-				useNemo = false
-			}
-
-			inst := runtimeinstall.Installer{Host: exec}
-			result, err := inst.Install(cmd.Context(), runtimeinstall.Request{
-				Config:      cfg,
-				UseNemoClaw: &useNemo,
-				Port:        port,
-				WorkingDir:  workingDir,
+			logger := loggerFromContext(cmd.Context())
+			logger.Info("starting install workflow")
+			fmt.Fprintln(cmd.OutOrStdout(), "running install workflow...")
+			result, resolvedTarget, err := runInstallWorkflow(cmd.Context(), app.opts.Profile, cfg, installOptions{
+				Target:          target,
+				SSHUser:         sshUser,
+				SSHKey:          sshKey,
+				SSHPort:         sshPort,
+				WorkingDir:      workingDir,
+				Port:            port,
+				UseNemoClaw:     useNemoClaw,
+				DisableNemoClaw: disableNemoClaw,
 			})
 			printInstallResult(cmd.OutOrStdout(), result)
+			printSuccessNextSteps(cmd.OutOrStdout(), app.opts.ConfigPath, resolvedTarget, false)
 			if err != nil {
-				return err
+				return wrapUserFacingError(
+					"install failed",
+					err,
+					"the SSH target is unreachable or the host prerequisites are missing",
+					fmt.Sprintf("run `openclaw verify --config %s --target %s` after fixing the host", app.opts.ConfigPath, resolvedTarget),
+					"check Docker, GPU drivers, and SSH access on the target host",
+				)
 			}
 			return nil
 		},
@@ -96,24 +77,6 @@ func newInstallCommand(app *App) *cobra.Command {
 	cmd.Flags().BoolVar(&useNemoClaw, "use-nemoclaw", false, "enable NemoClaw settings for the generated runtime config")
 	cmd.Flags().BoolVar(&disableNemoClaw, "disable-nemoclaw", false, "disable NemoClaw settings for the generated runtime config")
 	return cmd
-}
-
-func resolveInstallTarget(ctx context.Context, profile string, cfg *config.Config, target string) (string, error) {
-	if strings.HasPrefix(strings.TrimSpace(target), "i-") {
-		prov := newAWSProvider(profile)
-		instance, err := prov.GetInstance(ctx, cfg.Region.Name, target)
-		if err != nil {
-			return "", err
-		}
-		if strings.TrimSpace(instance.PublicIP) != "" {
-			return instance.PublicIP, nil
-		}
-		if strings.TrimSpace(instance.PrivateIP) != "" {
-			return instance.PrivateIP, nil
-		}
-		return "", fmt.Errorf("instance %s does not expose an SSH-reachable address", target)
-	}
-	return target, nil
 }
 
 func sshUsernameForImage(imageName, imageID string) string {

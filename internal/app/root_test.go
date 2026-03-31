@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -261,6 +262,151 @@ sandbox:
 	}
 }
 
+func TestVerifyCommandReportsSuccess(t *testing.T) {
+	restore := stubAWSProviderFactory()
+	defer restore()
+
+	originalLocalExecutor := newLocalExecutor
+	newLocalExecutor = func() host.Executor {
+		return flexibleExecutor{
+			run: func(command string, args ...string) (host.CommandResult, error) {
+				switch {
+				case command == "nvidia-smi" && strings.Join(args, " ") == "-L":
+					return host.CommandResult{Stdout: "GPU 0: demo"}, nil
+				case command == "docker" && strings.Join(args, " ") == "info":
+					return host.CommandResult{Stdout: "Docker Engine"}, nil
+				case command == "test" && strings.Join(args, " ") == "-s /opt/openclaw/runtime.yaml":
+					return host.CommandResult{}, nil
+				case command == "cat" && strings.Join(args, " ") == "/opt/openclaw/runtime.yaml":
+					return host.CommandResult{Stdout: "use_nemoclaw: true\nnim_endpoint: http://localhost:11434\nmodel: llama3.2\n"}, nil
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc":
+					return host.CommandResult{Stdout: "ok"}, nil
+				default:
+					return host.CommandResult{}, errors.New("unexpected command: " + command + " " + strings.Join(args, " "))
+				}
+			},
+		}
+	}
+	defer func() { newLocalExecutor = originalLocalExecutor }()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "openclaw.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"openclaw", "--config", path, "verify"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	got := stdout.String()
+	for _, fragment := range []string{"verification summary", "gpu visibility: PASS", "all required checks passed"} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("stdout = %q, want %q", got, fragment)
+		}
+	}
+}
+
+func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
+	restore := stubAWSProviderFactory()
+	defer restore()
+
+	original := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return flexibleExecutor{
+			run: func(command string, args ...string) (host.CommandResult, error) {
+				key := command + " " + strings.Join(args, " ")
+				switch {
+				case key == "nvidia-smi -L":
+					return host.CommandResult{Stdout: "GPU 0: demo"}, nil
+				case key == "docker info":
+					return host.CommandResult{Stdout: "Docker Engine"}, nil
+				case key == "docker info --format {{json .Runtimes}}":
+					return host.CommandResult{Stdout: `{"nvidia":{}}`}, nil
+				case key == "docker run --rm --gpus all --pull=never nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi":
+					return host.CommandResult{Stdout: "NVIDIA-SMI"}, nil
+				case key == "mkdir -p /opt/openclaw":
+					return host.CommandResult{}, nil
+				case key == "chmod +x /opt/openclaw/install.sh":
+					return host.CommandResult{}, nil
+				case key == "sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml":
+					return host.CommandResult{Stdout: "OpenClaw runtime installation complete"}, nil
+				case command == "test" && strings.Join(args, " ") == "-s /opt/openclaw/runtime.yaml":
+					return host.CommandResult{}, nil
+				case command == "cat" && strings.Join(args, " ") == "/opt/openclaw/runtime.yaml":
+					return host.CommandResult{Stdout: "use_nemoclaw: true\nnim_endpoint: http://localhost:11434\nmodel: llama3.2\n"}, nil
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc":
+					return host.CommandResult{Stdout: "ok"}, nil
+				default:
+					return host.CommandResult{}, errors.New("unexpected command: " + key)
+				}
+			},
+		}
+	}
+	defer func() { newSSHExecutor = original }()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "openclaw.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: true
+  network_mode: private
+  use_nemoclaw: true
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"openclaw", "--config", path, "create", "--ssh-key-name", "demo-key", "--ssh-cidr", "203.0.113.0/24", "--ssh-user", "ubuntu"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	got := stdout.String()
+	for _, fragment := range []string{"instance id: i-0123456789abcdef0", "verification summary", "all required checks passed"} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("stdout = %q, want %q", got, fragment)
+		}
+	}
+}
+
 func stubAWSProviderFactory() func() {
 	original := newAWSProvider
 	newAWSProvider = func(profile string) provider.CloudProvider {
@@ -386,6 +532,19 @@ func (f fakeSSHExecutor) Run(ctx context.Context, command string, args ...string
 }
 
 func (f fakeSSHExecutor) Upload(ctx context.Context, localPath, remotePath string) error { return nil }
+
+type flexibleExecutor struct {
+	run func(command string, args ...string) (host.CommandResult, error)
+}
+
+func (f flexibleExecutor) Run(ctx context.Context, command string, args ...string) (host.CommandResult, error) {
+	if f.run == nil {
+		return host.CommandResult{}, errors.New("no run handler configured")
+	}
+	return f.run(command, args...)
+}
+
+func (f flexibleExecutor) Upload(ctx context.Context, localPath, remotePath string) error { return nil }
 
 func writeConfig(t *testing.T, path, contents string) {
 	t.Helper()

@@ -45,29 +45,23 @@ func newInfraCreateCommand(app *App) *cobra.Command {
 				return err
 			}
 
-			prov := newAWSProvider(app.opts.Profile)
-			image, err := resolveInfraImage(cmd.Context(), prov, cfg)
-			if err != nil {
-				return err
-			}
-			req := provider.CreateInstanceRequest{
-				Region:           cfg.Region.Name,
-				InstanceType:     cfg.Instance.Type,
-				Image:            image.ID,
-				ImageName:        image.Name,
-				DiskSizeGB:       cfg.Instance.DiskSizeGB,
-				NetworkMode:      cfg.Sandbox.NetworkMode,
-				ConnectionMethod: connectionMethodFor(sshKeyName, cfg.Sandbox.NetworkMode),
-				SSHKeyName:       sshKeyName,
-				SSHCIDR:          sshCIDR,
-			}
-
-			instance, err := prov.CreateInstance(cmd.Context(), req)
-			if err != nil {
-				return err
-			}
-
+			logger := loggerFromContext(cmd.Context())
+			logger.Info("starting infra create")
+			fmt.Fprintln(cmd.OutOrStdout(), "creating infrastructure...")
+			instance, err := runInfraCreate(cmd.Context(), app.opts.Profile, cfg, sshKeyName, sshCIDR)
 			printCreatedInstance(cmd.OutOrStdout(), instance)
+			if instance != nil {
+				printSuccessNextSteps(cmd.OutOrStdout(), app.opts.ConfigPath, instanceTarget(instance), true)
+			}
+			if err != nil {
+				return wrapUserFacingError(
+					"infra create failed",
+					err,
+					"the AWS provider rejected the request or the selected region lacks capacity",
+					"check the AWS error above",
+					fmt.Sprintf("run `openclaw quota check --platform aws --region %s --instance-family %s` before retrying", cfg.Region.Name, cfg.Instance.Type),
+				)
+			}
 			return nil
 		},
 	}
