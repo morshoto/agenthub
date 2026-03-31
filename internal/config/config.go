@@ -1,14 +1,15 @@
 package config
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 const PlatformAWS = "aws"
@@ -45,9 +46,10 @@ type RuntimeConfig struct {
 }
 
 type SandboxConfig struct {
-	Enabled     bool   `yaml:"enabled"`
-	NetworkMode string `yaml:"network_mode"`
-	UseNemoClaw bool   `yaml:"use_nemoclaw"`
+	Enabled         bool     `yaml:"enabled"`
+	NetworkMode     string   `yaml:"network_mode"`
+	UseNemoClaw     bool     `yaml:"use_nemoclaw"`
+	FilesystemAllow []string `yaml:"filesystem_allow,omitempty"`
 }
 
 type ValidationError struct {
@@ -87,18 +89,24 @@ func Load(path string) (*Config, error) {
 		return &Config{}, nil
 	}
 
-	file, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("open config %q: %w", path, err)
+		return nil, fmt.Errorf("read config %q: %w", path, err)
 	}
-	defer file.Close()
+	if strings.TrimSpace(string(data)) == "" {
+		return &Config{}, nil
+	}
 
-	parsed, err := parseYAML(file)
-	if err != nil {
+	var cfg Config
+	dec := yaml.NewDecoder(strings.NewReader(string(data)))
+	dec.KnownFields(true)
+	if err := dec.Decode(&cfg); err != nil {
+		if errors.Is(err, io.EOF) {
+			return &Config{}, nil
+		}
 		return nil, fmt.Errorf("parse config %q: %w", path, err)
 	}
-
-	return bind(parsed)
+	return &cfg, nil
 }
 
 func Validate(cfg *Config) error {
@@ -164,199 +172,9 @@ func Save(path string, cfg *Config) error {
 		return errors.New("config save failed: output path is required")
 	}
 
-	var b strings.Builder
-	writeYAMLConfig(&b, cfg)
-	return os.WriteFile(path, []byte(b.String()), 0o600)
-}
-
-func parseYAML(file *os.File) (map[string]map[string]string, error) {
-	return parseYAMLReader(bufio.NewReader(file))
-}
-
-func parseYAMLReader(r *bufio.Reader) (map[string]map[string]string, error) {
-	result := map[string]map[string]string{}
-	var currentSection string
-	scanner := bufio.NewScanner(r)
-	lineNum := 0
-	for scanner.Scan() {
-		lineNum++
-		line := scanner.Text()
-		if idx := strings.Index(line, "#"); idx >= 0 {
-			line = line[:idx]
-		}
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		indent := countIndent(line)
-		trimmed := strings.TrimSpace(line)
-		key, value, ok := strings.Cut(trimmed, ":")
-		if !ok {
-			return nil, fmt.Errorf("line %d: expected key: value", lineNum)
-		}
-		key = strings.TrimSpace(key)
-		value = strings.TrimSpace(value)
-
-		switch indent {
-		case 0:
-			if value != "" {
-				return nil, fmt.Errorf("line %d: top-level key %q must start a section", lineNum, key)
-			}
-			currentSection = key
-			if _, exists := result[currentSection]; exists {
-				return nil, fmt.Errorf("line %d: duplicate section %q", lineNum, key)
-			}
-			if !isKnownSection(key) {
-				return nil, fmt.Errorf("line %d: unknown section %q", lineNum, key)
-			}
-			result[currentSection] = map[string]string{}
-		case 2:
-			if currentSection == "" {
-				return nil, fmt.Errorf("line %d: field %q appears before any section", lineNum, key)
-			}
-			if !isKnownField(currentSection, key) {
-				return nil, fmt.Errorf("line %d: unknown field %q in section %q", lineNum, key, currentSection)
-			}
-			result[currentSection][key] = trimQuotes(value)
-		default:
-			return nil, fmt.Errorf("line %d: unsupported indentation level", lineNum)
-		}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-func bind(raw map[string]map[string]string) (*Config, error) {
-	cfg := &Config{}
-
-	cfg.Platform.Name = rawValue(raw, "platform", "name")
-	cfg.Region.Name = rawValue(raw, "region", "name")
-	cfg.Instance.Type = rawValue(raw, "instance", "type")
-	if disk := rawValue(raw, "instance", "disk_size_gb"); disk != "" {
-		value, err := strconv.Atoi(disk)
-		if err != nil {
-			return nil, fmt.Errorf("instance.disk_size_gb: must be an integer")
-		}
-		cfg.Instance.DiskSizeGB = value
-	}
-	cfg.Image.Name = rawValue(raw, "image", "name")
-	cfg.Runtime.Endpoint = rawValue(raw, "runtime", "endpoint")
-	cfg.Runtime.Model = rawValue(raw, "runtime", "model")
-	if enabled := rawValue(raw, "sandbox", "enabled"); enabled != "" {
-		value, err := strconv.ParseBool(enabled)
-		if err != nil {
-			return nil, fmt.Errorf("sandbox.enabled: must be true or false")
-		}
-		cfg.Sandbox.Enabled = value
-	}
-	if mode := rawValue(raw, "sandbox", "network_mode"); mode != "" {
-		cfg.Sandbox.NetworkMode = mode
-	}
-	if use := rawValue(raw, "sandbox", "use_nemoclaw"); use != "" {
-		value, err := strconv.ParseBool(use)
-		if err != nil {
-			return nil, fmt.Errorf("sandbox.use_nemoclaw: must be true or false")
-		}
-		cfg.Sandbox.UseNemoClaw = value
-	}
-
-	return cfg, nil
-}
-
-func rawValue(raw map[string]map[string]string, section, field string) string {
-	sectionValues, ok := raw[section]
-	if !ok {
-		return ""
-	}
-	return sectionValues[field]
-}
-
-func countIndent(line string) int {
-	for i, r := range line {
-		if r != ' ' {
-			return i
-		}
-	}
-	return len(line)
-}
-
-func trimQuotes(value string) string {
-	value = strings.TrimSpace(value)
-	if len(value) >= 2 {
-		if (strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"")) || (strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'")) {
-			return value[1 : len(value)-1]
-		}
-	}
-	return value
-}
-
-func isKnownSection(name string) bool {
-	switch name {
-	case "platform", "region", "instance", "image", "runtime", "sandbox":
-		return true
-	default:
-		return false
-	}
-}
-
-func isKnownField(section, field string) bool {
-	switch section {
-	case "platform":
-		return field == "name"
-	case "region":
-		return field == "name"
-	case "instance":
-		return field == "type" || field == "disk_size_gb"
-	case "image":
-		return field == "name"
-	case "runtime":
-		return field == "endpoint" || field == "model"
-	case "sandbox":
-		return field == "enabled" || field == "network_mode" || field == "use_nemoclaw"
-	default:
-		return false
-	}
-}
-
-func writeYAMLConfig(b *strings.Builder, cfg *Config) {
-	writeSection := func(name string, fields map[string]string) {
-		b.WriteString(name)
-		b.WriteString(":\n")
-		keys := make([]string, 0, len(fields))
-		for key := range fields {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			b.WriteString("  ")
-			b.WriteString(key)
-			b.WriteString(": ")
-			b.WriteString(fields[key])
-			b.WriteString("\n")
-		}
-	}
-
-	writeSection("platform", map[string]string{
-		"name": cfg.Platform.Name,
-	})
-	writeSection("region", map[string]string{
-		"name": cfg.Region.Name,
-	})
-	writeSection("instance", map[string]string{
-		"disk_size_gb": strconv.Itoa(cfg.Instance.DiskSizeGB),
-		"type":         cfg.Instance.Type,
-	})
-	writeSection("image", map[string]string{
-		"name": cfg.Image.Name,
-	})
-	writeSection("runtime", map[string]string{
-		"endpoint": cfg.Runtime.Endpoint,
-		"model":    cfg.Runtime.Model,
-	})
-	writeSection("sandbox", map[string]string{
-		"enabled":      strconv.FormatBool(cfg.Sandbox.Enabled),
-		"network_mode": cfg.Sandbox.NetworkMode,
-		"use_nemoclaw": strconv.FormatBool(cfg.Sandbox.UseNemoClaw),
-	})
+	return os.WriteFile(path, data, 0o600)
 }

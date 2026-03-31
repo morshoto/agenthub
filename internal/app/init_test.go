@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"openclaw/internal/config"
 )
 
 func TestInitWritesConfigFile(t *testing.T) {
@@ -137,11 +139,11 @@ sandbox:
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	data, err := os.ReadFile(output)
+	loaded, err := config.Load(output)
 	if err != nil {
-		t.Fatalf("ReadFile() error = %v", err)
+		t.Fatalf("Load() error = %v", err)
 	}
-	if !strings.Contains(string(data), "region:\n  name: us-west-2") {
-		t.Fatalf("config file %q does not preserve existing region default", string(data))
+	if loaded.Region.Name != "us-west-2" {
+		t.Fatalf("loaded region = %q, want us-west-2", loaded.Region.Name)
 	}
 }

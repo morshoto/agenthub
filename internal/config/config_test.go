@@ -64,16 +64,17 @@ func TestLoadRejectsInvalidYaml(t *testing.T) {
 	writeFile(t, path, `
 platform:
   name: aws
-unknown:
-  name: nope
+sandbox:
+  enabled: true
+  unknown_field: nope
 `)
 
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("Load() error = nil")
 	}
-	if got := err.Error(); !strings.Contains(got, "unknown section") {
-		t.Fatalf("Load() error = %q, want unknown section", got)
+	if got := err.Error(); !strings.Contains(got, "field unknown_field") {
+		t.Fatalf("Load() error = %q, want unknown field", got)
 	}
 }
 
@@ -86,7 +87,7 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 		Instance: InstanceConfig{Type: "t3.medium", DiskSizeGB: 20},
 		Image:    ImageConfig{Name: "ubuntu-24.04"},
 		Runtime:  RuntimeConfig{Endpoint: "http://localhost:11434", Model: "llama3.2"},
-		Sandbox:  SandboxConfig{Enabled: true, NetworkMode: "private", UseNemoClaw: true},
+		Sandbox:  SandboxConfig{Enabled: true, NetworkMode: "private", UseNemoClaw: true, FilesystemAllow: []string{"/tmp", "/var/tmp"}},
 	}
 
 	if err := Save(path, cfg); err != nil {
@@ -99,6 +100,46 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	}
 	if loaded.Platform.Name != cfg.Platform.Name || loaded.Sandbox.NetworkMode != "private" || !loaded.Sandbox.UseNemoClaw {
 		t.Fatalf("round trip mismatch: %#v", loaded)
+	}
+	if len(loaded.Sandbox.FilesystemAllow) != 2 || loaded.Sandbox.FilesystemAllow[0] != "/tmp" {
+		t.Fatalf("round trip list mismatch: %#v", loaded.Sandbox.FilesystemAllow)
+	}
+}
+
+func TestLoadSupportsListsAndNestedYAML(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "openclaw.yaml")
+	writeFile(t, path, `
+platform:
+  name: aws
+region:
+  name: ap-northeast-1
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: true
+  network_mode: private
+  use_nemoclaw: false
+  filesystem_allow:
+    - /tmp
+    - /var/tmp
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := len(cfg.Sandbox.FilesystemAllow); got != 2 {
+		t.Fatalf("filesystem_allow length = %d, want 2", got)
+	}
+	if cfg.Sandbox.FilesystemAllow[1] != "/var/tmp" {
+		t.Fatalf("filesystem_allow = %#v", cfg.Sandbox.FilesystemAllow)
 	}
 }
 
