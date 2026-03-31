@@ -508,6 +508,10 @@ func (s stubCloudProvider) AuthCheck(ctx context.Context) (provider.AuthStatus, 
 	}, nil
 }
 
+func (s stubCloudProvider) CheckAuth(ctx context.Context) (provider.AuthStatus, error) {
+	return s.AuthCheck(ctx)
+}
+
 func (s stubCloudProvider) ListRegions(ctx context.Context) ([]string, error) {
 	return []string{"ap-northeast-1", "us-east-1", "us-west-2"}, nil
 }
@@ -534,6 +538,10 @@ func (s stubCloudProvider) ListInstanceTypes(ctx context.Context, region string)
 	return []provider.InstanceType{{Name: "g5.xlarge"}}, nil
 }
 
+func (s stubCloudProvider) RecommendInstanceTypes(ctx context.Context, region, computeClass string) ([]provider.InstanceType, error) {
+	return s.ListInstanceTypes(ctx, region)
+}
+
 func (s stubCloudProvider) ListBaseImages(ctx context.Context, region string) ([]provider.BaseImage, error) {
 	return []provider.BaseImage{{
 		Name:               "AWS Deep Learning AMI GPU Ubuntu 22.04",
@@ -547,6 +555,10 @@ func (s stubCloudProvider) ListBaseImages(ctx context.Context, region string) ([
 		Source:             "mock",
 		SSMParameter:       "/aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id",
 	}}, nil
+}
+
+func (s stubCloudProvider) RecommendBaseImages(ctx context.Context, region, computeClass string) ([]provider.BaseImage, error) {
+	return s.ListBaseImages(ctx, region)
 }
 
 func (s stubCloudProvider) CreateInstance(ctx context.Context, req provider.CreateInstanceRequest) (*provider.Instance, error) {

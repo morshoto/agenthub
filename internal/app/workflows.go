@@ -428,7 +428,7 @@ func writeTerraformVars(workdir string, vars terraformVars) (string, error) {
 	return path, nil
 }
 
-func newTerraformBackend(cfg *config.Config) (infratf.InfraBackend, error) {
+var newTerraformBackend = func(cfg *config.Config) (infratf.InfraBackend, error) {
 	if cfg == nil {
 		return nil, errors.New("config is required")
 	}

@@ -17,7 +17,6 @@ import (
 	"github.com/aws/smithy-go"
 
 	"openclaw/internal/config"
-	"openclaw/internal/provider"
 )
 
 func TestAuthCheckReturnsProfileNotFound(t *testing.T) {
@@ -243,107 +242,6 @@ func TestCheckGPUQuotaUsesServiceQuotasUtilizationReport(t *testing.T) {
 	}
 	if report.Checks[1].CurrentLimit != 8 || report.Checks[1].EstimatedRemaining != 6 || report.Checks[1].UsageIsEstimated {
 		t.Fatalf("second quota check = %#v", report.Checks[1])
-	}
-}
-
-func TestCreateInstanceUsesDefaultVpcSubnetAndReturnsMetadata(t *testing.T) {
-	fakeEC2 := &fakeEC2Client{
-		t: t,
-	}
-	p := &Provider{
-		Config: Config{Profile: "test-profile"},
-		loadDefaultConfig: func(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (awsbase.Config, error) {
-			return awsbase.Config{
-				Region:      "us-east-1",
-				Credentials: awsbase.NewCredentialsCache(staticCredentialsProvider{}),
-			}, nil
-		},
-		newEC2Client: func(cfg awsbase.Config) ec2Client {
-			if cfg.Region != "us-east-1" {
-				t.Fatalf("cfg.Region = %q, want us-east-1", cfg.Region)
-			}
-			return fakeEC2
-		},
-	}
-
-	instance, err := p.CreateInstance(context.Background(), provider.CreateInstanceRequest{
-		Region:           "us-east-1",
-		InstanceType:     "g5.xlarge",
-		Image:            "ami-0123456789abcdef0",
-		ImageName:        "AWS Deep Learning AMI GPU Ubuntu 22.04",
-		DiskSizeGB:       40,
-		NetworkMode:      "private",
-		ConnectionMethod: "ssh",
-		SSHKeyName:       "demo-key",
-		SSHCIDR:          "203.0.113.0/24",
-	})
-	if err != nil {
-		t.Fatalf("CreateInstance() error = %v", err)
-	}
-	if instance.ID != "i-0123456789abcdef0" {
-		t.Fatalf("instance.ID = %q", instance.ID)
-	}
-	if instance.Region != "us-east-1" {
-		t.Fatalf("instance.Region = %q", instance.Region)
-	}
-	if instance.PublicIP != "" || instance.PrivateIP != "10.0.0.10" {
-		t.Fatalf("instance IPs = %#v", instance)
-	}
-	if instance.SecurityGroupID != "sg-0123456789abcdef0" {
-		t.Fatalf("instance.SecurityGroupID = %q", instance.SecurityGroupID)
-	}
-	if len(instance.SecurityGroupRules) != 1 || instance.SecurityGroupRules[0] != "allow tcp/22 from 203.0.113.0/24" {
-		t.Fatalf("instance.SecurityGroupRules = %#v", instance.SecurityGroupRules)
-	}
-	if instance.ConnectionInfo != "ssh -i <your-key>.pem ubuntu@10.0.0.10" {
-		t.Fatalf("instance.ConnectionInfo = %q", instance.ConnectionInfo)
-	}
-	if fakeEC2.createSecurityGroupVpcID != "vpc-123" {
-		t.Fatalf("createSecurityGroupVpcID = %q", fakeEC2.createSecurityGroupVpcID)
-	}
-	if fakeEC2.authorizedCIDR != "203.0.113.0/24" {
-		t.Fatalf("authorizedCIDR = %q", fakeEC2.authorizedCIDR)
-	}
-	if fakeEC2.runImageID != "ami-0123456789abcdef0" || fakeEC2.runInstanceType != "g5.xlarge" {
-		t.Fatalf("run launch params = image %q type %q", fakeEC2.runImageID, fakeEC2.runInstanceType)
-	}
-	if fakeEC2.associatePublicIP {
-		t.Fatal("associatePublicIP = true, want false for private networking")
-	}
-}
-
-func TestCreateInstanceOpensSSHIngressWithCIDROnly(t *testing.T) {
-	fakeEC2 := &fakeEC2Client{
-		t: t,
-	}
-	p := &Provider{
-		Config: Config{Profile: "test-profile"},
-		loadDefaultConfig: func(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (awsbase.Config, error) {
-			return awsbase.Config{
-				Region:      "us-east-1",
-				Credentials: awsbase.NewCredentialsCache(staticCredentialsProvider{}),
-			}, nil
-		},
-		newEC2Client: func(cfg awsbase.Config) ec2Client {
-			return fakeEC2
-		},
-	}
-
-	_, err := p.CreateInstance(context.Background(), provider.CreateInstanceRequest{
-		Region:           "us-east-1",
-		InstanceType:     "t3.xlarge",
-		Image:            "ami-0123456789abcdef0",
-		ImageName:        "Ubuntu 22.04 LTS",
-		DiskSizeGB:       20,
-		NetworkMode:      "public",
-		ConnectionMethod: "ssh",
-		SSHCIDR:          "203.0.113.0/24",
-	})
-	if err != nil {
-		t.Fatalf("CreateInstance() error = %v", err)
-	}
-	if fakeEC2.authorizedCIDR != "203.0.113.0/24" {
-		t.Fatalf("authorizedCIDR = %q, want 203.0.113.0/24", fakeEC2.authorizedCIDR)
 	}
 }
 

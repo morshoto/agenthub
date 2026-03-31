@@ -22,6 +22,9 @@ type fakeProvider struct {
 func (f fakeProvider) AuthCheck(ctx context.Context) (provider.AuthStatus, error) {
 	return provider.AuthStatus{}, nil
 }
+func (f fakeProvider) CheckAuth(ctx context.Context) (provider.AuthStatus, error) {
+	return f.AuthCheck(ctx)
+}
 func (f fakeProvider) ListRegions(ctx context.Context) ([]string, error) {
 	return f.regions, nil
 }
@@ -33,6 +36,12 @@ func (f fakeProvider) CheckGPUQuota(ctx context.Context, region, instanceFamily 
 }
 func (f fakeProvider) ListInstanceTypes(ctx context.Context, region string) ([]provider.InstanceType, error) {
 	return []provider.InstanceType{{Name: "t3.medium"}, {Name: "g5.xlarge"}}, nil
+}
+func (f fakeProvider) RecommendInstanceTypes(ctx context.Context, region, computeClass string) ([]provider.InstanceType, error) {
+	if config.EffectiveComputeClass(computeClass) == config.ComputeClassCPU {
+		return []provider.InstanceType{{Name: "t3.xlarge"}, {Name: "t3.2xlarge"}}, nil
+	}
+	return []provider.InstanceType{{Name: "g5.xlarge"}, {Name: "g4dn.xlarge"}}, nil
 }
 func (f fakeProvider) ListBaseImages(ctx context.Context, region string) ([]provider.BaseImage, error) {
 	return []provider.BaseImage{{
@@ -47,13 +56,29 @@ func (f fakeProvider) ListBaseImages(ctx context.Context, region string) ([]prov
 		SSMParameter:       "/aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id",
 	}}, nil
 }
+func (f fakeProvider) RecommendBaseImages(ctx context.Context, region, computeClass string) ([]provider.BaseImage, error) {
+	if config.EffectiveComputeClass(computeClass) == config.ComputeClassCPU {
+		return []provider.BaseImage{{
+			Name:               "Ubuntu 22.04 LTS",
+			ID:                 "ami-0ubuntu1234567890",
+			Architecture:       "x86_64",
+			Owner:              "canonical",
+			VirtualizationType: "hvm",
+			RootDeviceType:     "ebs",
+			Region:             region,
+			Source:             "mock",
+			SSMParameter:       "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id",
+		}}, nil
+	}
+	return f.ListBaseImages(ctx, region)
+}
+func (f fakeProvider) GetInstance(ctx context.Context, region, instanceID string) (*provider.Instance, error) {
+	return nil, errors.New("not implemented")
+}
 func (f fakeProvider) CreateInstance(ctx context.Context, req provider.CreateInstanceRequest) (*provider.Instance, error) {
 	return nil, errors.New("not implemented")
 }
 func (f fakeProvider) DeleteInstance(ctx context.Context, instanceID string) error { return nil }
-func (f fakeProvider) GetInstance(ctx context.Context, region, instanceID string) (*provider.Instance, error) {
-	return nil, errors.New("not implemented")
-}
 
 func TestWizardWarnsAndContinuesWhenQuotaInsufficient(t *testing.T) {
 	input := strings.Join([]string{
