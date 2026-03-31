@@ -137,9 +137,6 @@ func TestInstallerSkipsGPUChecksForCPUComputeClass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	for _, key := range exec.results {
-		_ = key
-	}
 	for _, key := range []string{
 		"nvidia-smi -L",
 		"docker info --format {{json .Runtimes}}",
