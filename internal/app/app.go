@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"openclaw/internal/config"
 	"openclaw/internal/runtime"
 )
 
@@ -35,20 +34,13 @@ func (a *App) Execute() error {
 	return newRootCommand(a).Execute()
 }
 
-func (a *App) applyRuntime(ctx context.Context) (context.Context, *config.Config, error) {
-	cfg, err := config.Load(a.opts.ConfigPath, a.opts.Profile)
-	if err != nil {
-		return ctx, nil, err
-	}
-
+func (a *App) applyRuntime(ctx context.Context) context.Context {
 	logger := runtime.NewLogger(a.opts.Verbose, a.opts.Debug)
 	slog.SetDefault(logger)
 	logger.Debug("runtime initialized")
 
 	ctx = runtime.WithLogger(ctx, logger)
-	ctx = runtime.WithConfig(ctx, cfg)
-
-	return ctx, cfg, nil
+	return ctx
 }
 
 func (a *App) versionString() string {

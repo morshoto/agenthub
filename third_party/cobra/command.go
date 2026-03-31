@@ -216,14 +216,101 @@ func helpRequested(args []string) bool {
 
 type FlagSet struct {
 	*flag.FlagSet
+	specs map[string]*flagSpec
 }
 
 func (f *FlagSet) parseArgs(args []string) ([]string, error) {
 	if f == nil || f.FlagSet == nil {
 		return args, nil
 	}
-	if err := f.Parse(args); err != nil {
-		return nil, err
+	remaining := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--help" || arg == "-h" {
+			remaining = append(remaining, arg)
+			continue
+		}
+		name, value, hasValue := splitFlag(arg)
+		if name == "" {
+			remaining = append(remaining, arg)
+			continue
+		}
+		spec, ok := f.specs[name]
+		if !ok {
+			remaining = append(remaining, arg)
+			continue
+		}
+		switch spec.kind {
+		case "bool":
+			if hasValue {
+				parsed := value == "true"
+				if value != "true" && value != "false" {
+					return nil, fmt.Errorf("invalid value for --%s: %s", name, value)
+				}
+				*spec.boolPtr = parsed
+				continue
+			}
+			if i+1 < len(args) {
+				next := args[i+1]
+				if next == "true" || next == "false" {
+					*spec.boolPtr = next == "true"
+					i++
+					continue
+				}
+			}
+			*spec.boolPtr = true
+		case "string":
+			if hasValue {
+				*spec.stringPtr = value
+				continue
+			}
+			if i+1 >= len(args) {
+				return nil, fmt.Errorf("flag needs an argument: --%s", name)
+			}
+			*spec.stringPtr = args[i+1]
+			i++
+		default:
+			remaining = append(remaining, arg)
+		}
 	}
-	return f.Args(), nil
+	return remaining, nil
+}
+
+func (f *FlagSet) BoolVar(p *bool, name string, value bool, usage string) {
+	f.ensureSpecs()
+	f.FlagSet.BoolVar(p, name, value, usage)
+	f.specs[name] = &flagSpec{kind: "bool", boolPtr: p}
+}
+
+func (f *FlagSet) StringVar(p *string, name, value, usage string) {
+	f.ensureSpecs()
+	f.FlagSet.StringVar(p, name, value, usage)
+	f.specs[name] = &flagSpec{kind: "string", stringPtr: p}
+}
+
+func (f *FlagSet) ensureSpecs() {
+	if f.specs == nil {
+		f.specs = map[string]*flagSpec{}
+	}
+}
+
+type flagSpec struct {
+	kind       string
+	boolPtr    *bool
+	stringPtr  *string
+}
+
+func splitFlag(arg string) (name string, value string, hasValue bool) {
+	if !strings.HasPrefix(arg, "--") {
+		return "", "", false
+	}
+	trimmed := strings.TrimPrefix(arg, "--")
+	if trimmed == "" {
+		return "", "", false
+	}
+	parts := strings.SplitN(trimmed, "=", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1], true
+	}
+	return trimmed, "", false
 }

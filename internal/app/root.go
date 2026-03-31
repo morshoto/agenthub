@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"openclaw/internal/config"
 	"openclaw/internal/runtime"
 )
 
@@ -17,10 +18,7 @@ func newRootCommand(app *App) *cobra.Command {
 	}
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		ctx, _, err := app.applyRuntime(cmd.Context())
-		if err != nil {
-			return err
-		}
+		ctx := app.applyRuntime(cmd.Context())
 		cmd.SetContext(ctx)
 		rootCmd.SetContext(ctx)
 		return nil
@@ -33,6 +31,7 @@ func newRootCommand(app *App) *cobra.Command {
 
 	rootCmd.AddCommand(newVersionCommand(app))
 	rootCmd.AddCommand(newDoctorCommand())
+	rootCmd.AddCommand(newConfigCommand(app))
 
 	return rootCmd
 }
@@ -56,4 +55,31 @@ func loggerFromContext(ctx context.Context) *slog.Logger {
 		return logger
 	}
 	return slog.Default()
+}
+
+func newConfigCommand(app *App) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "config",
+		Short: "Manage configuration files",
+	}
+	cmd.AddCommand(newConfigValidateCommand(app))
+	return cmd
+}
+
+func newConfigValidateCommand(app *App) *cobra.Command {
+	return &cobra.Command{
+		Use:   "validate",
+		Short: "Validate a configuration file",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load(app.opts.ConfigPath)
+			if err != nil {
+				return err
+			}
+			if err := config.Validate(cfg); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "configuration is valid")
+			return nil
+		},
+	}
 }
