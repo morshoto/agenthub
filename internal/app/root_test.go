@@ -304,6 +304,17 @@ func TestInstallCommandRunsWorkflowAgainstResolvedInstance(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()
 
+	originalBuildRuntimeBinary := buildRuntimeBinaryFunc
+	buildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "openclaw")
+		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
+			return "", err
+		}
+		return path, nil
+	}
+	defer func() { buildRuntimeBinaryFunc = originalBuildRuntimeBinary }()
+
 	originalExecutor := newSSHExecutor
 	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
 		return fakeSSHExecutor{
@@ -316,6 +327,8 @@ func TestInstallCommandRunsWorkflowAgainstResolvedInstance(t *testing.T) {
 				"mkdir -p /opt/openclaw":                                 {},
 				"chmod +x /opt/openclaw/install.sh":                      {},
 				"sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml": {Stdout: "OpenClaw runtime installation complete"},
+				"systemctl daemon-reload":                                {},
+				"systemctl enable --now openclaw.service":                {},
 			},
 		}
 	}
@@ -476,6 +489,17 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()
 
+	originalBuildRuntimeBinary := buildRuntimeBinaryFunc
+	buildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "openclaw")
+		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
+			return "", err
+		}
+		return path, nil
+	}
+	defer func() { buildRuntimeBinaryFunc = originalBuildRuntimeBinary }()
+
 	originalBackend := newTerraformBackend
 	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
 	originalEnsureSSHPrivateKey := ensureSSHPrivateKeyFunc
@@ -525,6 +549,10 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 					return host.CommandResult{}, nil
 				case key == "sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml":
 					return host.CommandResult{Stdout: "OpenClaw runtime installation complete"}, nil
+				case key == "systemctl daemon-reload":
+					return host.CommandResult{}, nil
+				case key == "systemctl enable --now openclaw.service":
+					return host.CommandResult{}, nil
 				case command == "test" && strings.Join(args, " ") == "-s /opt/openclaw/runtime.yaml":
 					return host.CommandResult{}, nil
 				case command == "cat" && strings.Join(args, " ") == "/opt/openclaw/runtime.yaml":

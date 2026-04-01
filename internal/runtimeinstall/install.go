@@ -9,13 +9,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"openclaw/internal/config"
 	"openclaw/internal/host"
 )
 
-var buildRuntimeBinaryFunc = buildRuntimeBinary
+var BuildRuntimeBinaryFunc = buildRuntimeBinary
 
 // Request describes a runtime installation job.
 type Request struct {
@@ -191,7 +190,7 @@ type serviceInstallResult struct {
 }
 
 func (i Installer) installService(ctx context.Context, req Request, workingDir string) (serviceInstallResult, error) {
-	localBinaryPath, err := buildRuntimeBinaryFunc(ctx)
+	localBinaryPath, err := BuildRuntimeBinaryFunc(ctx)
 	if err != nil {
 		return serviceInstallResult{}, err
 	}

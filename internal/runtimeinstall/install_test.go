@@ -3,6 +3,8 @@ package runtimeinstall
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -86,6 +88,17 @@ func TestPrereqCheckerSkipsGPUChecksForCPUComputeClass(t *testing.T) {
 }
 
 func TestInstallerUploadsConfigAndRunsScript(t *testing.T) {
+	originalBuildRuntimeBinary := buildRuntimeBinaryFunc
+	buildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "openclaw")
+		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
+			return "", err
+		}
+		return path, nil
+	}
+	defer func() { buildRuntimeBinaryFunc = originalBuildRuntimeBinary }()
+
 	exec := &fakeExecutor{
 		results: map[string]host.CommandResult{
 			"nvidia-smi -L": {Stdout: "GPU 0: demo"},
@@ -95,6 +108,8 @@ func TestInstallerUploadsConfigAndRunsScript(t *testing.T) {
 			"mkdir -p /opt/openclaw":                                 {},
 			"chmod +x /opt/openclaw/install.sh":                      {},
 			"sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml": {Stdout: "OpenClaw runtime installation complete"},
+			"systemctl daemon-reload":                                {},
+			"systemctl enable --now openclaw.service":                {},
 		},
 	}
 
@@ -109,18 +124,31 @@ func TestInstallerUploadsConfigAndRunsScript(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if len(exec.uploads) != 2 {
-		t.Fatalf("uploads = %#v, want 2 uploads", exec.uploads)
+	if len(exec.uploads) != 4 {
+		t.Fatalf("uploads = %#v, want 4 uploads", exec.uploads)
 	}
 }
 
 func TestInstallerSkipsGPUChecksForCPUComputeClass(t *testing.T) {
+	originalBuildRuntimeBinary := buildRuntimeBinaryFunc
+	buildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "openclaw")
+		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
+			return "", err
+		}
+		return path, nil
+	}
+	defer func() { buildRuntimeBinaryFunc = originalBuildRuntimeBinary }()
+
 	exec := &fakeExecutor{
 		results: map[string]host.CommandResult{
 			"docker info":                       {Stdout: "Docker Engine"},
 			"mkdir -p /opt/openclaw":            {},
 			"chmod +x /opt/openclaw/install.sh": {},
 			"sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml": {Stdout: "OpenClaw runtime installation complete"},
+			"systemctl daemon-reload":                                {},
+			"systemctl enable --now openclaw.service":                {},
 		},
 	}
 
