@@ -6,12 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"openclaw/internal/config"
 	"openclaw/internal/host"
 )
+
+var buildRuntimeBinaryFunc = buildRuntimeBinary
 
 // Request describes a runtime installation job.
 type Request struct {
@@ -28,6 +32,8 @@ type Result struct {
 	WorkingDir     string
 	ConfigPath     string
 	ScriptPath     string
+	BinaryPath     string
+	ServicePath    string
 	Prerequisites  PrereqReport
 	CommandResults []host.CommandResult
 }
@@ -157,13 +163,122 @@ func (i Installer) Install(ctx context.Context, req Request) (Result, error) {
 		}, fmt.Errorf("run install backend %q: %w", backend.Name(), err)
 	}
 
+	serviceResult, err := i.installService(ctx, req, workingDir)
+	if err != nil {
+		return Result{
+			WorkingDir:     workingDir,
+			ConfigPath:     remoteConfigPath,
+			ScriptPath:     remoteScriptPath,
+			Prerequisites:  report,
+			CommandResults: []host.CommandResult{cmdResult},
+		}, err
+	}
+
 	return Result{
 		WorkingDir:     workingDir,
 		ConfigPath:     remoteConfigPath,
 		ScriptPath:     remoteScriptPath,
+		BinaryPath:     serviceResult.BinaryPath,
+		ServicePath:    serviceResult.ServicePath,
 		Prerequisites:  report,
 		CommandResults: []host.CommandResult{cmdResult},
 	}, nil
+}
+
+type serviceInstallResult struct {
+	BinaryPath  string
+	ServicePath string
+}
+
+func (i Installer) installService(ctx context.Context, req Request, workingDir string) (serviceInstallResult, error) {
+	localBinaryPath, err := buildRuntimeBinaryFunc(ctx)
+	if err != nil {
+		return serviceInstallResult{}, err
+	}
+
+	remoteBinaryPath := pathJoin(workingDir, "bin", "openclaw")
+	remoteServicePath := "/etc/systemd/system/openclaw.service"
+
+	if err := i.Host.Upload(ctx, localBinaryPath, remoteBinaryPath); err != nil {
+		return serviceInstallResult{}, fmt.Errorf("upload openclaw runtime binary: %w", err)
+	}
+
+	listenPort := req.Config.Runtime.Port
+	if listenPort <= 0 {
+		listenPort = 8080
+	}
+	unitContents := renderSystemdUnit(remoteBinaryPath, pathJoin(workingDir, "runtime.yaml"), listenPort)
+
+	tmpDir, err := os.MkdirTemp("", "openclaw-systemd-*")
+	if err != nil {
+		return serviceInstallResult{}, fmt.Errorf("create temporary service workspace: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	localUnitPath := filepath.Join(tmpDir, "openclaw.service")
+	if err := os.WriteFile(localUnitPath, []byte(unitContents), 0o600); err != nil {
+		return serviceInstallResult{}, fmt.Errorf("write systemd unit: %w", err)
+	}
+	if err := i.Host.Upload(ctx, localUnitPath, remoteServicePath); err != nil {
+		return serviceInstallResult{}, fmt.Errorf("upload systemd unit: %w", err)
+	}
+
+	if _, err := i.Host.Run(ctx, "systemctl", "daemon-reload"); err != nil {
+		return serviceInstallResult{}, fmt.Errorf("reload systemd: %w", err)
+	}
+	if _, err := i.Host.Run(ctx, "systemctl", "enable", "--now", "openclaw.service"); err != nil {
+		return serviceInstallResult{}, fmt.Errorf("enable openclaw service: %w", err)
+	}
+
+	return serviceInstallResult{
+		BinaryPath:  remoteBinaryPath,
+		ServicePath: remoteServicePath,
+	}, nil
+}
+
+func buildRuntimeBinary(ctx context.Context) (string, error) {
+	tmpDir, err := os.MkdirTemp("", "openclaw-runtime-bin-*")
+	if err != nil {
+		return "", fmt.Errorf("create temporary binary workspace: %w", err)
+	}
+
+	outputPath := filepath.Join(tmpDir, "openclaw")
+	cmd := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", outputPath, "./cmd/openclaw")
+	cmd.Env = append(os.Environ(),
+		"GOOS=linux",
+		"GOARCH=amd64",
+		"CGO_ENABLED=0",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return "", fmt.Errorf("build linux runtime binary: %s: %w", msg, err)
+		}
+		return "", fmt.Errorf("build linux runtime binary: %w", err)
+	}
+	return outputPath, nil
+}
+
+func renderSystemdUnit(binaryPath, runtimeConfigPath string, listenPort int) string {
+	if listenPort <= 0 {
+		listenPort = 8080
+	}
+	return fmt.Sprintf(`[Unit]
+Description=OpenClaw runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/openclaw
+ExecStart=%s serve --runtime-config %s --listen 0.0.0.0:%d
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+`, binaryPath, runtimeConfigPath, listenPort)
 }
 
 func pathJoin(elem ...string) string {

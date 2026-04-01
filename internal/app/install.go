@@ -98,6 +98,12 @@ func printInstallResult(out io.Writer, result runtimeinstall.Result) {
 	if strings.TrimSpace(result.ScriptPath) != "" {
 		fmt.Fprintf(out, "install script: %s\n", result.ScriptPath)
 	}
+	if strings.TrimSpace(result.BinaryPath) != "" {
+		fmt.Fprintf(out, "runtime binary: %s\n", result.BinaryPath)
+	}
+	if strings.TrimSpace(result.ServicePath) != "" {
+		fmt.Fprintf(out, "systemd unit: %s\n", result.ServicePath)
+	}
 	if len(result.Prerequisites.Checks) > 0 {
 		fmt.Fprintln(out, "prerequisites:")
 		for _, check := range result.Prerequisites.Checks {
