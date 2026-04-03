@@ -14,7 +14,8 @@ terraform {
 }
 
 provider "aws" {
-  region = var.region
+  region  = var.region
+  profile = trimspace(var.aws_profile) != "" ? trimspace(var.aws_profile) : null
 }
 
 data "aws_vpcs" "default" {
@@ -47,12 +48,32 @@ locals {
   vpc_id     = length(data.aws_vpcs.default.ids) > 0 ? data.aws_vpcs.default.ids[0] : ""
   subnet_ids = length(data.aws_subnets.default_for_az.ids) > 0 ? data.aws_subnets.default_for_az.ids : data.aws_subnets.any.ids
   subnet_id  = length(local.subnet_ids) > 0 ? local.subnet_ids[0] : ""
+  image_name = trimspace(var.image_name)
+  image_id   = trimspace(var.image_id)
 
   security_group_rules = var.network_mode == "public" && trimspace(var.ssh_cidr) != "" ? [
     "allow tcp/22 from ${trimspace(var.ssh_cidr)}",
     ] : [
     "no inbound rules configured",
   ]
+}
+
+data "aws_ssm_parameter" "ubuntu_2204" {
+  count = local.image_id == "" && local.image_name == "Ubuntu 22.04 LTS" ? 1 : 0
+  name  = "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id"
+}
+
+data "aws_ssm_parameter" "dlami_gpu_2204" {
+  count = local.image_id == "" && local.image_name == "AWS Deep Learning AMI GPU Ubuntu 22.04" ? 1 : 0
+  name  = "/aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id"
+}
+
+locals {
+  resolved_image_id = local.image_id != "" ? local.image_id : (
+    local.image_name == "Ubuntu 22.04 LTS" ? data.aws_ssm_parameter.ubuntu_2204[0].value :
+    local.image_name == "AWS Deep Learning AMI GPU Ubuntu 22.04" ? data.aws_ssm_parameter.dlami_gpu_2204[0].value :
+    ""
+  )
 }
 
 resource "aws_key_pair" "this" {
@@ -89,7 +110,7 @@ resource "aws_security_group" "this" {
 }
 
 resource "aws_instance" "this" {
-  ami                         = var.image_id
+  ami                         = local.resolved_image_id
   instance_type               = var.instance_type
   key_name                    = aws_key_pair.this.key_name
   subnet_id                   = local.subnet_id

@@ -19,6 +19,7 @@ func newInfraCommand(app *App) *cobra.Command {
 		Short: "Provision infrastructure",
 	}
 	cmd.AddCommand(newInfraCreateCommand(app))
+	cmd.AddCommand(newInfraTFVarsCommand(app))
 	return cmd
 }
 

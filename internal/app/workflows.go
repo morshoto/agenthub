@@ -59,11 +59,13 @@ type createOptions struct {
 }
 
 type terraformVars struct {
+	AWSProfile   string `json:"aws_profile"`
 	Region       string `json:"region"`
 	ComputeClass string `json:"compute_class"`
 	InstanceType string `json:"instance_type"`
 	DiskSizeGB   int    `json:"disk_size_gb"`
 	NetworkMode  string `json:"network_mode"`
+	ImageName    string `json:"image_name"`
 	ImageID      string `json:"image_id"`
 	SSHKeyName   string `json:"ssh_key_name"`
 	SSHPublicKey string `json:"ssh_public_key"`

@@ -14,56 +14,29 @@ aws sts get-caller-identity --profile sso-dev
 
 If the identity call succeeds, your AWS credentials are ready.
 
-## 2. Create the Terraform infrastructure
+## 2. Generate Terraform variables from YAML
 
 The Terraform module lives in `infra/aws/ec2`.
 
-### Initialize Terraform
+Generate a `terraform.tfvars` file from your OpenClaw config:
+
+```bash
+openclaw infra tfvars --config openclaw.yaml --output infra/aws/ec2/terraform.tfvars
+```
+
+If you want to pin the AWS profile explicitly, pass `--profile sso-dev`.
+If you omit it and run interactively, the CLI will prompt you to choose a profile or type one in.
+
+This command reads the YAML config, resolves the SSH public key, and writes Terraform-compatible `terraform.tfvars` variables.
+If your config only has `image.name`, Terraform resolves the AMI from AWS during `plan` or `apply`.
+The generated file also includes `aws_profile`, so Terraform uses the same AWS profile you selected in `openclaw`.
+
+## 3. Create the Terraform infrastructure
 
 ```bash
 terraform -chdir=infra/aws/ec2 init
-```
-
-### Plan the stack
-
-Fill in the values you want for your environment:
-
-```bash
-terraform -chdir=infra/aws/ec2 plan \
-  -var='region=ap-northeast-1' \
-  -var='compute_class=gpu' \
-  -var='instance_type=g5.xlarge' \
-  -var='disk_size_gb=20' \
-  -var='network_mode=public' \
-  -var='image_id=ami-xxxxxxxxxxxxxxxxx' \
-  -var='ssh_key_name=openclaw' \
-  -var='ssh_public_key=ssh-ed25519 AAAA... your-key' \
-  -var='ssh_cidr=203.0.113.0/32' \
-  -var='ssh_user=ubuntu' \
-  -var='name_prefix=openclaw' \
-  -var='use_nemoclaw=true' \
-  -var='nim_endpoint=http://localhost:11434' \
-  -var='model=llama3.2'
-```
-
-### Apply the stack
-
-```bash
-terraform -chdir=infra/aws/ec2 apply \
-  -var='region=ap-northeast-1' \
-  -var='compute_class=gpu' \
-  -var='instance_type=g5.xlarge' \
-  -var='disk_size_gb=20' \
-  -var='network_mode=public' \
-  -var='image_id=ami-xxxxxxxxxxxxxxxxx' \
-  -var='ssh_key_name=openclaw' \
-  -var='ssh_public_key=ssh-ed25519 AAAA... your-key' \
-  -var='ssh_cidr=203.0.113.0/32' \
-  -var='ssh_user=ubuntu' \
-  -var='name_prefix=openclaw' \
-  -var='use_nemoclaw=true' \
-  -var='nim_endpoint=http://localhost:11434' \
-  -var='model=llama3.2'
+terraform -chdir=infra/aws/ec2 plan -var-file=terraform.tfvars
+terraform -chdir=infra/aws/ec2 apply -var-file=terraform.tfvars
 ```
 
 ### Recreate from scratch
@@ -71,24 +44,10 @@ terraform -chdir=infra/aws/ec2 apply \
 If you want to tear everything down and rebuild it:
 
 ```bash
-terraform -chdir=infra/aws/ec2 destroy \
-  -var='region=ap-northeast-1' \
-  -var='compute_class=gpu' \
-  -var='instance_type=g5.xlarge' \
-  -var='disk_size_gb=20' \
-  -var='network_mode=public' \
-  -var='image_id=ami-xxxxxxxxxxxxxxxxx' \
-  -var='ssh_key_name=openclaw' \
-  -var='ssh_public_key=ssh-ed25519 AAAA... your-key' \
-  -var='ssh_cidr=203.0.113.0/32' \
-  -var='ssh_user=ubuntu' \
-  -var='name_prefix=openclaw' \
-  -var='use_nemoclaw=true' \
-  -var='nim_endpoint=http://localhost:11434' \
-  -var='model=llama3.2'
+terraform -chdir=infra/aws/ec2 destroy -var-file=terraform.tfvars
 ```
 
-## 3. Connect to the instance
+## 4. Connect to the instance
 
 After Terraform finishes, use the printed connection info or the EC2 public IP.
 
@@ -98,7 +57,7 @@ ssh -i ~/.ssh/id_ed25519 ubuntu@<public-ip>
 
 If the instance is private, connect from a bastion or SSM session instead.
 
-## 4. Install Docker on the host
+## 5. Install Docker on the host
 
 The runtime checks expect Docker to be present.
 
@@ -117,7 +76,7 @@ If you are using a GPU instance, you can also check the NVIDIA driver path:
 nvidia-smi -L
 ```
 
-## 5. Authenticate Codex locally
+## 6. Authenticate Codex locally
 
 If you want to use the Codex CLI on your workstation, run:
 
@@ -132,7 +91,7 @@ If you need to troubleshoot the OAuth flow, see:
 - https://note.com/akira_papa_ai/n/ne3a82fe5205f
 - https://zenn.dev/aria3/articles/openclaw-oauth-troubleshooting
 
-## 6. Verify the host
+## 7. Verify the host
 
 Once Docker is installed and the runtime is ready, verify the machine:
 
@@ -149,5 +108,6 @@ nvidia-smi
 ## Notes
 
 - This is the manual path. The Go CLI automates most of these steps.
-- The Terraform commands above need a real AMI ID.
-- If you are rebuilding often, keep the variable set in a `terraform.tfvars` file instead of pasting long command lines.
+- The Terraform commands above can work with `image.name` only, but `plan` and `apply` still need AWS access to resolve the AMI.
+- If you regenerate `terraform.tfvars` with a different AWS profile, the `aws_profile` value in the file changes too.
+- If you are rebuilding often, keep the generated `terraform.tfvars` file around and regenerate it only when the YAML changes.

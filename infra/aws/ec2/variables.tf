@@ -2,6 +2,11 @@ variable "region" {
   type = string
 }
 
+variable "aws_profile" {
+  type    = string
+  default = ""
+}
+
 variable "compute_class" {
   type = string
 }
@@ -20,6 +25,11 @@ variable "network_mode" {
 
 variable "image_id" {
   type = string
+}
+
+variable "image_name" {
+  type    = string
+  default = ""
 }
 
 variable "ssh_key_name" {
