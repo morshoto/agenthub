@@ -305,9 +305,9 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 	}
 
 	var instance *provider.Instance
-	if err := progress.Run(ctx, "provisioning infrastructure", func() error {
+	if err := progress.Run(ctx, "provisioning infrastructure", func(runCtx context.Context) error {
 		var err error
-		instance, err = runInfraCreate(ctx, profile, cfg, opts)
+		instance, err = runInfraCreate(runCtx, profile, cfg, opts)
 		return err
 	}); err != nil {
 		return instance, runtimeinstall.Result{}, verify.Report{}, err
@@ -318,16 +318,16 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 		WorkingDir: "/opt/openclaw",
 		ConfigPath: "/opt/openclaw/runtime.yaml",
 	}
-	if err := progress.Run(ctx, "waiting for bootstrap", func() error {
-		return waitForBootstrapReady(ctx, cfg, target, opts.SSHUser, opts.SSHKey, opts.SSHPort, os.Stdout)
+	if err := progress.Run(ctx, "waiting for bootstrap", func(runCtx context.Context) error {
+		return waitForBootstrapReady(runCtx, cfg, target, opts.SSHUser, opts.SSHKey, opts.SSHPort, os.Stdout)
 	}); err != nil {
 		return instance, installResult, verify.Report{}, err
 	}
 
 	var verifyReport verify.Report
-	if err := progress.Run(ctx, "verifying runtime", func() error {
+	if err := progress.Run(ctx, "verifying runtime", func(runCtx context.Context) error {
 		var err error
-		verifyReport, _, err = runVerifyWorkflow(ctx, profile, cfg, verifyOptions{
+		verifyReport, _, err = runVerifyWorkflow(runCtx, profile, cfg, verifyOptions{
 			Target:            target,
 			SSHUser:           opts.SSHUser,
 			SSHKey:            opts.SSHKey,

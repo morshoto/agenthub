@@ -13,7 +13,8 @@ import (
 )
 
 type stageRunner interface {
-	Run(ctx context.Context, title string, fn func() error) error
+	// fn must respect ctx so cancellation can stop the underlying work.
+	Run(ctx context.Context, title string, fn func(context.Context) error) error
 }
 
 type progressRenderer struct {
@@ -29,19 +30,19 @@ func newProgressRenderer(out io.Writer) *progressRenderer {
 	}
 }
 
-func (p *progressRenderer) Run(ctx context.Context, title string, fn func() error) error {
+func (p *progressRenderer) Run(ctx context.Context, title string, fn func(context.Context) error) error {
 	if p == nil {
-		return fn()
+		return fn(ctx)
 	}
 
 	title = strings.TrimSpace(title)
 	if title == "" {
-		return fn()
+		return fn(ctx)
 	}
 
 	if !p.tty {
 		fmt.Fprintf(p.out, "%s ...\n", title)
-		err := fn()
+		err := fn(ctx)
 		if err != nil {
 			fmt.Fprintf(p.out, "failed: %s: %v\n", title, err)
 			return err
@@ -50,11 +51,9 @@ func (p *progressRenderer) Run(ctx context.Context, title string, fn func() erro
 		return nil
 	}
 
-	done := make(chan struct{})
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- fn()
-		close(done)
+		errCh <- fn(ctx)
 	}()
 
 	frames := []string{"|", "/", "-", "\\"}
@@ -87,9 +86,7 @@ func (p *progressRenderer) Run(ctx context.Context, title string, fn func() erro
 func (p *progressRenderer) clearLine() {
 	p.lock.Lock()
 	defer p.lock.Unlock()
-	fmt.Fprint(p.out, "\r")
-	fmt.Fprint(p.out, strings.Repeat(" ", 80))
-	fmt.Fprint(p.out, "\r")
+	fmt.Fprint(p.out, "\r\033[2K")
 }
 
 func isTerminalWriter(w io.Writer) bool {
