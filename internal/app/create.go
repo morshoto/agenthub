@@ -23,7 +23,7 @@ func newCreateCommand(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "create",
-		Short: "Create, install, and verify a new environment",
+		Short: "Create and verify a new environment",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(app.opts.ConfigPath) == "" {
 				return errors.New("config file is required: pass --config <path>")

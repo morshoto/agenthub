@@ -27,9 +27,8 @@ openclaw infra tfvars --config openclaw.yaml --output infra/aws/ec2/terraform.tf
 If you want to pin the AWS profile explicitly, pass `--profile sso-dev`.
 If you omit it and run interactively, the CLI will prompt you to choose a profile or type one in.
 
-This command reads the YAML config, resolves the SSH public key, and writes Terraform-compatible `terraform.tfvars` variables.
-If your config only has `image.name`, Terraform resolves the AMI from AWS during `plan` or `apply`.
-The generated file also includes `aws_profile`, so Terraform uses the same AWS profile you selected in `openclaw`.
+This command reads the YAML config, resolves the SSH public key, resolves the current GitHub source archive, and writes Terraform-compatible `terraform.tfvars` variables.
+The generated file also includes `aws_profile`, `runtime_port`, `source_archive_url`, and `source_ref`, so Terraform can create the EC2 instance and let cloud-init boot the Docker container automatically.
 
 ## 3. Create the Terraform infrastructure
 
@@ -57,23 +56,19 @@ ssh -i ~/.ssh/id_ed25519 ubuntu@<public-ip>
 
 If the instance is private, connect from a bastion or SSM session instead.
 
-## 5. Install Docker on the host
+## 5. Wait for the Docker bootstrap
 
-The runtime checks expect Docker to be present.
+The EC2 user-data script installs Docker, builds the image from the GitHub source archive, and starts the `openclaw` container automatically.
+You can watch the bootstrap log over SSH if you want to inspect what happened:
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y docker.io
-sudo systemctl enable --now docker
-sudo usermod -aG docker ubuntu
-newgrp docker
-docker info
+sudo tail -f /var/log/openclaw-bootstrap.log
 ```
 
-If you are using a GPU instance, you can also check the NVIDIA driver path:
+When bootstrap completes, the marker file appears:
 
 ```bash
-nvidia-smi -L
+test -f /opt/openclaw/bootstrap.done
 ```
 
 ## 6. Authenticate Codex locally
@@ -93,10 +88,12 @@ If you need to troubleshoot the OAuth flow, see:
 
 ## 7. Verify the host
 
-Once Docker is installed and the runtime is ready, verify the machine:
+Once bootstrap is ready, verify the machine:
 
 ```bash
 docker info
+docker ps --filter name='^/openclaw$'
+curl -fsS http://127.0.0.1:8080/healthz
 ```
 
 For a GPU host, also check:
@@ -111,3 +108,4 @@ nvidia-smi
 - The Terraform commands above can work with `image.name` only, but `plan` and `apply` still need AWS access to resolve the AMI.
 - If you regenerate `terraform.tfvars` with a different AWS profile, the `aws_profile` value in the file changes too.
 - If you are rebuilding often, keep the generated `terraform.tfvars` file around and regenerate it only when the YAML changes.
+- The Docker bootstrap path assumes your repository origin is a GitHub remote that can be archived from the EC2 instance.

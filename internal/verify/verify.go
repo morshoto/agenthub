@@ -93,7 +93,18 @@ func (v Verifier) Verify(ctx context.Context, req Request) (Report, error) {
 		report.Checks = append(report.Checks, runEndpointCheck(ctx, v.Host, endpoint))
 	}
 
-	report.Checks = append(report.Checks, runOpenClawProcessCheck(ctx, v.Host))
+	port, err := resolveRuntimePort(ctx, v.Host, runtimeConfigPath, req.Config)
+	if err != nil {
+		report.Checks = append(report.Checks, Check{
+			Name:        "openclaw health",
+			Passed:      false,
+			Message:     err.Error(),
+			Remediation: "Ensure the runtime config defines a valid port and the OpenClaw container is listening on that port.",
+		})
+	} else {
+		report.Checks = append(report.Checks, runOpenClawHealthCheck(ctx, v.Host, port))
+	}
+	report.Checks = append(report.Checks, runOpenClawContainerCheck(ctx, v.Host))
 	return report, nil
 }
 
@@ -262,6 +273,12 @@ func runDockerCheck(ctx context.Context, exec host.Executor) Check {
 
 func runOpenClawProcessCheck(ctx context.Context, exec host.Executor) Check {
 	script := `
+if command -v docker >/dev/null 2>&1; then
+  if docker ps --filter name='^/openclaw$' --format '{{.Names}} {{.Status}}' | grep -q '^openclaw '; then
+    docker ps --filter name='^/openclaw$' --format '{{.Names}} {{.Status}}'
+    exit 0
+  fi
+fi
 if command -v systemctl >/dev/null 2>&1; then
   if systemctl is-active --quiet openclaw; then
     echo "openclaw systemd service is active"
@@ -292,4 +309,107 @@ exit 1
 		msg = "openclaw service or process is running"
 	}
 	return Check{Name: "openclaw service/process", Passed: true, Message: msg}
+}
+
+func resolveRuntimePort(ctx context.Context, exec host.Executor, runtimeConfigPath string, cfg *config.Config) (int, error) {
+	if cfg != nil && cfg.Runtime.Port > 0 {
+		return cfg.Runtime.Port, nil
+	}
+
+	result, err := exec.Run(ctx, "cat", runtimeConfigPath)
+	if err != nil {
+		msg := strings.TrimSpace(result.Stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		return 0, fmt.Errorf("read runtime config: %s", msg)
+	}
+
+	var runtimeCfg runtimeinstall.RuntimeConfig
+	if err := yaml.Unmarshal([]byte(result.Stdout), &runtimeCfg); err != nil {
+		return 0, fmt.Errorf("parse runtime config: %w", err)
+	}
+	if runtimeCfg.Port <= 0 {
+		return 8080, nil
+	}
+	return runtimeCfg.Port, nil
+}
+
+func runOpenClawHealthCheck(ctx context.Context, exec host.Executor, port int) Check {
+	if port <= 0 {
+		port = 8080
+	}
+	endpoint := fmt.Sprintf("http://127.0.0.1:%d/healthz", port)
+	script := fmt.Sprintf(`
+endpoint=%s
+if command -v curl >/dev/null 2>&1; then
+  curl --max-time 5 -fsS "$endpoint" >/dev/null
+  exit $?
+fi
+if command -v python3 >/dev/null 2>&1; then
+  ENDPOINT="$endpoint" python3 - <<'PY'
+import urllib.request
+import os
+urllib.request.urlopen(os.environ["ENDPOINT"], timeout=5).read()
+PY
+  exit $?
+fi
+if command -v python >/dev/null 2>&1; then
+  ENDPOINT="$endpoint" python - <<'PY'
+import urllib.request
+import os
+urllib.request.urlopen(os.environ["ENDPOINT"], timeout=5).read()
+PY
+  exit $?
+fi
+exit 127
+`, strconv.Quote(endpoint))
+	result, err := exec.Run(ctx, "sh", "-lc", script)
+	if err != nil {
+		msg := strings.TrimSpace(result.Stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		return Check{
+			Name:        "openclaw health",
+			Passed:      false,
+			Message:     msg,
+			Remediation: "Ensure the OpenClaw container is listening on localhost and responding to /healthz.",
+		}
+	}
+	msg := strings.TrimSpace(result.Stdout)
+	if msg == "" {
+		msg = fmt.Sprintf("reachable: %s", endpoint)
+	}
+	return Check{Name: "openclaw health", Passed: true, Message: msg}
+}
+
+func runOpenClawContainerCheck(ctx context.Context, exec host.Executor) Check {
+	script := `
+if command -v docker >/dev/null 2>&1; then
+  if docker ps --filter name='^/openclaw$' --format '{{.Names}} {{.Status}}' | grep -q '^openclaw '; then
+    docker ps --filter name='^/openclaw$' --format '{{.Names}} {{.Status}}'
+    exit 0
+  fi
+fi
+exit 1
+`
+	result, err := exec.Run(ctx, "sh", "-lc", script)
+	if err != nil {
+		msg := strings.TrimSpace(result.Stderr)
+		if msg == "" {
+			msg = "openclaw Docker container was not found"
+		}
+		return Check{
+			Name:        "openclaw container",
+			Passed:      false,
+			Message:     msg,
+			Remediation: "Start the OpenClaw Docker container before verifying.",
+		}
+	}
+	msg := strings.TrimSpace(result.Stdout)
+	if msg == "" {
+		msg = "openclaw Docker container is running"
+	}
+	return Check{Name: "openclaw container", Passed: true, Message: msg}
 }

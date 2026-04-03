@@ -1,0 +1,30 @@
+#!/bin/bash
+set -euo pipefail
+
+exec > >(tee /var/log/openclaw-bootstrap.log | logger -t openclaw-bootstrap -s 2>/dev/console) 2>&1
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y ca-certificates curl docker.io tar
+systemctl enable --now docker
+
+install -d -m 0755 /opt/openclaw/src
+install -d -m 0755 /opt/openclaw
+
+cat > /opt/openclaw/runtime.yaml <<'EOF'
+${runtime_config_yaml}
+EOF
+
+curl -fsSL "${source_archive_url}" | tar -xz -C /opt/openclaw/src --strip-components=1
+
+docker build -t "${container_name}:latest" /opt/openclaw/src
+docker rm -f "${container_name}" >/dev/null 2>&1 || true
+docker run -d \
+  --name "${container_name}" \
+  --restart unless-stopped \
+  --network host \
+  -v /opt/openclaw/runtime.yaml:/opt/openclaw/runtime.yaml:ro \
+  "${container_name}:latest" \
+  serve --runtime-config /opt/openclaw/runtime.yaml --listen 0.0.0.0:${listen_port}
+
+touch /opt/openclaw/bootstrap.done

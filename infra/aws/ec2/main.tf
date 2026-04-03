@@ -45,11 +45,30 @@ data "aws_subnets" "any" {
 }
 
 locals {
-  vpc_id     = length(data.aws_vpcs.default.ids) > 0 ? data.aws_vpcs.default.ids[0] : ""
-  subnet_ids = length(data.aws_subnets.default_for_az.ids) > 0 ? data.aws_subnets.default_for_az.ids : data.aws_subnets.any.ids
-  subnet_id  = length(local.subnet_ids) > 0 ? local.subnet_ids[0] : ""
-  image_name = trimspace(var.image_name)
-  image_id   = trimspace(var.image_id)
+  vpc_id      = length(data.aws_vpcs.default.ids) > 0 ? data.aws_vpcs.default.ids[0] : ""
+  subnet_ids  = length(data.aws_subnets.default_for_az.ids) > 0 ? data.aws_subnets.default_for_az.ids : data.aws_subnets.any.ids
+  subnet_id   = length(local.subnet_ids) > 0 ? local.subnet_ids[0] : ""
+  image_name  = trimspace(var.image_name)
+  image_id    = trimspace(var.image_id)
+  listen_port = var.runtime_port > 0 ? var.runtime_port : 8080
+  runtime_config_yaml = yamlencode({
+    use_nemoclaw = var.use_nemoclaw
+    nim_endpoint = var.nim_endpoint
+    model        = var.model
+    port         = local.listen_port
+    sandbox = {
+      enabled          = true
+      network_mode     = var.network_mode
+      filesystem_allow = []
+    }
+  })
+  user_data = templatefile("${path.module}/user_data.sh.tftpl", {
+    container_name      = trimspace(var.container_name)
+    listen_port         = local.listen_port
+    runtime_config_yaml = local.runtime_config_yaml
+    source_archive_url  = trimspace(var.source_archive_url)
+    source_ref          = trimspace(var.source_ref)
+  })
 
   security_group_rules = var.network_mode == "public" && trimspace(var.ssh_cidr) != "" ? [
     "allow tcp/22 from ${trimspace(var.ssh_cidr)}",
@@ -116,6 +135,7 @@ resource "aws_instance" "this" {
   subnet_id                   = local.subnet_id
   associate_public_ip_address = var.network_mode == "public"
   vpc_security_group_ids      = [aws_security_group.this.id]
+  user_data                   = local.user_data
 
   root_block_device {
     volume_size           = var.disk_size_gb

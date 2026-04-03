@@ -128,6 +128,14 @@ func buildTerraformVars(ctx context.Context, profile string, cfg *config.Config)
 	if err != nil {
 		return terraformVars{}, err
 	}
+	sourceURL, sourceRef, err := resolveSourceArchiveURL(ctx)
+	if err != nil {
+		return terraformVars{}, err
+	}
+	runtimePort := cfg.Runtime.Port
+	if runtimePort <= 0 {
+		runtimePort = 8080
+	}
 
 	return terraformVars{
 		AWSProfile:   strings.TrimSpace(profile),
@@ -138,6 +146,7 @@ func buildTerraformVars(ctx context.Context, profile string, cfg *config.Config)
 		NetworkMode:  config.EffectiveNetworkMode(cfg),
 		ImageName:    strings.TrimSpace(cfg.Image.Name),
 		ImageID:      strings.TrimSpace(cfg.Image.ID),
+		RuntimePort:  runtimePort,
 		SSHKeyName:   sshKeyName,
 		SSHPublicKey: sshPublicKey,
 		SSHCIDR:      sshCIDR,
@@ -146,6 +155,8 @@ func buildTerraformVars(ctx context.Context, profile string, cfg *config.Config)
 		UseNemoClaw:  cfg.Sandbox.UseNemoClaw,
 		NIMEndpoint:  cfg.Runtime.Endpoint,
 		Model:        cfg.Runtime.Model,
+		SourceURL:    sourceURL,
+		SourceRef:    sourceRef,
 	}, nil
 }
 
@@ -175,6 +186,7 @@ func renderTerraformVars(vars terraformVars) string {
 		"network_mode",
 		"image_name",
 		"image_id",
+		"runtime_port",
 		"ssh_key_name",
 		"ssh_public_key",
 		"ssh_cidr",
@@ -183,6 +195,8 @@ func renderTerraformVars(vars terraformVars) string {
 		"use_nemoclaw",
 		"nim_endpoint",
 		"model",
+		"source_archive_url",
+		"source_ref",
 	}
 	maxWidth := 0
 	for _, key := range keys {
@@ -199,6 +213,7 @@ func renderTerraformVars(vars terraformVars) string {
 		fmt.Sprintf("%-*s = %s", maxWidth, "network_mode", terraformQuoted(vars.NetworkMode)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "image_name", terraformQuoted(vars.ImageName)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "image_id", terraformQuoted(vars.ImageID)),
+		fmt.Sprintf("%-*s = %d", maxWidth, "runtime_port", vars.RuntimePort),
 		fmt.Sprintf("%-*s = %s", maxWidth, "ssh_key_name", terraformQuoted(vars.SSHKeyName)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "ssh_public_key", terraformQuoted(vars.SSHPublicKey)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "ssh_cidr", terraformQuoted(vars.SSHCIDR)),
@@ -207,6 +222,8 @@ func renderTerraformVars(vars terraformVars) string {
 		fmt.Sprintf("%-*s = %s", maxWidth, "use_nemoclaw", strconv.FormatBool(vars.UseNemoClaw)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "nim_endpoint", terraformQuoted(vars.NIMEndpoint)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "model", terraformQuoted(vars.Model)),
+		fmt.Sprintf("%-*s = %s", maxWidth, "source_archive_url", terraformQuoted(vars.SourceURL)),
+		fmt.Sprintf("%-*s = %s", maxWidth, "source_ref", terraformQuoted(vars.SourceRef)),
 	}
 	return strings.Join(lines, "\n") + "\n"
 }

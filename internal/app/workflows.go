@@ -67,6 +67,7 @@ type terraformVars struct {
 	NetworkMode  string `json:"network_mode"`
 	ImageName    string `json:"image_name"`
 	ImageID      string `json:"image_id"`
+	RuntimePort  int    `json:"runtime_port"`
 	SSHKeyName   string `json:"ssh_key_name"`
 	SSHPublicKey string `json:"ssh_public_key"`
 	SSHCIDR      string `json:"ssh_cidr"`
@@ -75,6 +76,8 @@ type terraformVars struct {
 	UseNemoClaw  bool   `json:"use_nemoclaw"`
 	NIMEndpoint  string `json:"nim_endpoint"`
 	Model        string `json:"model"`
+	SourceURL    string `json:"source_archive_url"`
+	SourceRef    string `json:"source_ref"`
 }
 
 type verifyOptions struct {
@@ -112,6 +115,14 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 	if err != nil {
 		return nil, err
 	}
+	sourceURL, sourceRef, err := resolveSourceArchiveURL(ctx)
+	if err != nil {
+		return nil, err
+	}
+	runtimePort := cfg.Runtime.Port
+	if runtimePort <= 0 {
+		runtimePort = 8080
+	}
 
 	adviser := newAWSProvider(profile, cfg.Compute.Class)
 	if _, err := adviser.CheckAuth(ctx); err != nil {
@@ -146,6 +157,7 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 		DiskSizeGB:   cfg.Instance.DiskSizeGB,
 		NetworkMode:  networkMode,
 		ImageID:      image.ID,
+		RuntimePort:  runtimePort,
 		SSHKeyName:   sshKeyName,
 		SSHPublicKey: sshPublicKey,
 		SSHCIDR:      sshCIDR,
@@ -154,6 +166,8 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 		UseNemoClaw:  cfg.Sandbox.UseNemoClaw,
 		NIMEndpoint:  cfg.Runtime.Endpoint,
 		Model:        cfg.Runtime.Model,
+		SourceURL:    sourceURL,
+		SourceRef:    sourceRef,
 	})
 	if err != nil {
 		return nil, err
@@ -289,20 +303,13 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 	}
 
 	target := instanceTarget(instance)
-	installResult, _, err := runInstallWorkflow(ctx, profile, cfg, installOptions{
-		Target:          target,
-		SSHUser:         opts.SSHUser,
-		SSHKey:          opts.SSHKey,
-		SSHPort:         opts.SSHPort,
-		WorkingDir:      opts.WorkingDir,
-		Port:            opts.Port,
-		UseNemoClaw:     opts.UseNemoClaw,
-		DisableNemoClaw: opts.DisableNemoClaw,
-	})
-	if err != nil {
+	installResult := runtimeinstall.Result{
+		WorkingDir: "/opt/openclaw",
+		ConfigPath: "/opt/openclaw/runtime.yaml",
+	}
+	if err := waitForBootstrapReady(ctx, cfg, target, opts.SSHUser, opts.SSHKey, opts.SSHPort); err != nil {
 		return instance, installResult, verify.Report{}, err
 	}
-
 	verifyReport, _, err := runVerifyWorkflow(ctx, profile, cfg, verifyOptions{
 		Target:            target,
 		SSHUser:           opts.SSHUser,
@@ -310,7 +317,63 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 		SSHPort:           opts.SSHPort,
 		RuntimeConfigPath: installResult.ConfigPath,
 	})
-	return instance, installResult, verifyReport, err
+	if err != nil {
+		return instance, installResult, verify.Report{}, err
+	}
+	return instance, installResult, verifyReport, nil
+}
+
+func waitForBootstrapReady(ctx context.Context, cfg *config.Config, target, sshUser, sshKey string, sshPort int) error {
+	if strings.TrimSpace(target) == "" {
+		return errors.New("target is required")
+	}
+	user, keyPath, err := resolveInstallSSH(cfg, sshUser, sshKey)
+	if err != nil {
+		return err
+	}
+	exec := newSSHExecutor(host.SSHConfig{
+		Host:           target,
+		Port:           sshPort,
+		User:           user,
+		IdentityFile:   keyPath,
+		ConnectTimeout: 15 * time.Second,
+	})
+	if err := waitForSSHReady(ctx, exec, target); err != nil {
+		return err
+	}
+
+	waitCtx := ctx
+	var cancel context.CancelFunc
+	if _, ok := ctx.Deadline(); !ok {
+		waitCtx, cancel = context.WithTimeout(ctx, 15*time.Minute)
+		defer cancel()
+	}
+	delay := 2 * time.Second
+	for {
+		result, err := exec.Run(waitCtx, "test", "-f", "/opt/openclaw/bootstrap.done")
+		if err == nil {
+			break
+		}
+		msg := strings.ToLower(strings.TrimSpace(result.Stderr + " " + err.Error()))
+		if waitCtx.Err() != nil {
+			return fmt.Errorf("wait for docker bootstrap on %s: %w", target, waitCtx.Err())
+		}
+		if strings.Contains(msg, "permission denied") || strings.Contains(msg, "no such file") || strings.Contains(msg, "exit status 1") {
+			timer := time.NewTimer(delay)
+			select {
+			case <-waitCtx.Done():
+				timer.Stop()
+				return fmt.Errorf("wait for docker bootstrap on %s: %w", target, waitCtx.Err())
+			case <-timer.C:
+			}
+			if delay < 30*time.Second {
+				delay *= 2
+			}
+			continue
+		}
+		return fmt.Errorf("wait for docker bootstrap on %s: %w", target, err)
+	}
+	return nil
 }
 
 func resolveCodexAPIKey(ctx context.Context, profile string, cfg *config.Config) (string, error) {
@@ -590,10 +653,10 @@ func printWorkflowSuccess(out io.Writer, instance *provider.Instance, installRes
 	if strings.TrimSpace(cfgPath) != "" && strings.TrimSpace(target) != "" {
 		fmt.Fprintf(out, "verify command example: openclaw verify --config %s --target %s\n", cfgPath, target)
 	}
-	if createMode && strings.TrimSpace(cfgPath) != "" && strings.TrimSpace(target) != "" {
+	if createMode && strings.TrimSpace(cfgPath) != "" && strings.TrimSpace(target) != "" && strings.TrimSpace(installResult.ServicePath) != "" {
 		fmt.Fprintf(out, "install command example: openclaw install --config %s --target %s\n", cfgPath, target)
 	}
-	fmt.Fprintln(out, "next step: keep the runtime config and SSH target handy for future verify or install runs")
+	fmt.Fprintln(out, "next step: keep the runtime config and SSH target handy for future verify runs")
 }
 
 func printVerificationReport(out io.Writer, report verify.Report) {

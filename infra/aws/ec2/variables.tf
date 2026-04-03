@@ -71,3 +71,21 @@ variable "model" {
   type    = string
   default = ""
 }
+
+variable "runtime_port" {
+  type    = number
+  default = 8080
+}
+
+variable "source_archive_url" {
+  type = string
+}
+
+variable "source_ref" {
+  type = string
+}
+
+variable "container_name" {
+  type    = string
+  default = "openclaw"
+}

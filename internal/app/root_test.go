@@ -541,6 +541,8 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 				switch {
 				case strings.TrimSpace(key) == "true":
 					return host.CommandResult{}, nil
+				case command == "test" && strings.Join(args, " ") == "-f /opt/openclaw/bootstrap.done":
+					return host.CommandResult{}, nil
 				case key == "nvidia-smi -L":
 					return host.CommandResult{Stdout: "GPU 0: demo"}, nil
 				case key == "docker info":
@@ -549,30 +551,14 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 					return host.CommandResult{Stdout: `{"nvidia":{}}`}, nil
 				case key == "docker run --rm --gpus all --pull=never nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi":
 					return host.CommandResult{Stdout: "NVIDIA-SMI"}, nil
-				case key == "sudo mkdir -p /opt/openclaw":
-					return host.CommandResult{}, nil
-				case key == "chmod +x /opt/openclaw/install.sh":
-					return host.CommandResult{}, nil
-				case key == "sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml":
-					return host.CommandResult{Stdout: "OpenClaw runtime installation complete"}, nil
-				case key == "sudo mkdir -p /opt/openclaw/bin":
-					return host.CommandResult{}, nil
-				case key == "sudo chown -R ubuntu:ubuntu /opt/openclaw":
-					return host.CommandResult{}, nil
-				case key == "sudo mv /opt/openclaw/openclaw.upload /opt/openclaw/bin/openclaw":
-					return host.CommandResult{}, nil
-				case key == "chmod +x /opt/openclaw/bin/openclaw":
-					return host.CommandResult{}, nil
-				case key == "sudo mv /opt/openclaw/openclaw.service /etc/systemd/system/openclaw.service":
-					return host.CommandResult{}, nil
-				case key == "sudo systemctl daemon-reload":
-					return host.CommandResult{}, nil
-				case key == "sudo systemctl enable --now openclaw.service":
-					return host.CommandResult{}, nil
 				case command == "test" && strings.Join(args, " ") == "-s /opt/openclaw/runtime.yaml":
 					return host.CommandResult{}, nil
 				case command == "cat" && strings.Join(args, " ") == "/opt/openclaw/runtime.yaml":
-					return host.CommandResult{Stdout: "use_nemoclaw: true\nnim_endpoint: http://localhost:11434\nmodel: llama3.2\n"}, nil
+					return host.CommandResult{Stdout: "use_nemoclaw: true\nnim_endpoint: http://localhost:11434\nmodel: llama3.2\nport: 8080\n"}, nil
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], "curl --max-time 5 -fsS"):
+					return host.CommandResult{Stdout: "ok"}, nil
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], "docker ps --filter name='^/openclaw$'"):
+					return host.CommandResult{Stdout: "openclaw Up 10 seconds"}, nil
 				case command == "sh" && len(args) >= 2 && args[0] == "-lc":
 					return host.CommandResult{Stdout: "ok"}, nil
 				default:
