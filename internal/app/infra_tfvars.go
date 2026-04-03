@@ -24,7 +24,10 @@ func newInfraTFVarsCommand(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "tfvars",
-		Short: "Generate terraform.tfvars from a configuration file",
+		Short: "Generate deploy-ready terraform.tfvars from a configuration file",
+		Long: strings.TrimSpace(`Generate a deploy-ready terraform.tfvars file from an OpenClaw config.
+
+This command resolves the active AWS profile, derives the SSH public key from the configured private key path, and stages the current working tree as a bootstrap archive URL. It is intended for deploy-time use and can fail if the local git state, SSH key, or AWS environment is not ready.`),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(app.opts.ConfigPath) == "" {
 				return errors.New("config file is required: pass --config <path>")

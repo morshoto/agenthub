@@ -29,6 +29,7 @@ If you omit it and run interactively, the CLI will prompt you to choose a profil
 
 This command reads the YAML config, resolves the SSH public key, stages the current working tree as a bootstrap archive, and writes Terraform-compatible `terraform.tfvars` variables.
 The generated file includes deploy-time values such as `aws_profile`, `runtime_port`, `runtime_cidr`, and `source_archive_url`, so Terraform can create the EC2 instance and let cloud-init boot the Docker container automatically.
+Treat it as a deploy helper rather than a pure formatter: it depends on a usable SSH private key path, a resolvable AWS profile, and the current git worktree state.
 
 ## 3. Create the Terraform infrastructure
 
