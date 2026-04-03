@@ -10,6 +10,12 @@ import (
 )
 
 func TestInfraTFVarsCommandWritesTerraformVars(t *testing.T) {
+	originalResolveSourceArchiveURL := resolveSourceArchiveURLFunc
+	resolveSourceArchiveURLFunc = func(ctx context.Context, profile, region string) (string, string, error) {
+		return "https://example.com/openclaw-bootstrap.tar.gz", "test-sha", nil
+	}
+	defer func() { resolveSourceArchiveURLFunc = originalResolveSourceArchiveURL }()
+
 	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
 	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
 		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITfvarsTestKey openclaw", nil
@@ -95,6 +101,12 @@ ssh:
 }
 
 func TestInfraTFVarsCommandWritesAWSProfile(t *testing.T) {
+	originalResolveSourceArchiveURL := resolveSourceArchiveURLFunc
+	resolveSourceArchiveURLFunc = func(ctx context.Context, profile, region string) (string, string, error) {
+		return "https://example.com/openclaw-bootstrap.tar.gz", "test-sha", nil
+	}
+	defer func() { resolveSourceArchiveURLFunc = originalResolveSourceArchiveURL }()
+
 	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
 	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
 		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITfvarsTestKey openclaw", nil

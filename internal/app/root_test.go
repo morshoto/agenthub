@@ -18,12 +18,6 @@ import (
 	"openclaw/internal/runtimeinstall"
 )
 
-func init() {
-	resolveSourceArchiveURLFunc = func(ctx context.Context, profile, region string) (string, string, error) {
-		return "https://example.com/openclaw-bootstrap.tar.gz", "test-sha", nil
-	}
-}
-
 func TestConfigValidateCommandAcceptsConfigFlagAfterSubcommand(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "openclaw.yaml")
@@ -168,6 +162,8 @@ func TestInfraCreateCommandReportsCreatedInstance(t *testing.T) {
 		return infraCreateStubCloudProvider{stubCloudProvider: stubCloudProvider{profile: profile}}
 	}
 	defer func() { newAWSProvider = original }()
+	restoreSourceArchive := stubSourceArchiveURL(t)
+	defer restoreSourceArchive()
 
 	originalBackend := newTerraformBackend
 	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
@@ -501,6 +497,8 @@ func TestWaitForSSHReadyRetriesTransientErrors(t *testing.T) {
 func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()
+	restoreSourceArchive := stubSourceArchiveURL(t)
+	defer restoreSourceArchive()
 
 	originalBuildRuntimeBinary := runtimeinstall.BuildRuntimeBinaryFunc
 	runtimeinstall.BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
@@ -635,6 +633,17 @@ func stubAWSProviderFactory() func() {
 	}
 	return func() {
 		newAWSProvider = original
+	}
+}
+
+func stubSourceArchiveURL(t *testing.T) func() {
+	t.Helper()
+	original := resolveSourceArchiveURLFunc
+	resolveSourceArchiveURLFunc = func(ctx context.Context, profile, region string) (string, string, error) {
+		return "https://example.com/openclaw-bootstrap.tar.gz", "test-sha", nil
+	}
+	return func() {
+		resolveSourceArchiveURLFunc = original
 	}
 }
 
