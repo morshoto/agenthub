@@ -28,7 +28,7 @@ If you want to pin the AWS profile explicitly, pass `--profile sso-dev`.
 If you omit it and run interactively, the CLI will prompt you to choose a profile or type one in.
 
 This command reads the YAML config, resolves the SSH public key, stages the current working tree as a bootstrap archive, and writes Terraform-compatible `terraform.tfvars` variables.
-The generated file also includes `aws_profile`, `runtime_port`, `runtime_cidr`, `source_archive_url`, and `source_ref`, so Terraform can create the EC2 instance and let cloud-init boot the Docker container automatically.
+The generated file includes deploy-time values such as `aws_profile`, `runtime_port`, `runtime_cidr`, and `source_archive_url`, so Terraform can create the EC2 instance and let cloud-init boot the Docker container automatically.
 
 ## 3. Create the Terraform infrastructure
 

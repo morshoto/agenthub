@@ -128,7 +128,7 @@ func buildTerraformVars(ctx context.Context, profile string, cfg *config.Config)
 	if err != nil {
 		return terraformVars{}, err
 	}
-	sourceURL, sourceRef, err := resolveSourceArchiveURLFunc(ctx, profile, cfg.Region.Name)
+	sourceURL, _, err := resolveSourceArchiveURLFunc(ctx, profile, cfg.Region.Name)
 	if err != nil {
 		return terraformVars{}, err
 	}
@@ -159,7 +159,6 @@ func buildTerraformVars(ctx context.Context, profile string, cfg *config.Config)
 		NIMEndpoint:     cfg.Runtime.Endpoint,
 		Model:           cfg.Runtime.Model,
 		SourceURL:       sourceURL,
-		SourceRef:       sourceRef,
 	}, nil
 }
 
@@ -201,7 +200,6 @@ func renderTerraformVars(vars terraformVars) string {
 		"nim_endpoint",
 		"model",
 		"source_archive_url",
-		"source_ref",
 	}
 	maxWidth := 0
 	for _, key := range keys {
@@ -230,7 +228,6 @@ func renderTerraformVars(vars terraformVars) string {
 		fmt.Sprintf("%-*s = %s", maxWidth, "nim_endpoint", terraformQuoted(vars.NIMEndpoint)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "model", terraformQuoted(vars.Model)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "source_archive_url", terraformQuoted(vars.SourceURL)),
-		fmt.Sprintf("%-*s = %s", maxWidth, "source_ref", terraformQuoted(vars.SourceRef)),
 	}
 	return strings.Join(lines, "\n") + "\n"
 }

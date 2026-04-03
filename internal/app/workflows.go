@@ -79,7 +79,6 @@ type terraformVars struct {
 	NIMEndpoint     string `json:"nim_endpoint"`
 	Model           string `json:"model"`
 	SourceURL       string `json:"source_archive_url"`
-	SourceRef       string `json:"source_ref"`
 }
 
 type verifyOptions struct {
@@ -117,7 +116,7 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 	if err != nil {
 		return nil, err
 	}
-	sourceURL, sourceRef, err := resolveSourceArchiveURLFunc(ctx, profile, cfg.Region.Name)
+	sourceURL, _, err := resolveSourceArchiveURLFunc(ctx, profile, cfg.Region.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +171,6 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 		NIMEndpoint:     cfg.Runtime.Endpoint,
 		Model:           cfg.Runtime.Model,
 		SourceURL:       sourceURL,
-		SourceRef:       sourceRef,
 	})
 	if err != nil {
 		return nil, err

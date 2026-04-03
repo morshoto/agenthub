@@ -88,7 +88,6 @@ ssh:
 	mustContainTerraformAssignment(t, body, "nim_endpoint", `"http://localhost:11434"`)
 	mustContainTerraformAssignment(t, body, "model", `"llama3.2"`)
 	mustContainTerraformAssignment(t, body, "source_archive_url", `"https://example.com/openclaw-bootstrap.tar.gz"`)
-	mustContainTerraformAssignment(t, body, "source_ref", `"`)
 	mustContainTerraformAssignment(t, body, "aws_profile", `"sso-dev"`)
 	if !strings.Contains(stdout.String(), "terraform variables written to") {
 		t.Fatalf("stdout = %q, want success message", stdout.String())

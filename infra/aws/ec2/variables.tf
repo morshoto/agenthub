@@ -91,10 +91,6 @@ variable "source_archive_url" {
   type = string
 }
 
-variable "source_ref" {
-  type = string
-}
-
 variable "container_name" {
   type    = string
   default = "openclaw"

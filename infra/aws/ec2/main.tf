@@ -72,7 +72,6 @@ locals {
     runtime_provider    = local.runtime_provider
     runtime_config_yaml = local.runtime_config_yaml
     source_archive_url  = trimspace(var.source_archive_url)
-    source_ref          = trimspace(var.source_ref)
   })
 
   security_group_rules = var.network_mode == "public" && trimspace(var.ssh_cidr) != "" ? [
