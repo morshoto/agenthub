@@ -18,6 +18,12 @@ import (
 	"openclaw/internal/runtimeinstall"
 )
 
+func init() {
+	resolveSourceArchiveURLFunc = func(ctx context.Context, profile, region string) (string, string, error) {
+		return "https://example.com/openclaw-bootstrap.tar.gz", "test-sha", nil
+	}
+}
+
 func TestConfigValidateCommandAcceptsConfigFlagAfterSubcommand(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "openclaw.yaml")
@@ -180,7 +186,7 @@ func TestInfraCreateCommandReportsCreatedInstance(t *testing.T) {
 				PrivateIP:          "10.0.0.10",
 				ConnectionInfo:     "ssh -i <your-key>.pem ubuntu@203.0.113.10",
 				SecurityGroupID:    "sg-0123456789abcdef0",
-				SecurityGroupRules: []string{"allow tcp/22 from 203.0.113.0/24"},
+				SecurityGroupRules: []string{"allow tcp/22 from 203.0.113.0/24", "allow tcp/8080 from 0.0.0.0/0"},
 				Region:             cfg.Region.Name,
 				NetworkMode:        "public",
 			},
@@ -234,6 +240,7 @@ sandbox:
 		"connection: ssh -i <your-key>.pem ubuntu@203.0.113.10",
 		"security group rules:",
 		"allow tcp/22 from 203.0.113.0/24",
+		"allow tcp/8080 from 0.0.0.0/0",
 	} {
 		if !strings.Contains(got, fragment) {
 			t.Fatalf("stdout = %q, want %q", got, fragment)
@@ -523,7 +530,7 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 				PrivateIP:          "10.0.0.10",
 				ConnectionInfo:     "ssh -i <your-key>.pem ubuntu@203.0.113.10",
 				SecurityGroupID:    "sg-0123456789abcdef0",
-				SecurityGroupRules: []string{"allow tcp/22 from 203.0.113.0/24"},
+				SecurityGroupRules: []string{"allow tcp/22 from 203.0.113.0/24", "allow tcp/8080 from 0.0.0.0/0"},
 				Region:             cfg.Region.Name,
 				NetworkMode:        "public",
 			},
@@ -730,7 +737,7 @@ func (s stubCloudProvider) CreateInstance(ctx context.Context, req provider.Crea
 		PrivateIP:          "10.0.0.10",
 		ConnectionInfo:     "ssh -i <your-key>.pem ubuntu@203.0.113.10",
 		SecurityGroupID:    "sg-0123456789abcdef0",
-		SecurityGroupRules: []string{"allow tcp/22 from 203.0.113.0/24"},
+		SecurityGroupRules: []string{"allow tcp/22 from 203.0.113.0/24", "allow tcp/8080 from 0.0.0.0/0"},
 	}, nil
 }
 

@@ -27,4 +27,18 @@ docker run -d \
   "${container_name}:latest" \
   serve --runtime-config /opt/openclaw/runtime.yaml --listen 0.0.0.0:${listen_port}
 
+for attempt in $(seq 1 30); do
+  if curl -fsS "http://127.0.0.1:${listen_port}/healthz" >/tmp/openclaw-healthz.json; then
+    echo "openclaw health check passed"
+    cat /tmp/openclaw-healthz.json
+    break
+  fi
+  sleep 2
+done
+
+if [ ! -s /tmp/openclaw-healthz.json ]; then
+  echo "openclaw health check failed"
+  exit 1
+fi
+
 touch /opt/openclaw/bootstrap.done

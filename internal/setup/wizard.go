@@ -180,6 +180,16 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		}
 	}
 
+	runtimePublicCIDR := "0.0.0.0/0"
+	if w.Existing != nil {
+		if existingCIDR := strings.TrimSpace(w.Existing.Runtime.PublicCIDR); existingCIDR != "" {
+			runtimePublicCIDR = existingCIDR
+		}
+	}
+	if networkMode != "public" {
+		runtimePublicCIDR = ""
+	}
+
 	nimEndpoint, err := w.Prompter.Text("NIM endpoint", defaultEndpoint(computeClass))
 	if err != nil {
 		return nil, err
@@ -212,10 +222,11 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 			UseNemoClaw: useNemoClaw,
 		},
 		Runtime: config.RuntimeConfig{
-			Endpoint: nimEndpoint,
-			Model:    model,
-			Provider: runtimeProvider,
-			Codex:    config.CodexConfig{SecretID: codexSecretID},
+			Endpoint:   nimEndpoint,
+			Model:      model,
+			Provider:   runtimeProvider,
+			PublicCIDR: runtimePublicCIDR,
+			Codex:      config.CodexConfig{SecretID: codexSecretID},
 		},
 	}
 
@@ -239,6 +250,9 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	}
 	if strings.TrimSpace(cfg.SSH.CIDR) != "" {
 		fmt.Fprintf(w.Out, "ssh cidr: %s\n", cfg.SSH.CIDR)
+	}
+	if strings.TrimSpace(cfg.Runtime.PublicCIDR) != "" {
+		fmt.Fprintf(w.Out, "runtime cidr: %s\n", cfg.Runtime.PublicCIDR)
 	}
 	if strings.TrimSpace(cfg.SSH.User) != "" {
 		fmt.Fprintf(w.Out, "ssh user: %s\n", cfg.SSH.User)

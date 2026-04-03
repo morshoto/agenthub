@@ -68,6 +68,7 @@ type terraformVars struct {
 	ImageName    string `json:"image_name"`
 	ImageID      string `json:"image_id"`
 	RuntimePort  int    `json:"runtime_port"`
+	RuntimeCIDR  string `json:"runtime_cidr"`
 	SSHKeyName   string `json:"ssh_key_name"`
 	SSHPublicKey string `json:"ssh_public_key"`
 	SSHCIDR      string `json:"ssh_cidr"`
@@ -115,7 +116,7 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 	if err != nil {
 		return nil, err
 	}
-	sourceURL, sourceRef, err := resolveSourceArchiveURL(ctx)
+	sourceURL, sourceRef, err := resolveSourceArchiveURLFunc(ctx, profile, cfg.Region.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -123,6 +124,7 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 	if runtimePort <= 0 {
 		runtimePort = 8080
 	}
+	runtimeCIDR := resolveRuntimeCIDR(cfg)
 
 	adviser := newAWSProvider(profile, cfg.Compute.Class)
 	if _, err := adviser.CheckAuth(ctx); err != nil {
@@ -158,6 +160,7 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 		NetworkMode:  networkMode,
 		ImageID:      image.ID,
 		RuntimePort:  runtimePort,
+		RuntimeCIDR:  runtimeCIDR,
 		SSHKeyName:   sshKeyName,
 		SSHPublicKey: sshPublicKey,
 		SSHCIDR:      sshCIDR,

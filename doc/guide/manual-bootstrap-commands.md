@@ -27,8 +27,8 @@ openclaw infra tfvars --config openclaw.yaml --output infra/aws/ec2/terraform.tf
 If you want to pin the AWS profile explicitly, pass `--profile sso-dev`.
 If you omit it and run interactively, the CLI will prompt you to choose a profile or type one in.
 
-This command reads the YAML config, resolves the SSH public key, resolves the current GitHub source archive, and writes Terraform-compatible `terraform.tfvars` variables.
-The generated file also includes `aws_profile`, `runtime_port`, `source_archive_url`, and `source_ref`, so Terraform can create the EC2 instance and let cloud-init boot the Docker container automatically.
+This command reads the YAML config, resolves the SSH public key, stages the current working tree as a bootstrap archive, and writes Terraform-compatible `terraform.tfvars` variables.
+The generated file also includes `aws_profile`, `runtime_port`, `runtime_cidr`, `source_archive_url`, and `source_ref`, so Terraform can create the EC2 instance and let cloud-init boot the Docker container automatically.
 
 ## 3. Create the Terraform infrastructure
 
@@ -58,7 +58,7 @@ If the instance is private, connect from a bastion or SSM session instead.
 
 ## 5. Wait for the Docker bootstrap
 
-The EC2 user-data script installs Docker, builds the image from the GitHub source archive, and starts the `openclaw` container automatically.
+The EC2 user-data script installs Docker, builds the image from the staged source archive, and starts the `openclaw` container automatically.
 You can watch the bootstrap log over SSH if you want to inspect what happened:
 
 ```bash
@@ -108,4 +108,4 @@ nvidia-smi
 - The Terraform commands above can work with `image.name` only, but `plan` and `apply` still need AWS access to resolve the AMI.
 - If you regenerate `terraform.tfvars` with a different AWS profile, the `aws_profile` value in the file changes too.
 - If you are rebuilding often, keep the generated `terraform.tfvars` file around and regenerate it only when the YAML changes.
-- The Docker bootstrap path assumes your repository origin is a GitHub remote that can be archived from the EC2 instance.
+- `runtime_cidr` defaults to `0.0.0.0/0`, which keeps the runtime health endpoint publicly reachable for external verification.

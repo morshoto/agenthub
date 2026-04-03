@@ -45,12 +45,13 @@ data "aws_subnets" "any" {
 }
 
 locals {
-  vpc_id      = length(data.aws_vpcs.default.ids) > 0 ? data.aws_vpcs.default.ids[0] : ""
-  subnet_ids  = length(data.aws_subnets.default_for_az.ids) > 0 ? data.aws_subnets.default_for_az.ids : data.aws_subnets.any.ids
-  subnet_id   = length(local.subnet_ids) > 0 ? local.subnet_ids[0] : ""
-  image_name  = trimspace(var.image_name)
-  image_id    = trimspace(var.image_id)
-  listen_port = var.runtime_port > 0 ? var.runtime_port : 8080
+  vpc_id       = length(data.aws_vpcs.default.ids) > 0 ? data.aws_vpcs.default.ids[0] : ""
+  subnet_ids   = length(data.aws_subnets.default_for_az.ids) > 0 ? data.aws_subnets.default_for_az.ids : data.aws_subnets.any.ids
+  subnet_id    = length(local.subnet_ids) > 0 ? local.subnet_ids[0] : ""
+  image_name   = trimspace(var.image_name)
+  image_id     = trimspace(var.image_id)
+  listen_port  = var.runtime_port > 0 ? var.runtime_port : 8080
+  runtime_cidr = trimspace(var.runtime_cidr) != "" ? trimspace(var.runtime_cidr) : trimspace(var.ssh_cidr)
   runtime_config_yaml = yamlencode({
     use_nemoclaw = var.use_nemoclaw
     nim_endpoint = var.nim_endpoint
@@ -72,6 +73,7 @@ locals {
 
   security_group_rules = var.network_mode == "public" && trimspace(var.ssh_cidr) != "" ? [
     "allow tcp/22 from ${trimspace(var.ssh_cidr)}",
+    "allow tcp/${local.listen_port} from ${local.runtime_cidr}",
     ] : [
     "no inbound rules configured",
   ]
@@ -117,6 +119,17 @@ resource "aws_security_group" "this" {
       to_port     = 22
       protocol    = "tcp"
       cidr_blocks = [trimspace(var.ssh_cidr)]
+    }
+  }
+
+  dynamic "ingress" {
+    for_each = var.network_mode == "public" && trimspace(local.runtime_cidr) != "" ? [1] : []
+    content {
+      description = "OpenClaw runtime access"
+      from_port   = local.listen_port
+      to_port     = local.listen_port
+      protocol    = "tcp"
+      cidr_blocks = [local.runtime_cidr]
     }
   }
 

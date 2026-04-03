@@ -128,7 +128,7 @@ func buildTerraformVars(ctx context.Context, profile string, cfg *config.Config)
 	if err != nil {
 		return terraformVars{}, err
 	}
-	sourceURL, sourceRef, err := resolveSourceArchiveURL(ctx)
+	sourceURL, sourceRef, err := resolveSourceArchiveURLFunc(ctx, profile, cfg.Region.Name)
 	if err != nil {
 		return terraformVars{}, err
 	}
@@ -136,6 +136,7 @@ func buildTerraformVars(ctx context.Context, profile string, cfg *config.Config)
 	if runtimePort <= 0 {
 		runtimePort = 8080
 	}
+	runtimeCIDR := resolveRuntimeCIDR(cfg)
 
 	return terraformVars{
 		AWSProfile:   strings.TrimSpace(profile),
@@ -147,6 +148,7 @@ func buildTerraformVars(ctx context.Context, profile string, cfg *config.Config)
 		ImageName:    strings.TrimSpace(cfg.Image.Name),
 		ImageID:      strings.TrimSpace(cfg.Image.ID),
 		RuntimePort:  runtimePort,
+		RuntimeCIDR:  runtimeCIDR,
 		SSHKeyName:   sshKeyName,
 		SSHPublicKey: sshPublicKey,
 		SSHCIDR:      sshCIDR,
@@ -187,6 +189,7 @@ func renderTerraformVars(vars terraformVars) string {
 		"image_name",
 		"image_id",
 		"runtime_port",
+		"runtime_cidr",
 		"ssh_key_name",
 		"ssh_public_key",
 		"ssh_cidr",
@@ -214,6 +217,7 @@ func renderTerraformVars(vars terraformVars) string {
 		fmt.Sprintf("%-*s = %s", maxWidth, "image_name", terraformQuoted(vars.ImageName)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "image_id", terraformQuoted(vars.ImageID)),
 		fmt.Sprintf("%-*s = %d", maxWidth, "runtime_port", vars.RuntimePort),
+		fmt.Sprintf("%-*s = %s", maxWidth, "runtime_cidr", terraformQuoted(vars.RuntimeCIDR)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "ssh_key_name", terraformQuoted(vars.SSHKeyName)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "ssh_public_key", terraformQuoted(vars.SSHPublicKey)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "ssh_cidr", terraformQuoted(vars.SSHCIDR)),

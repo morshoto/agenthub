@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/netip"
 	"net/url"
 	"os"
 	"sort"
@@ -54,11 +55,12 @@ type ImageConfig struct {
 }
 
 type RuntimeConfig struct {
-	Endpoint string      `yaml:"endpoint"`
-	Model    string      `yaml:"model"`
-	Port     int         `yaml:"port,omitempty"`
-	Provider string      `yaml:"provider,omitempty"`
-	Codex    CodexConfig `yaml:"codex,omitempty"`
+	Endpoint   string      `yaml:"endpoint"`
+	Model      string      `yaml:"model"`
+	Port       int         `yaml:"port,omitempty"`
+	Provider   string      `yaml:"provider,omitempty"`
+	PublicCIDR string      `yaml:"public_cidr,omitempty"`
+	Codex      CodexConfig `yaml:"codex,omitempty"`
 }
 
 type CodexConfig struct {
@@ -187,6 +189,11 @@ func Validate(cfg *Config) error {
 	if provider := strings.TrimSpace(cfg.Runtime.Provider); provider != "" && !IsValidRuntimeProvider(provider) {
 		v.Add("runtime.provider", fmt.Sprintf("unsupported provider %q", provider))
 	}
+	if publicCIDR := strings.TrimSpace(cfg.Runtime.PublicCIDR); publicCIDR != "" {
+		if _, err := parseCIDRLike(publicCIDR); err != nil {
+			v.Add("runtime.public_cidr", err.Error())
+		}
+	}
 	if strings.TrimSpace(cfg.Runtime.Provider) == "codex" && strings.TrimSpace(cfg.Runtime.Codex.SecretID) == "" {
 		v.Add("runtime.codex.secret_id", "is required when runtime.provider is codex")
 	}
@@ -293,4 +300,26 @@ func EffectiveTerraformBackend(cfg *Config) string {
 		return strings.ToLower(backend)
 	}
 	return "terraform"
+}
+
+func parseCIDRLike(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", errors.New("cidr is required")
+	}
+	if strings.Contains(value, "/") {
+		prefix, err := netip.ParsePrefix(value)
+		if err != nil {
+			return "", fmt.Errorf("invalid cidr %q: %w", value, err)
+		}
+		return prefix.String(), nil
+	}
+	addr, err := netip.ParseAddr(value)
+	if err != nil {
+		return "", fmt.Errorf("invalid cidr %q: %w", value, err)
+	}
+	if addr.Is4() {
+		return addr.String() + "/32", nil
+	}
+	return addr.String() + "/128", nil
 }

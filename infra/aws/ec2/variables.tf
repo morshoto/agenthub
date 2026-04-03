@@ -77,6 +77,11 @@ variable "runtime_port" {
   default = 8080
 }
 
+variable "runtime_cidr" {
+  type    = string
+  default = "0.0.0.0/0"
+}
+
 variable "source_archive_url" {
   type = string
 }

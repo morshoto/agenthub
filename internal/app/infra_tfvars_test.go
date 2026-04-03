@@ -39,6 +39,7 @@ image:
 runtime:
   endpoint: http://localhost:11434
   model: llama3.2
+  public_cidr: 0.0.0.0/0
 sandbox:
   enabled: true
   network_mode: public
@@ -76,6 +77,7 @@ ssh:
 	mustContainTerraformAssignment(t, body, "image_name", `"Ubuntu 22.04 LTS"`)
 	mustContainTerraformAssignment(t, body, "image_id", `""`)
 	mustContainTerraformAssignment(t, body, "runtime_port", `8080`)
+	mustContainTerraformAssignment(t, body, "runtime_cidr", `"0.0.0.0/0"`)
 	mustContainTerraformAssignment(t, body, "ssh_key_name", `"demo-key"`)
 	mustContainTerraformAssignment(t, body, "ssh_public_key", `"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITfvarsTestKey openclaw"`)
 	mustContainTerraformAssignment(t, body, "ssh_cidr", `"203.0.113.0/24"`)
@@ -84,7 +86,7 @@ ssh:
 	mustContainTerraformAssignment(t, body, "use_nemoclaw", `true`)
 	mustContainTerraformAssignment(t, body, "nim_endpoint", `"http://localhost:11434"`)
 	mustContainTerraformAssignment(t, body, "model", `"llama3.2"`)
-	mustContainTerraformAssignment(t, body, "source_archive_url", `"https://github.com/`)
+	mustContainTerraformAssignment(t, body, "source_archive_url", `"https://example.com/openclaw-bootstrap.tar.gz"`)
 	mustContainTerraformAssignment(t, body, "source_ref", `"`)
 	mustContainTerraformAssignment(t, body, "aws_profile", `"sso-dev"`)
 	if !strings.Contains(stdout.String(), "terraform variables written to") {
