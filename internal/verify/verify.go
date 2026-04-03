@@ -434,6 +434,12 @@ if command -v docker >/dev/null 2>&1; then
     docker ps --filter name='^/openclaw$' --format '{{.Names}} {{.Status}}'
     exit 0
   fi
+  if command -v sudo >/dev/null 2>&1; then
+    if sudo docker ps --filter name='^/openclaw$' --format '{{.Names}} {{.Status}}' | grep -q '^openclaw '; then
+      sudo docker ps --filter name='^/openclaw$' --format '{{.Names}} {{.Status}}'
+      exit 0
+    fi
+  fi
 fi
 exit 1
 `
