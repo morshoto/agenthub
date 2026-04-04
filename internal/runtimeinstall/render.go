@@ -15,6 +15,8 @@ type RuntimeConfig struct {
 	NIMEndpoint string  `yaml:"nim_endpoint"`
 	Model       string  `yaml:"model"`
 	Port        int     `yaml:"port,omitempty"`
+	Provider    string  `yaml:"provider,omitempty"`
+	Region      string  `yaml:"region,omitempty"`
 	Sandbox     Sandbox `yaml:"sandbox"`
 }
 
@@ -44,6 +46,8 @@ func RenderRuntimeConfig(cfg *config.Config, useNemoClaw *bool, port int) ([]byt
 		NIMEndpoint: strings.TrimSpace(cfg.Runtime.Endpoint),
 		Model:       strings.TrimSpace(cfg.Runtime.Model),
 		Port:        effectivePort,
+		Provider:    strings.TrimSpace(cfg.Runtime.Provider),
+		Region:      strings.TrimSpace(cfg.Region.Name),
 		Sandbox: Sandbox{
 			Enabled:         cfg.Sandbox.Enabled,
 			NetworkMode:     strings.TrimSpace(cfg.Sandbox.NetworkMode),

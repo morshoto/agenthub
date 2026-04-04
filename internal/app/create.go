@@ -2,7 +2,6 @@ package app
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -23,7 +22,7 @@ func newCreateCommand(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "create",
-		Short: "Create, install, and verify a new environment",
+		Short: "Create and verify a new environment",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(app.opts.ConfigPath) == "" {
 				return errors.New("config file is required: pass --config <path>")
@@ -35,13 +34,18 @@ func newCreateCommand(app *App) *cobra.Command {
 			if err := config.Validate(cfg); err != nil {
 				return err
 			}
-			if err := validateInfraCreateFlags(sshKeyName, sshCIDR); err != nil {
+			effectiveSSHKeyName := firstNonEmpty(sshKeyName, cfg.SSH.KeyName)
+			effectiveSSHCIDR := firstNonEmpty(sshCIDR, cfg.SSH.CIDR)
+			if err := validateCreateWorkflowSSHFlags(cfg, effectiveSSHKeyName, effectiveSSHCIDR); err != nil {
+				return err
+			}
+			if err := validateInfraCreateFlags(cfg, effectiveSSHKeyName, effectiveSSHCIDR); err != nil {
 				return err
 			}
 
 			logger := loggerFromContext(cmd.Context())
 			logger.Info("starting create workflow")
-			fmt.Fprintln(cmd.OutOrStdout(), "running create workflow...")
+			progress := newProgressRenderer(cmd.OutOrStdout())
 			instance, installResult, verifyReport, err := runCreateWorkflow(cmd.Context(), app.opts.Profile, cfg, createOptions{
 				SSHKeyName:      sshKeyName,
 				SSHCIDR:         sshCIDR,
@@ -52,8 +56,7 @@ func newCreateCommand(app *App) *cobra.Command {
 				Port:            port,
 				UseNemoClaw:     useNemoClaw,
 				DisableNemoClaw: disableNemoClaw,
-			})
-			printWorkflowSuccess(cmd.OutOrStdout(), instance, installResult, verifyReport, app.opts.ConfigPath, cfg, instanceTarget(instance), true)
+			}, progress)
 			if err != nil {
 				return wrapUserFacingError(
 					"create workflow failed",
@@ -63,12 +66,13 @@ func newCreateCommand(app *App) *cobra.Command {
 					"re-run the failed stage directly once the host is ready",
 				)
 			}
+			printWorkflowSuccess(cmd.OutOrStdout(), instance, installResult, verifyReport, app.opts.ConfigPath, cfg, instanceTarget(instance), true)
 			return nil
 		},
 	}
 
 	cmd.Flags().StringVar(&sshKeyName, "ssh-key-name", "", "SSH key pair name to attach to the instance")
-	cmd.Flags().StringVar(&sshCIDR, "ssh-cidr", "", "CIDR allowed to reach port 22 when SSH access is configured")
+	cmd.Flags().StringVar(&sshCIDR, "ssh-cidr", "", "CIDR allowed to reach port 22; auto-detected from your public IP when omitted")
 	cmd.Flags().StringVar(&sshUser, "ssh-user", "", "SSH username for the target host")
 	cmd.Flags().StringVar(&sshKey, "ssh-key", "", "path to the SSH private key")
 	cmd.Flags().IntVar(&sshPort, "ssh-port", 22, "SSH port")
@@ -77,4 +81,16 @@ func newCreateCommand(app *App) *cobra.Command {
 	cmd.Flags().BoolVar(&useNemoClaw, "use-nemoclaw", false, "enable NemoClaw settings for the generated runtime config")
 	cmd.Flags().BoolVar(&disableNemoClaw, "disable-nemoclaw", false, "disable NemoClaw settings for the generated runtime config")
 	return cmd
+}
+
+func validateCreateWorkflowSSHFlags(cfg *config.Config, sshKeyName, sshCIDR string) error {
+	sshKeyName = strings.TrimSpace(sshKeyName)
+	sshCIDR = strings.TrimSpace(sshCIDR)
+	networkMode := config.EffectiveNetworkMode(cfg)
+	switch {
+	case networkMode == "private":
+		return errors.New("private networking is not supported yet; use public networking or add an SSM/bastion executor")
+	default:
+		return nil
+	}
 }

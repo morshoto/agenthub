@@ -5,9 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/netip"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
+	"openclaw/internal/codexauth"
 	"openclaw/internal/config"
 	"openclaw/internal/prompt"
 	"openclaw/internal/provider"
@@ -17,12 +23,17 @@ import (
 type Wizard struct {
 	Prompter        *prompt.Session
 	Out             io.Writer
-	ProviderFactory func(platform string) provider.CloudProvider
+	ProviderFactory func(platform, computeClass string) provider.CloudProvider
 	Provider        provider.CloudProvider
 	Existing        *config.Config
+	AWSProfile      string
 }
 
-func NewWizard(prompter *prompt.Session, out io.Writer, factory func(platform string) provider.CloudProvider, existing *config.Config) *Wizard {
+const initAWSLookupTimeout = 5 * time.Second
+
+var detectInitSSHCIDR = defaultDetectInitSSHCIDR
+
+func NewWizard(prompter *prompt.Session, out io.Writer, factory func(platform, computeClass string) provider.CloudProvider, existing *config.Config) *Wizard {
 	return &Wizard{Prompter: prompter, Out: out, ProviderFactory: factory, Existing: existing}
 }
 
@@ -35,11 +46,19 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		return nil, fmt.Errorf("%s is not implemented yet", platform)
 	}
 
+	computeClass := defaultComputeClass(w.Existing)
+	computeClass, err = w.Prompter.Select("Select compute mode", []string{config.ComputeClassCPU, config.ComputeClassGPU}, computeClass)
+	if err != nil {
+		return nil, err
+	}
+
 	if w.Provider == nil && w.ProviderFactory != nil {
-		w.Provider = w.ProviderFactory(platform)
+		w.Provider = w.ProviderFactory(platform, computeClass)
 	}
 	if w.Provider != nil {
-		if _, err := w.Provider.AuthCheck(ctx); err != nil {
+		authCtx, cancel := bestEffortAWSContext(ctx)
+		if _, err := w.Provider.CheckAuth(authCtx); err != nil {
+			cancel()
 			var authErr *awsprovider.AuthError
 			if errors.As(err, &authErr) {
 				fmt.Fprintln(w.Out, "Warning: AWS auth check unavailable; continuing.")
@@ -47,6 +66,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 				return nil, err
 			}
 		}
+		cancel()
 	}
 
 	regions, err := w.listRegions(ctx)
@@ -66,24 +86,19 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		return nil, err
 	}
 
-	instanceTypes, err := w.listInstanceTypes(ctx, region)
+	instanceTypes, err := w.listInstanceTypes(ctx, region, computeClass)
 	if err != nil {
 		return nil, err
 	}
-	instanceType, err := w.Prompter.Select("Select instance type", instanceTypes, defaultOption(instanceTypes, "g5.xlarge"))
+	instanceType, err := w.Prompter.Select("Select instance type", instanceTypes, defaultInstanceType(computeClass))
 	if err != nil {
 		return nil, err
 	}
 
-	images, err := w.listImages(ctx, region)
+	images, err := w.listImages(ctx, region, computeClass)
 	if err != nil {
-		var authErr *awsprovider.AuthError
-		if errors.As(err, &authErr) && (authErr.Kind == "permission_denied" || authErr.Kind == "no_credentials") {
-			fmt.Fprintln(w.Out, "Warning: AWS image lookup unavailable; using bundled fallback images.")
-			images = fallbackAWSBaseImages(region)
-		} else {
-			return nil, err
-		}
+		fmt.Fprintln(w.Out, "Warning: AWS image lookup unavailable; using bundled fallback images.")
+		images = fallbackAWSBaseImages(region, computeClass)
 	}
 	image, err := selectBaseImage(w.Prompter, images)
 	if err != nil {
@@ -95,9 +110,52 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		return nil, err
 	}
 
-	networkMode, err := w.Prompter.Select("Select network mode", []string{"private", "public"}, "private")
+	networkMode, err := w.Prompter.Select("Select network mode", []string{"private", "public"}, defaultNetworkMode(computeClass))
 	if err != nil {
 		return nil, err
+	}
+
+	sshKeyName := ""
+	sshPrivateKeyPath := defaultSSHPrivateKeyPath()
+	sshCIDR := ""
+	sshUser := ""
+	if w.Existing != nil {
+		sshKeyName = strings.TrimSpace(w.Existing.SSH.KeyName)
+		if existingPath := strings.TrimSpace(w.Existing.SSH.PrivateKeyPath); existingPath != "" {
+			sshPrivateKeyPath = existingPath
+		}
+		sshCIDR = strings.TrimSpace(w.Existing.SSH.CIDR)
+		sshUser = strings.TrimSpace(w.Existing.SSH.User)
+	}
+	if sshKeyName == "" {
+		sshKeyName = defaultSSHKeyName()
+	}
+	if networkMode == "public" {
+		sshKeyName, err = w.Prompter.Text("SSH key pair name", sshKeyName)
+		if err != nil {
+			return nil, err
+		}
+		if sshCIDR == "" {
+			if detected, detectErr := detectInitSSHCIDR(ctx); detectErr == nil {
+				sshCIDR = detected
+			}
+		}
+		sshPrivateKeyPath, err = w.Prompter.Text("SSH private key path", sshPrivateKeyPath)
+		if err != nil {
+			return nil, err
+		}
+		sshCIDR, err = w.Prompter.Text("SSH CIDR", sshCIDR)
+		if err != nil {
+			return nil, err
+		}
+		sshUserDefault := sshUser
+		if sshUserDefault == "" {
+			sshUserDefault = sshUsernameForImage(image.Name, image.ID)
+		}
+		sshUser, err = w.Prompter.Text("SSH user", sshUserDefault)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	useNemoClaw, err := w.Prompter.Confirm("Use NemoClaw", true)
@@ -105,26 +163,73 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		return nil, err
 	}
 
-	nimEndpoint, err := w.Prompter.Text("NIM endpoint", "http://localhost:11434")
+	runtimeProvider, err := w.Prompter.Select("Select model provider", runtimeProviderOptions(), defaultRuntimeProvider(w.Existing))
 	if err != nil {
 		return nil, err
 	}
 
-	model, err := w.Prompter.Text("Model name", "llama3.2")
+	codexSecretID := ""
+	codexAPIKey := ""
+	if runtimeProvider == "codex" {
+		codexAPIKey, err = w.Prompter.Secret("OpenAI API key", "")
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(codexAPIKey) == "" {
+			return nil, errors.New("OpenAI API key is required for Codex")
+		}
+	}
+
+	runtimePublicCIDR := "0.0.0.0/0"
+	if w.Existing != nil {
+		if existingCIDR := strings.TrimSpace(w.Existing.Runtime.PublicCIDR); existingCIDR != "" {
+			runtimePublicCIDR = existingCIDR
+		}
+	}
+	if networkMode != "public" {
+		runtimePublicCIDR = ""
+	}
+
+	nimEndpoint := ""
+	if runtimeProvider != "aws-bedrock" {
+		nimEndpoint, err = w.Prompter.Text("NIM endpoint", defaultEndpoint(computeClass))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	model, err := w.Prompter.Text("Model name", defaultRuntimeModel(runtimeProvider))
 	if err != nil {
 		return nil, err
 	}
 
 	cfg := &config.Config{
 		Platform: config.PlatformConfig{Name: platform},
+		Compute:  config.ComputeConfig{Class: computeClass},
 		Region:   config.RegionConfig{Name: region},
-		Instance: config.InstanceConfig{Type: instanceType, DiskSizeGB: diskSize},
+		Instance: config.InstanceConfig{Type: instanceType, DiskSizeGB: diskSize, NetworkMode: networkMode},
 		Image:    config.ImageConfig{Name: image.Name, ID: image.ID},
-		Runtime:  config.RuntimeConfig{Endpoint: nimEndpoint, Model: model},
+		SSH: config.SSHConfig{
+			KeyName:        sshKeyName,
+			PrivateKeyPath: sshPrivateKeyPath,
+			CIDR:           sshCIDR,
+			User:           sshUser,
+		},
+		Infra: config.InfraConfig{
+			Backend:   "terraform",
+			ModuleDir: filepath.Join("infra", "aws", "ec2"),
+		},
 		Sandbox: config.SandboxConfig{
 			Enabled:     true,
 			NetworkMode: networkMode,
 			UseNemoClaw: useNemoClaw,
+		},
+		Runtime: config.RuntimeConfig{
+			Endpoint:   nimEndpoint,
+			Model:      model,
+			Provider:   runtimeProvider,
+			PublicCIDR: runtimePublicCIDR,
+			Codex:      config.CodexConfig{SecretID: codexSecretID},
 		},
 	}
 
@@ -140,8 +245,34 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	}
 	fmt.Fprintf(w.Out, "disk size: %d GB\n", cfg.Instance.DiskSizeGB)
 	fmt.Fprintf(w.Out, "network mode: %s\n", cfg.Sandbox.NetworkMode)
+	if strings.TrimSpace(cfg.SSH.KeyName) != "" {
+		fmt.Fprintf(w.Out, "ssh key pair: %s\n", cfg.SSH.KeyName)
+	}
+	if strings.TrimSpace(cfg.SSH.PrivateKeyPath) != "" {
+		fmt.Fprintf(w.Out, "ssh private key: %s\n", cfg.SSH.PrivateKeyPath)
+	}
+	if strings.TrimSpace(cfg.SSH.CIDR) != "" {
+		fmt.Fprintf(w.Out, "ssh cidr: %s\n", cfg.SSH.CIDR)
+	}
+	if strings.TrimSpace(cfg.Runtime.PublicCIDR) != "" {
+		fmt.Fprintf(w.Out, "runtime cidr: %s\n", cfg.Runtime.PublicCIDR)
+	}
+	if strings.TrimSpace(cfg.SSH.User) != "" {
+		fmt.Fprintf(w.Out, "ssh user: %s\n", cfg.SSH.User)
+	}
+	fmt.Fprintf(w.Out, "infra backend: %s\n", cfg.Infra.Backend)
+	fmt.Fprintf(w.Out, "terraform module: %s\n", cfg.Infra.ModuleDir)
 	fmt.Fprintf(w.Out, "use NemoClaw: %t\n", cfg.Sandbox.UseNemoClaw)
-	fmt.Fprintf(w.Out, "NIM endpoint: %s\n", cfg.Runtime.Endpoint)
+	fmt.Fprintf(w.Out, "runtime provider: %s\n", cfg.Runtime.Provider)
+	if cfg.Runtime.Provider == "codex" {
+		fmt.Fprintf(w.Out, "codex auth: configured\n")
+	}
+	if cfg.Runtime.Provider == "aws-bedrock" {
+		fmt.Fprintf(w.Out, "bedrock auth: uses instance role\n")
+	}
+	if strings.TrimSpace(cfg.Runtime.Endpoint) != "" {
+		fmt.Fprintf(w.Out, "NIM endpoint: %s\n", cfg.Runtime.Endpoint)
+	}
 	fmt.Fprintf(w.Out, "model: %s\n", cfg.Runtime.Model)
 
 	confirm, err := w.Prompter.Confirm("Write this configuration", true)
@@ -152,7 +283,39 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		return nil, errors.New("setup cancelled")
 	}
 
+	if runtimeProvider == "codex" {
+		codexSecretID, err := codexauth.StoreAPIKeyFunc(ctx, w.AWSProfile, region, codexauth.DefaultSecretName(), codexAPIKey)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Runtime.Codex.SecretID = codexSecretID
+	}
+
 	return cfg, nil
+}
+
+func runtimeProviderOptions() []string {
+	return []string{"codex", "aws-bedrock", "gemini", "claude-code"}
+}
+
+func defaultRuntimeProvider(existing *config.Config) string {
+	if existing == nil {
+		return "codex"
+	}
+	provider := strings.ToLower(strings.TrimSpace(existing.Runtime.Provider))
+	if provider == "" {
+		return "codex"
+	}
+	return provider
+}
+
+func defaultRuntimeModel(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "aws-bedrock":
+		return "anthropic.claude-3-haiku-20240307-v1:0"
+	default:
+		return "llama3.2"
+	}
 }
 
 func (w *Wizard) listRegions(ctx context.Context) ([]string, error) {
@@ -162,11 +325,14 @@ func (w *Wizard) listRegions(ctx context.Context) ([]string, error) {
 	return w.Provider.ListRegions(ctx)
 }
 
-func (w *Wizard) listInstanceTypes(ctx context.Context, region string) ([]string, error) {
+func (w *Wizard) listInstanceTypes(ctx context.Context, region, computeClass string) ([]string, error) {
 	if w.Provider == nil {
-		return []string{"g5.xlarge", "g4dn.xlarge", "t3.medium"}, nil
+		if config.EffectiveComputeClass(computeClass) == config.ComputeClassCPU {
+			return []string{"t3.xlarge", "t3.2xlarge", "t3.medium"}, nil
+		}
+		return []string{"g5.xlarge", "g4dn.xlarge", "g6.xlarge"}, nil
 	}
-	items, err := w.Provider.ListInstanceTypes(ctx, region)
+	items, err := w.Provider.RecommendInstanceTypes(ctx, region, computeClass)
 	if err != nil {
 		return nil, err
 	}
@@ -180,21 +346,18 @@ func (w *Wizard) listInstanceTypes(ctx context.Context, region string) ([]string
 	return options, nil
 }
 
-func (w *Wizard) listImages(ctx context.Context, region string) ([]provider.BaseImage, error) {
+func (w *Wizard) listImages(ctx context.Context, region, computeClass string) ([]provider.BaseImage, error) {
 	if w.Provider == nil {
-		return fallbackAWSBaseImages(region), nil
+		return fallbackAWSBaseImages(region, computeClass), nil
 	}
-	items, err := w.Provider.ListBaseImages(ctx, region)
+	imageCtx, cancel := bestEffortAWSContext(ctx)
+	defer cancel()
+	items, err := w.Provider.RecommendBaseImages(imageCtx, region, computeClass)
 	if err != nil {
-		var authErr *awsprovider.AuthError
-		if errors.As(err, &authErr) {
-			fmt.Fprintln(w.Out, "Warning: AWS image lookup unavailable; using bundled fallback images.")
-			return fallbackAWSBaseImages(region), nil
-		}
 		return nil, err
 	}
 	if len(items) == 0 {
-		return fallbackAWSBaseImages(region), nil
+		return fallbackAWSBaseImages(region, computeClass), nil
 	}
 	return items, nil
 }
@@ -203,7 +366,9 @@ func (w *Wizard) warnOnQuota(ctx context.Context, region string) error {
 	if w.Provider == nil {
 		return nil
 	}
-	report, err := w.Provider.CheckGPUQuota(ctx, region, "g5")
+	quotaCtx, cancel := bestEffortAWSContext(ctx)
+	defer cancel()
+	report, err := w.Provider.CheckGPUQuota(quotaCtx, region, "g5")
 	if err != nil {
 		fmt.Fprintln(w.Out, "Warning: GPU quota check unavailable; continuing.")
 		return nil
@@ -251,6 +416,93 @@ func defaultOption(options []string, fallback string) string {
 	return options[0]
 }
 
+func defaultComputeClass(existing *config.Config) string {
+	if existing == nil {
+		return config.ComputeClassGPU
+	}
+	if class := config.EffectiveComputeClass(existing.Compute.Class); class != "" {
+		return class
+	}
+	return config.ComputeClassGPU
+}
+
+func defaultInstanceType(computeClass string) string {
+	if config.EffectiveComputeClass(computeClass) == config.ComputeClassCPU {
+		return "t3.xlarge"
+	}
+	return "g5.xlarge"
+}
+
+func defaultNetworkMode(computeClass string) string {
+	return "public"
+}
+
+func defaultEndpoint(computeClass string) string {
+	if config.EffectiveComputeClass(computeClass) == config.ComputeClassCPU {
+		return "https://nim.example.com"
+	}
+	return "http://localhost:11434"
+}
+
+func defaultSSHPrivateKeyPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return "~/.ssh/id_ed25519"
+	}
+	return filepath.Join(home, ".ssh", "id_ed25519")
+}
+
+func defaultSSHKeyName() string {
+	return "openclaw"
+}
+
+func defaultDetectInitSSHCIDR(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.ipify.org", nil)
+	if err != nil {
+		return "", err
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("unexpected status %s", resp.Status)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	value := strings.TrimSpace(string(body))
+	if value == "" {
+		return "", errors.New("empty public IP")
+	}
+	if strings.Contains(value, "/") {
+		prefix, err := netip.ParsePrefix(value)
+		if err != nil {
+			return "", err
+		}
+		return prefix.String(), nil
+	}
+	addr, err := netip.ParseAddr(value)
+	if err != nil {
+		return "", err
+	}
+	if addr.Is4() {
+		return addr.String() + "/32", nil
+	}
+	return addr.String() + "/128", nil
+}
+
+func sshUsernameForImage(imageName, imageID string) string {
+	lower := strings.ToLower(strings.TrimSpace(imageName) + " " + strings.TrimSpace(imageID))
+	if strings.Contains(lower, "ubuntu") {
+		return "ubuntu"
+	}
+	return "ec2-user"
+}
+
 func selectBaseImage(prompter *prompt.Session, images []provider.BaseImage) (provider.BaseImage, error) {
 	if len(images) == 0 {
 		return provider.BaseImage{}, errors.New("no base images available")
@@ -261,7 +513,7 @@ func selectBaseImage(prompter *prompt.Session, images []provider.BaseImage) (pro
 		options = append(options, image.Name)
 	}
 	defaultName := images[0].Name
-	if preferred := findBaseImage(images, "AWS Deep Learning AMI GPU Ubuntu 22.04"); preferred.Name != "" {
+	if preferred := findBaseImage(images, preferredBaseImageName(images)); preferred.Name != "" {
 		defaultName = preferred.Name
 	}
 
@@ -285,6 +537,25 @@ func findBaseImage(images []provider.BaseImage, name string) provider.BaseImage 
 	return provider.BaseImage{}
 }
 
+func preferredBaseImageName(images []provider.BaseImage) string {
+	for _, image := range images {
+		lower := strings.ToLower(strings.TrimSpace(image.Name))
+		if strings.Contains(lower, "ubuntu 22.04") && !strings.Contains(lower, "gpu") {
+			return image.Name
+		}
+	}
+	for _, image := range images {
+		lower := strings.ToLower(strings.TrimSpace(image.Name))
+		if strings.Contains(lower, "deep learning ami gpu ubuntu 22.04") {
+			return image.Name
+		}
+	}
+	if len(images) > 0 {
+		return images[0].Name
+	}
+	return ""
+}
+
 func formatUsage(value *int) string {
 	if value == nil {
 		return "n/a"
@@ -292,7 +563,19 @@ func formatUsage(value *int) string {
 	return fmt.Sprintf("%d", *value)
 }
 
-func fallbackAWSBaseImages(region string) []provider.BaseImage {
+func fallbackAWSBaseImages(region, computeClass string) []provider.BaseImage {
+	if config.EffectiveComputeClass(computeClass) == config.ComputeClassCPU {
+		return []provider.BaseImage{{
+			Name:               "Ubuntu 22.04 LTS",
+			Architecture:       "x86_64",
+			Owner:              "canonical",
+			VirtualizationType: "hvm",
+			RootDeviceType:     "ebs",
+			Region:             region,
+			Source:             "fallback",
+			SSMParameter:       "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id",
+		}}
+	}
 	return []provider.BaseImage{{
 		Name:               "AWS Deep Learning AMI GPU Ubuntu 22.04",
 		Architecture:       "x86_64",
@@ -303,4 +586,8 @@ func fallbackAWSBaseImages(region string) []provider.BaseImage {
 		Source:             "fallback",
 		SSMParameter:       "/aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id",
 	}}
+}
+
+func bestEffortAWSContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, initAWSLookupTimeout)
 }

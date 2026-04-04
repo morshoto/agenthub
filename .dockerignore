@@ -1,0 +1,10 @@
+.git
+.terraform
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+*.pem
+doc
+coverage.out
+tmp

@@ -1,0 +1,64 @@
+#!/bin/bash
+set -euo pipefail
+
+exec > >(tee /var/log/openclaw-bootstrap.log | logger -t openclaw-bootstrap -s 2>/dev/console) 2>&1
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y ca-certificates curl docker.io tar
+systemctl enable --now docker
+usermod -aG docker ubuntu || true
+
+install -d -m 0755 /opt/openclaw/src
+install -d -m 0755 /opt/openclaw
+
+cat > /opt/openclaw/runtime.yaml <<'EOF'
+${runtime_config_yaml}
+EOF
+
+curl -fsSL "${source_archive_url}" | tar -xz -C /opt/openclaw/src --strip-components=1
+
+docker build -t "${container_name}:latest" /opt/openclaw/src
+docker rm -f "${container_name}" >/dev/null 2>&1 || true
+# The runtime currently assumes host networking; if that changes, this needs to be revisited with Terraform and the runtime config together.
+docker run -d \
+  --name "${container_name}" \
+  --restart unless-stopped \
+  --network host \
+  -v /opt/openclaw/runtime.yaml:/opt/openclaw/runtime.yaml:ro \
+  "${container_name}:latest" \
+  serve --runtime-config /opt/openclaw/runtime.yaml --listen 0.0.0.0:${listen_port}
+
+for attempt in $(seq 1 30); do
+  if curl -fsS "http://127.0.0.1:${listen_port}/healthz" >/tmp/openclaw-healthz.json; then
+    echo "openclaw health check passed"
+    cat /tmp/openclaw-healthz.json
+    break
+  fi
+  sleep 2
+done
+
+if [ ! -s /tmp/openclaw-healthz.json ]; then
+  echo "openclaw health check failed"
+  exit 1
+fi
+
+if [ "${runtime_provider}" = "aws-bedrock" ]; then
+  for attempt in $(seq 1 30); do
+    if curl -fsS -X POST "http://127.0.0.1:${listen_port}/v1/generate" \
+      -H "Content-Type: application/json" \
+      -d '{"prompt":"say hello in one short sentence"}' >/tmp/openclaw-generate.json; then
+      echo "openclaw bedrock generate check passed"
+      cat /tmp/openclaw-generate.json
+      break
+    fi
+    sleep 2
+  done
+
+  if [ ! -s /tmp/openclaw-generate.json ]; then
+    echo "openclaw bedrock generate check failed"
+    exit 1
+  fi
+fi
+
+touch /opt/openclaw/bootstrap.done

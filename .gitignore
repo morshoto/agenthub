@@ -4,6 +4,10 @@
 .tool-versions
 diff.txt
 
+# Configuration files
+openclaw
+openclaw.yaml
+
 # Terraform local variable files
 terraform/**/terraform.tfvars
 terraform/modules/custom_message_lambda/lambda_package.zip

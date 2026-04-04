@@ -16,7 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 
-	"openclaw/internal/provider"
+	"openclaw/internal/config"
 )
 
 func TestAuthCheckReturnsProfileNotFound(t *testing.T) {
@@ -150,6 +150,41 @@ func TestListBaseImagesResolvesRegionSpecificAMI(t *testing.T) {
 	}
 }
 
+func TestListBaseImagesResolvesUbuntuImageForCPUComputeClass(t *testing.T) {
+	p := &Provider{
+		Config: Config{Profile: "test-profile", ComputeClass: config.ComputeClassCPU},
+		loadDefaultConfig: func(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (awsbase.Config, error) {
+			return awsbase.Config{Region: "us-east-1"}, nil
+		},
+		newSSMClient: func(cfg awsbase.Config) ssmClient {
+			if cfg.Region != "ap-northeast-1" {
+				t.Fatalf("cfg.Region = %q, want ap-northeast-1", cfg.Region)
+			}
+			return fakeSSMClient{
+				value: "ami-0ubuntu1234567890",
+			}
+		},
+	}
+
+	images, err := p.ListBaseImages(context.Background(), "ap-northeast-1")
+	if err != nil {
+		t.Fatalf("ListBaseImages() error = %v", err)
+	}
+	if len(images) != 1 {
+		t.Fatalf("ListBaseImages() len = %d, want 1", len(images))
+	}
+	got := images[0]
+	if got.Name != "Ubuntu 22.04 LTS" {
+		t.Fatalf("image name = %q", got.Name)
+	}
+	if got.ID != "ami-0ubuntu1234567890" {
+		t.Fatalf("image ID = %q", got.ID)
+	}
+	if got.Region != "ap-northeast-1" || got.SSMParameter == "" || got.Source != "canonical-ssm-public-parameter" {
+		t.Fatalf("image metadata = %#v", got)
+	}
+}
+
 func TestCheckGPUQuotaUsesServiceQuotasUtilizationReport(t *testing.T) {
 	p := &Provider{
 		Config: Config{Profile: "test-profile"},
@@ -207,72 +242,6 @@ func TestCheckGPUQuotaUsesServiceQuotasUtilizationReport(t *testing.T) {
 	}
 	if report.Checks[1].CurrentLimit != 8 || report.Checks[1].EstimatedRemaining != 6 || report.Checks[1].UsageIsEstimated {
 		t.Fatalf("second quota check = %#v", report.Checks[1])
-	}
-}
-
-func TestCreateInstanceUsesDefaultVpcSubnetAndReturnsMetadata(t *testing.T) {
-	fakeEC2 := &fakeEC2Client{
-		t: t,
-	}
-	p := &Provider{
-		Config: Config{Profile: "test-profile"},
-		loadDefaultConfig: func(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (awsbase.Config, error) {
-			return awsbase.Config{
-				Region:      "us-east-1",
-				Credentials: awsbase.NewCredentialsCache(staticCredentialsProvider{}),
-			}, nil
-		},
-		newEC2Client: func(cfg awsbase.Config) ec2Client {
-			if cfg.Region != "us-east-1" {
-				t.Fatalf("cfg.Region = %q, want us-east-1", cfg.Region)
-			}
-			return fakeEC2
-		},
-	}
-
-	instance, err := p.CreateInstance(context.Background(), provider.CreateInstanceRequest{
-		Region:           "us-east-1",
-		InstanceType:     "g5.xlarge",
-		Image:            "ami-0123456789abcdef0",
-		ImageName:        "AWS Deep Learning AMI GPU Ubuntu 22.04",
-		DiskSizeGB:       40,
-		NetworkMode:      "private",
-		ConnectionMethod: "ssh",
-		SSHKeyName:       "demo-key",
-		SSHCIDR:          "203.0.113.0/24",
-	})
-	if err != nil {
-		t.Fatalf("CreateInstance() error = %v", err)
-	}
-	if instance.ID != "i-0123456789abcdef0" {
-		t.Fatalf("instance.ID = %q", instance.ID)
-	}
-	if instance.Region != "us-east-1" {
-		t.Fatalf("instance.Region = %q", instance.Region)
-	}
-	if instance.PublicIP != "" || instance.PrivateIP != "10.0.0.10" {
-		t.Fatalf("instance IPs = %#v", instance)
-	}
-	if instance.SecurityGroupID != "sg-0123456789abcdef0" {
-		t.Fatalf("instance.SecurityGroupID = %q", instance.SecurityGroupID)
-	}
-	if len(instance.SecurityGroupRules) != 1 || instance.SecurityGroupRules[0] != "allow tcp/22 from 203.0.113.0/24" {
-		t.Fatalf("instance.SecurityGroupRules = %#v", instance.SecurityGroupRules)
-	}
-	if instance.ConnectionInfo != "ssh -i <your-key>.pem ubuntu@10.0.0.10" {
-		t.Fatalf("instance.ConnectionInfo = %q", instance.ConnectionInfo)
-	}
-	if fakeEC2.createSecurityGroupVpcID != "vpc-123" {
-		t.Fatalf("createSecurityGroupVpcID = %q", fakeEC2.createSecurityGroupVpcID)
-	}
-	if fakeEC2.authorizedCIDR != "203.0.113.0/24" {
-		t.Fatalf("authorizedCIDR = %q", fakeEC2.authorizedCIDR)
-	}
-	if fakeEC2.runImageID != "ami-0123456789abcdef0" || fakeEC2.runInstanceType != "g5.xlarge" {
-		t.Fatalf("run launch params = image %q type %q", fakeEC2.runImageID, fakeEC2.runInstanceType)
-	}
-	if fakeEC2.associatePublicIP {
-		t.Fatal("associatePublicIP = true, want false for private networking")
 	}
 }
 

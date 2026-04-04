@@ -8,10 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"openclaw/internal/config"
 	"openclaw/internal/host"
+	infratf "openclaw/internal/infra/terraform"
 	"openclaw/internal/provider"
 	awsprovider "openclaw/internal/provider/aws"
+	"openclaw/internal/runtimeinstall"
 )
 
 func TestConfigValidateCommandAcceptsConfigFlagAfterSubcommand(t *testing.T) {
@@ -154,10 +158,39 @@ func TestAuthCheckCommandReportsSuccess(t *testing.T) {
 
 func TestInfraCreateCommandReportsCreatedInstance(t *testing.T) {
 	original := newAWSProvider
-	newAWSProvider = func(profile string) provider.CloudProvider {
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
 		return infraCreateStubCloudProvider{stubCloudProvider: stubCloudProvider{profile: profile}}
 	}
 	defer func() { newAWSProvider = original }()
+	restoreSourceArchive := stubSourceArchiveURL(t)
+	defer restoreSourceArchive()
+
+	originalBackend := newTerraformBackend
+	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
+	originalEnsureSSHPrivateKey := ensureSSHPrivateKeyFunc
+	ensureSSHPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return privateKeyPath, nil
+	}
+	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey openclaw", nil
+	}
+	newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {
+		return fakeTerraformBackend{
+			output: &infratf.InfraOutput{
+				InstanceID:         "i-0123456789abcdef0",
+				PublicIP:           "203.0.113.10",
+				PrivateIP:          "10.0.0.10",
+				ConnectionInfo:     "ssh -i <your-key>.pem ubuntu@203.0.113.10",
+				SecurityGroupID:    "sg-0123456789abcdef0",
+				SecurityGroupRules: []string{"allow tcp/22 from 203.0.113.0/24", "allow tcp/8080 from 0.0.0.0/0"},
+				Region:             cfg.Region.Name,
+				NetworkMode:        "public",
+			},
+		}, nil
+	}
+	defer func() { newTerraformBackend = originalBackend }()
+	defer func() { deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey }()
+	defer func() { ensureSSHPrivateKeyFunc = originalEnsureSSHPrivateKey }()
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "openclaw.yaml")
@@ -166,12 +199,19 @@ platform:
   name: aws
 region:
   name: us-east-1
+ssh:
+  key_name: demo-key
+  private_key_path: /tmp/demo.pem
+  cidr: 203.0.113.0/24
+  user: ubuntu
 instance:
   type: g5.xlarge
   disk_size_gb: 40
+  network_mode: public
 image:
   id: ami-0123456789abcdef0
 sandbox:
+  enabled: true
   network_mode: public
 `)
 
@@ -196,6 +236,7 @@ sandbox:
 		"connection: ssh -i <your-key>.pem ubuntu@203.0.113.10",
 		"security group rules:",
 		"allow tcp/22 from 203.0.113.0/24",
+		"allow tcp/8080 from 0.0.0.0/0",
 	} {
 		if !strings.Contains(got, fragment) {
 			t.Fatalf("stdout = %q, want %q", got, fragment)
@@ -203,36 +244,125 @@ sandbox:
 	}
 }
 
-func TestInstallCommandRunsWorkflowAgainstResolvedInstance(t *testing.T) {
+func TestCreateCommandRequiresSSHAccessConfiguration(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()
-
-	originalExecutor := newSSHExecutor
-	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
-		return fakeSSHExecutor{
-			results: map[string]host.CommandResult{
-				"nvidia-smi -L": {Stdout: "GPU 0: demo"},
-				"docker info":   {Stdout: "Docker Engine"},
-				"docker info --format {{json .Runtimes}}":                                                {Stdout: `{"nvidia":{}}`},
-				"docker run --rm --gpus all --pull=never nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi": {Stdout: "NVIDIA-SMI"},
-				"mkdir -p /opt/openclaw":                                 {},
-				"chmod +x /opt/openclaw/install.sh":                      {},
-				"sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml": {Stdout: "OpenClaw runtime installation complete"},
-			},
-		}
-	}
-	defer func() { newSSHExecutor = originalExecutor }()
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "openclaw.yaml")
 	writeConfig(t, path, `
 platform:
   name: aws
+compute:
+  class: cpu
 region:
   name: us-east-1
 instance:
+  type: t3.xlarge
+  disk_size_gb: 20
+image:
+  name: Ubuntu 22.04 LTS
+runtime:
+  endpoint: https://nim.example.com
+  model: llama3.2
+sandbox:
+  network_mode: public
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"openclaw", "--config", path, "create"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil")
+	}
+	if !strings.Contains(err.Error(), "ssh cidr is required for public networking") {
+		t.Fatalf("error = %v, want SSH config validation", err)
+	}
+}
+
+func TestResolveSSHCIDRAutoDetectsPublicIP(t *testing.T) {
+	original := detectSSHCIDR
+	detectSSHCIDR = func(ctx context.Context) (string, error) {
+		return "198.51.100.23", nil
+	}
+	defer func() { detectSSHCIDR = original }()
+
+	cidr, err := resolveSSHCIDR(context.Background(), "demo-key", "")
+	if err != nil {
+		t.Fatalf("resolveSSHCIDR() error = %v", err)
+	}
+	if cidr != "198.51.100.23/32" {
+		t.Fatalf("cidr = %q, want 198.51.100.23/32", cidr)
+	}
+}
+
+func TestInstallCommandRunsWorkflowAgainstResolvedInstance(t *testing.T) {
+	restore := stubAWSProviderFactory()
+	defer restore()
+
+	originalBuildRuntimeBinary := runtimeinstall.BuildRuntimeBinaryFunc
+	runtimeinstall.BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "openclaw")
+		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
+			return "", err
+		}
+		return path, nil
+	}
+	defer func() { runtimeinstall.BuildRuntimeBinaryFunc = originalBuildRuntimeBinary }()
+
+	originalExecutor := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return fakeSSHExecutor{
+			results: map[string]host.CommandResult{
+				"true":          {},
+				"nvidia-smi -L": {Stdout: "GPU 0: demo"},
+				"docker info":   {Stdout: "Docker Engine"},
+				"docker info --format {{json .Runtimes}}":                                                {Stdout: `{"nvidia":{}}`},
+				"docker run --rm --gpus all --pull=never nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi": {Stdout: "NVIDIA-SMI"},
+				"sudo mkdir -p /opt/openclaw":                                                            {},
+				"chmod +x /opt/openclaw/install.sh":                                                      {},
+				"sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml":                                 {Stdout: "OpenClaw runtime installation complete"},
+				"sudo mkdir -p /opt/openclaw/bin":                                                        {},
+				"sudo chown -R ubuntu:ubuntu /opt/openclaw":                                              {},
+				"sudo mv /opt/openclaw/openclaw.upload /opt/openclaw/bin/openclaw":                       {},
+				"chmod +x /opt/openclaw/bin/openclaw":                                                    {},
+				"sudo mv /opt/openclaw/openclaw.service /etc/systemd/system/openclaw.service":            {},
+				"sudo systemctl daemon-reload":                                                           {},
+				"sudo systemctl enable --now openclaw.service":                                           {},
+			},
+		}
+	}
+	defer func() { newSSHExecutor = originalExecutor }()
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "demo.pem")
+	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+	path := filepath.Join(dir, "openclaw.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+ssh:
+  key_name: demo-key
+  private_key_path: `+keyPath+`
+  cidr: 203.0.113.0/24
+  user: ubuntu
+instance:
   type: g5.xlarge
   disk_size_gb: 40
+  network_mode: public
 image:
   name: ubuntu-24.04
 runtime:
@@ -240,13 +370,13 @@ runtime:
   model: llama3.2
 sandbox:
   enabled: true
-  network_mode: private
+  network_mode: public
   use_nemoclaw: false
 `)
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--config", path, "install", "--target", "i-0123456789abcdef0", "--working-dir", "/opt/openclaw", "--ssh-user", "ubuntu", "--ssh-key", "/tmp/demo.pem"}
+	os.Args = []string{"openclaw", "--config", path, "install", "--target", "i-0123456789abcdef0", "--working-dir", "/opt/openclaw", "--ssh-user", "ubuntu", "--ssh-key", keyPath}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -271,6 +401,8 @@ func TestVerifyCommandReportsSuccess(t *testing.T) {
 		return flexibleExecutor{
 			run: func(command string, args ...string) (host.CommandResult, error) {
 				switch {
+				case command == "true" && len(args) == 0:
+					return host.CommandResult{}, nil
 				case command == "nvidia-smi" && strings.Join(args, " ") == "-L":
 					return host.CommandResult{Stdout: "GPU 0: demo"}, nil
 				case command == "docker" && strings.Join(args, " ") == "info":
@@ -327,9 +459,84 @@ runtime:
 	}
 }
 
+func TestWaitForSSHReadyRetriesTransientErrors(t *testing.T) {
+	originalTimeout := defaultSSHReadyTimeout
+	originalInitialWait := defaultSSHReadyInitialWait
+	originalMaxWait := defaultSSHReadyMaxWait
+	defaultSSHReadyTimeout = 500 * time.Millisecond
+	defaultSSHReadyInitialWait = 10 * time.Millisecond
+	defaultSSHReadyMaxWait = 10 * time.Millisecond
+	defer func() {
+		defaultSSHReadyTimeout = originalTimeout
+		defaultSSHReadyInitialWait = originalInitialWait
+		defaultSSHReadyMaxWait = originalMaxWait
+	}()
+
+	attempts := 0
+	exec := flexibleExecutor{
+		run: func(command string, args ...string) (host.CommandResult, error) {
+			if command != "true" || len(args) != 0 {
+				return host.CommandResult{}, errors.New("unexpected command: " + command + " " + strings.Join(args, " "))
+			}
+			attempts++
+			if attempts < 2 {
+				return host.CommandResult{}, errors.New("ssh connection refused")
+			}
+			return host.CommandResult{}, nil
+		},
+	}
+
+	if err := waitForSSHReady(context.Background(), exec, "203.0.113.10"); err != nil {
+		t.Fatalf("waitForSSHReady() error = %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("attempts = %d, want 2", attempts)
+	}
+}
+
 func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()
+	restoreSourceArchive := stubSourceArchiveURL(t)
+	defer restoreSourceArchive()
+
+	originalBuildRuntimeBinary := runtimeinstall.BuildRuntimeBinaryFunc
+	runtimeinstall.BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "openclaw")
+		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
+			return "", err
+		}
+		return path, nil
+	}
+	defer func() { runtimeinstall.BuildRuntimeBinaryFunc = originalBuildRuntimeBinary }()
+
+	originalBackend := newTerraformBackend
+	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
+	originalEnsureSSHPrivateKey := ensureSSHPrivateKeyFunc
+	ensureSSHPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return privateKeyPath, nil
+	}
+	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey openclaw", nil
+	}
+	newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {
+		return fakeTerraformBackend{
+			output: &infratf.InfraOutput{
+				InstanceID:         "i-0123456789abcdef0",
+				PublicIP:           "203.0.113.10",
+				PrivateIP:          "10.0.0.10",
+				ConnectionInfo:     "ssh -i <your-key>.pem ubuntu@203.0.113.10",
+				SecurityGroupID:    "sg-0123456789abcdef0",
+				SecurityGroupRules: []string{"allow tcp/22 from 203.0.113.0/24", "allow tcp/8080 from 0.0.0.0/0"},
+				Region:             cfg.Region.Name,
+				NetworkMode:        "public",
+			},
+		}, nil
+	}
+	defer func() { newTerraformBackend = originalBackend }()
+	defer func() { deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey }()
+	defer func() { ensureSSHPrivateKeyFunc = originalEnsureSSHPrivateKey }()
 
 	original := newSSHExecutor
 	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
@@ -337,6 +544,10 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 			run: func(command string, args ...string) (host.CommandResult, error) {
 				key := command + " " + strings.Join(args, " ")
 				switch {
+				case strings.TrimSpace(key) == "true":
+					return host.CommandResult{}, nil
+				case command == "test" && strings.Join(args, " ") == "-f /opt/openclaw/bootstrap.done":
+					return host.CommandResult{}, nil
 				case key == "nvidia-smi -L":
 					return host.CommandResult{Stdout: "GPU 0: demo"}, nil
 				case key == "docker info":
@@ -345,16 +556,14 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 					return host.CommandResult{Stdout: `{"nvidia":{}}`}, nil
 				case key == "docker run --rm --gpus all --pull=never nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi":
 					return host.CommandResult{Stdout: "NVIDIA-SMI"}, nil
-				case key == "mkdir -p /opt/openclaw":
-					return host.CommandResult{}, nil
-				case key == "chmod +x /opt/openclaw/install.sh":
-					return host.CommandResult{}, nil
-				case key == "sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml":
-					return host.CommandResult{Stdout: "OpenClaw runtime installation complete"}, nil
 				case command == "test" && strings.Join(args, " ") == "-s /opt/openclaw/runtime.yaml":
 					return host.CommandResult{}, nil
 				case command == "cat" && strings.Join(args, " ") == "/opt/openclaw/runtime.yaml":
-					return host.CommandResult{Stdout: "use_nemoclaw: true\nnim_endpoint: http://localhost:11434\nmodel: llama3.2\n"}, nil
+					return host.CommandResult{Stdout: "use_nemoclaw: true\nnim_endpoint: http://localhost:11434\nmodel: llama3.2\nport: 8080\n"}, nil
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], "curl --max-time 5 -fsS"):
+					return host.CommandResult{Stdout: "ok"}, nil
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], "docker ps --filter name='^/openclaw$'"):
+					return host.CommandResult{Stdout: "openclaw Up 10 seconds"}, nil
 				case command == "sh" && len(args) >= 2 && args[0] == "-lc":
 					return host.CommandResult{Stdout: "ok"}, nil
 				default:
@@ -366,15 +575,25 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 	defer func() { newSSHExecutor = original }()
 
 	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "demo.pem")
+	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
 	path := filepath.Join(dir, "openclaw.yaml")
 	writeConfig(t, path, `
 platform:
   name: aws
 region:
   name: us-east-1
+ssh:
+  key_name: demo-key
+  private_key_path: `+keyPath+`
+  cidr: 203.0.113.0/24
+  user: ubuntu
 instance:
   type: g5.xlarge
   disk_size_gb: 40
+  network_mode: public
 image:
   name: ubuntu-24.04
 runtime:
@@ -382,13 +601,13 @@ runtime:
   model: llama3.2
 sandbox:
   enabled: true
-  network_mode: private
+  network_mode: public
   use_nemoclaw: true
 `)
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--config", path, "create", "--ssh-key-name", "demo-key", "--ssh-cidr", "203.0.113.0/24", "--ssh-user", "ubuntu"}
+	os.Args = []string{"openclaw", "--config", path, "create"}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -400,7 +619,7 @@ sandbox:
 		t.Fatalf("Execute() error = %v", err)
 	}
 	got := stdout.String()
-	for _, fragment := range []string{"instance id: i-0123456789abcdef0", "verification summary", "all required checks passed"} {
+	for _, fragment := range []string{"instance id: i-0123456789abcdef0", "verification summary", "all required checks passed", "health url: http://203.0.113.10:8080/healthz"} {
 		if !strings.Contains(got, fragment) {
 			t.Fatalf("stdout = %q, want %q", got, fragment)
 		}
@@ -409,11 +628,22 @@ sandbox:
 
 func stubAWSProviderFactory() func() {
 	original := newAWSProvider
-	newAWSProvider = func(profile string) provider.CloudProvider {
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
 		return stubCloudProvider{profile: profile}
 	}
 	return func() {
 		newAWSProvider = original
+	}
+}
+
+func stubSourceArchiveURL(t *testing.T) func() {
+	t.Helper()
+	original := resolveSourceArchiveURLFunc
+	resolveSourceArchiveURLFunc = func(ctx context.Context, profile, region string) (string, string, error) {
+		return "https://example.com/openclaw-bootstrap.tar.gz", "test-sha", nil
+	}
+	return func() {
+		resolveSourceArchiveURLFunc = original
 	}
 }
 
@@ -429,6 +659,9 @@ type authFailingCloudProvider struct {
 func (s authFailingCloudProvider) AuthCheck(ctx context.Context) (provider.AuthStatus, error) {
 	return provider.AuthStatus{}, s.authErr
 }
+func (s authFailingCloudProvider) CheckAuth(ctx context.Context) (provider.AuthStatus, error) {
+	return provider.AuthStatus{}, s.authErr
+}
 
 type baseImageFailingCloudProvider struct {
 	stubCloudProvider
@@ -436,6 +669,9 @@ type baseImageFailingCloudProvider struct {
 }
 
 func (s baseImageFailingCloudProvider) ListBaseImages(ctx context.Context, region string) ([]provider.BaseImage, error) {
+	return nil, s.baseImageErr
+}
+func (s baseImageFailingCloudProvider) RecommendBaseImages(ctx context.Context, region, computeClass string) ([]provider.BaseImage, error) {
 	return nil, s.baseImageErr
 }
 
@@ -446,6 +682,10 @@ func (s stubCloudProvider) AuthCheck(ctx context.Context) (provider.AuthStatus, 
 		Arn:     "arn:aws:sts::123456789012:assumed-role/test-role/test-session",
 		UserID:  "test-session",
 	}, nil
+}
+
+func (s stubCloudProvider) CheckAuth(ctx context.Context) (provider.AuthStatus, error) {
+	return s.AuthCheck(ctx)
 }
 
 func (s stubCloudProvider) ListRegions(ctx context.Context) ([]string, error) {
@@ -474,6 +714,10 @@ func (s stubCloudProvider) ListInstanceTypes(ctx context.Context, region string)
 	return []provider.InstanceType{{Name: "g5.xlarge"}}, nil
 }
 
+func (s stubCloudProvider) RecommendInstanceTypes(ctx context.Context, region, computeClass string) ([]provider.InstanceType, error) {
+	return s.ListInstanceTypes(ctx, region)
+}
+
 func (s stubCloudProvider) ListBaseImages(ctx context.Context, region string) ([]provider.BaseImage, error) {
 	return []provider.BaseImage{{
 		Name:               "AWS Deep Learning AMI GPU Ubuntu 22.04",
@@ -489,6 +733,10 @@ func (s stubCloudProvider) ListBaseImages(ctx context.Context, region string) ([
 	}}, nil
 }
 
+func (s stubCloudProvider) RecommendBaseImages(ctx context.Context, region, computeClass string) ([]provider.BaseImage, error) {
+	return s.ListBaseImages(ctx, region)
+}
+
 func (s stubCloudProvider) CreateInstance(ctx context.Context, req provider.CreateInstanceRequest) (*provider.Instance, error) {
 	return &provider.Instance{
 		ID:                 "i-0123456789abcdef0",
@@ -498,7 +746,7 @@ func (s stubCloudProvider) CreateInstance(ctx context.Context, req provider.Crea
 		PrivateIP:          "10.0.0.10",
 		ConnectionInfo:     "ssh -i <your-key>.pem ubuntu@203.0.113.10",
 		SecurityGroupID:    "sg-0123456789abcdef0",
-		SecurityGroupRules: []string{"allow tcp/22 from 203.0.113.0/24"},
+		SecurityGroupRules: []string{"allow tcp/22 from 203.0.113.0/24", "allow tcp/8080 from 0.0.0.0/0"},
 	}, nil
 }
 
@@ -517,6 +765,27 @@ func (s stubCloudProvider) GetInstance(ctx context.Context, region, instanceID s
 
 type infraCreateStubCloudProvider struct {
 	stubCloudProvider
+}
+
+type fakeTerraformBackend struct {
+	output *infratf.InfraOutput
+}
+
+func (f fakeTerraformBackend) Init(ctx context.Context, workdir string) error { return nil }
+func (f fakeTerraformBackend) Plan(ctx context.Context, workdir string, varsFile string) error {
+	return nil
+}
+func (f fakeTerraformBackend) Apply(ctx context.Context, workdir string, varsFile string) error {
+	return nil
+}
+func (f fakeTerraformBackend) Destroy(ctx context.Context, workdir string, varsFile string) error {
+	return nil
+}
+func (f fakeTerraformBackend) Output(ctx context.Context, workdir string) (*infratf.InfraOutput, error) {
+	if f.output == nil {
+		return &infratf.InfraOutput{}, nil
+	}
+	return f.output, nil
 }
 
 type fakeSSHExecutor struct {

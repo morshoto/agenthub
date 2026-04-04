@@ -39,10 +39,12 @@ func newRootCommand(app *App) *cobra.Command {
 	rootCmd.AddCommand(newVersionCommand(app))
 	rootCmd.AddCommand(newDoctorCommand())
 	rootCmd.AddCommand(newAuthCommand(app))
+	rootCmd.AddCommand(newOnboardCommand(app))
 	rootCmd.AddCommand(newConfigCommand(app))
 	rootCmd.AddCommand(newQuotaCommand(app))
 	rootCmd.AddCommand(newInitCommand(app))
 	rootCmd.AddCommand(newCreateCommand(app))
+	rootCmd.AddCommand(newServeCommand(app))
 	rootCmd.AddCommand(newInfraCommand(app))
 	rootCmd.AddCommand(newInstallCommand(app))
 	rootCmd.AddCommand(newVerifyCommand(app))
@@ -78,7 +80,7 @@ func newAuthCheckCommand(app *App) *cobra.Command {
 		Use:   "check",
 		Short: "Verify AWS credentials and API access",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			status, err := newAWSProvider(app.opts.Profile).AuthCheck(cmd.Context())
+			status, err := newAWSProvider(app.opts.Profile, "").CheckAuth(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -145,14 +147,18 @@ func newInitCommand(app *App) *cobra.Command {
 				return err
 			}
 			session := prompt.NewSession(cmd.InOrStdin(), cmd.OutOrStdout())
-			wizard := setup.NewWizard(session, cmd.OutOrStdout(), func(platform string) provider.CloudProvider {
+			wizard := setup.NewWizard(session, cmd.OutOrStdout(), func(platform, computeClass string) provider.CloudProvider {
 				if platform != config.PlatformAWS {
 					return nil
 				}
-				return newAWSProvider(app.opts.Profile)
+				return newAWSProvider(app.opts.Profile, computeClass)
 			}, existing)
+			wizard.AWSProfile = app.opts.Profile
 			cfg, err := wizard.Run(cmd.Context())
 			if err != nil {
+				return err
+			}
+			if err := config.Validate(cfg); err != nil {
 				return err
 			}
 
@@ -171,9 +177,8 @@ func newInitCommand(app *App) *cobra.Command {
 
 			logger := loggerFromContext(cmd.Context())
 			logger.Info("starting init provision flow")
-			fmt.Fprintln(cmd.OutOrStdout(), "provisioning infrastructure...")
-			instance, installResult, verifyReport, err := runCreateWorkflow(cmd.Context(), app.opts.Profile, cfg, createOptions{})
-			printWorkflowSuccess(cmd.OutOrStdout(), instance, installResult, verifyReport, outputPath, cfg, instanceTarget(instance), true)
+			progress := newProgressRenderer(cmd.OutOrStdout())
+			instance, installResult, verifyReport, err := runCreateWorkflow(cmd.Context(), app.opts.Profile, cfg, createOptions{}, progress)
 			if err != nil {
 				return wrapUserFacingError(
 					"init provisioning failed",
@@ -183,6 +188,7 @@ func newInitCommand(app *App) *cobra.Command {
 					"run `openclaw create --config "+outputPath+"` once the host is ready",
 				)
 			}
+			printWorkflowSuccess(cmd.OutOrStdout(), instance, installResult, verifyReport, outputPath, cfg, instanceTarget(instance), true)
 			return nil
 		},
 	}
@@ -223,8 +229,8 @@ func newQuotaCheckCommand(app *App) *cobra.Command {
 				instanceFamily = "g5"
 			}
 
-			provider := newAWSProvider(app.opts.Profile)
-			if _, err := provider.AuthCheck(cmd.Context()); err != nil {
+			provider := newAWSProvider(app.opts.Profile, "")
+			if _, err := provider.CheckAuth(cmd.Context()); err != nil {
 				return err
 			}
 			report, err := provider.CheckGPUQuota(cmd.Context(), region, instanceFamily)
@@ -243,8 +249,8 @@ func newQuotaCheckCommand(app *App) *cobra.Command {
 	return cmd
 }
 
-var newAWSProvider = func(profile string) provider.CloudProvider {
-	return awsprovider.New(awsprovider.Config{Profile: profile})
+var newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+	return awsprovider.New(awsprovider.Config{Profile: profile, ComputeClass: computeClass})
 }
 
 func existingConfig(path string) (*config.Config, error) {

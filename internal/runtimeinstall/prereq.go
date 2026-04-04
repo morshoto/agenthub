@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"openclaw/internal/config"
 	"openclaw/internal/host"
 )
 
@@ -34,6 +35,7 @@ func (r PrereqReport) Ready() bool {
 type PrereqChecker struct {
 	Host          host.Executor
 	RequirePython bool
+	ComputeClass  string
 }
 
 func (c PrereqChecker) Check(ctx context.Context) (PrereqReport, error) {
@@ -42,9 +44,13 @@ func (c PrereqChecker) Check(ctx context.Context) (PrereqReport, error) {
 	}
 
 	checks := []Check{
-		c.runCheck(ctx, "nvidia-smi", []string{"-L"}, "Install NVIDIA drivers and verify `nvidia-smi` works.", true),
 		c.runCheck(ctx, "docker", []string{"info"}, "Install Docker and ensure the daemon is running.", true),
-		c.runDockerGPUCheck(ctx),
+	}
+	if config.EffectiveComputeClass(c.ComputeClass) == config.ComputeClassGPU {
+		checks = append(checks,
+			c.runCheck(ctx, "nvidia-smi", []string{"-L"}, "Install NVIDIA drivers and verify `nvidia-smi` works.", true),
+			c.runDockerGPUCheck(ctx),
+		)
 	}
 	if c.RequirePython {
 		checks = append(checks, c.runPythonCheck(ctx))
@@ -56,6 +62,16 @@ func (c PrereqChecker) Check(ctx context.Context) (PrereqReport, error) {
 func (c PrereqChecker) runCheck(ctx context.Context, name string, args []string, remediation string, required bool) Check {
 	result, err := c.Host.Run(ctx, name, args...)
 	if err != nil {
+		if name == "docker" {
+			sudoResult, sudoErr := c.Host.Run(ctx, "sudo", append([]string{name}, args...)...)
+			if sudoErr == nil {
+				msg := strings.TrimSpace(sudoResult.Stdout)
+				if msg == "" {
+					msg = "passed"
+				}
+				return Check{Name: name, Passed: true, Message: msg}
+			}
+		}
 		msg := strings.TrimSpace(result.Stderr)
 		if msg == "" {
 			msg = err.Error()
@@ -71,12 +87,16 @@ func (c PrereqChecker) runCheck(ctx context.Context, name string, args []string,
 func (c PrereqChecker) runDockerGPUCheck(ctx context.Context) Check {
 	info, err := c.Host.Run(ctx, "docker", "info", "--format", "{{json .Runtimes}}")
 	if err != nil {
-		return Check{
-			Name:        "docker-gpu",
-			Skipped:     true,
-			Message:     strings.TrimSpace(info.Stderr),
-			Remediation: "Install NVIDIA Container Toolkit and enable the `nvidia` runtime in Docker.",
+		sudoInfo, sudoErr := c.Host.Run(ctx, "sudo", "docker", "info", "--format", "{{json .Runtimes}}")
+		if sudoErr != nil {
+			return Check{
+				Name:        "docker-gpu",
+				Skipped:     true,
+				Message:     strings.TrimSpace(info.Stderr),
+				Remediation: "Install NVIDIA Container Toolkit and enable the `nvidia` runtime in Docker.",
+			}
 		}
+		info = sudoInfo
 	}
 
 	if !strings.Contains(strings.ToLower(info.Stdout), "nvidia") {
@@ -90,6 +110,10 @@ func (c PrereqChecker) runDockerGPUCheck(ctx context.Context) Check {
 
 	result, err := c.Host.Run(ctx, "docker", "run", "--rm", "--gpus", "all", "--pull=never", "nvidia/cuda:12.4.1-base-ubuntu22.04", "nvidia-smi")
 	if err != nil {
+		result, err = c.Host.Run(ctx, "sudo", "docker", "run", "--rm", "--gpus", "all", "--pull=never", "nvidia/cuda:12.4.1-base-ubuntu22.04", "nvidia-smi")
+		if err == nil {
+			return Check{Name: "docker-gpu", Passed: true, Message: strings.TrimSpace(result.Stdout)}
+		}
 		msg := strings.TrimSpace(result.Stderr)
 		if msg == "" {
 			msg = err.Error()
