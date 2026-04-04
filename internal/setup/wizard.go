@@ -223,9 +223,12 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		}
 	}
 
-	model, err := w.Prompter.Text("Model name", defaultRuntimeModel(runtimeProvider))
-	if err != nil {
-		return nil, err
+	model := ""
+	if runtimeProvider != "codex" {
+		model, err = w.Prompter.Text("Model name", defaultRuntimeModel(runtimeProvider))
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	cfg := &config.Config{
@@ -297,7 +300,9 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if strings.TrimSpace(cfg.Runtime.Endpoint) != "" {
 		fmt.Fprintf(w.Out, "NIM endpoint: %s\n", cfg.Runtime.Endpoint)
 	}
-	fmt.Fprintf(w.Out, "model: %s\n", cfg.Runtime.Model)
+	if strings.TrimSpace(cfg.Runtime.Model) != "" {
+		fmt.Fprintf(w.Out, "model: %s\n", cfg.Runtime.Model)
+	}
 
 	confirm, err := w.Prompter.Confirm("Write this configuration", true)
 	if err != nil {
@@ -329,6 +334,8 @@ func defaultRuntimeModel(provider string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "aws-bedrock":
 		return "anthropic.claude-3-haiku-20240307-v1:0"
+	case "codex":
+		return ""
 	default:
 		return "llama3.2"
 	}

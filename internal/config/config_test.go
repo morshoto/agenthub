@@ -22,7 +22,6 @@ image:
   name: ubuntu-24.04
 runtime:
   endpoint: http://localhost:11434
-  model: llama3.2
   provider: codex
 sandbox:
   enabled: true
@@ -43,7 +42,7 @@ func TestValidateAllowsCodexWithoutSecretID(t *testing.T) {
 		Region:   RegionConfig{Name: "us-east-1"},
 		Instance: InstanceConfig{Type: "t3.medium", DiskSizeGB: 20},
 		Image:    ImageConfig{Name: "ubuntu-24.04"},
-		Runtime:  RuntimeConfig{Endpoint: "http://localhost:11434", Model: "llama3.2", Provider: "codex"},
+		Runtime:  RuntimeConfig{Endpoint: "http://localhost:11434", Provider: "codex"},
 		Sandbox:  SandboxConfig{Enabled: true},
 	}
 

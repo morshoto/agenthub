@@ -104,7 +104,6 @@ func TestWizardWarnsAndContinuesWhenQuotaInsufficient(t *testing.T) {
 		"y",
 		"1",
 		"http://localhost:11434",
-		"llama3.2",
 		"y",
 	}, "\n") + "\n"
 
@@ -155,7 +154,6 @@ func TestWizardFallsBackToBundledLookupsWhenAWSDataIsUnavailable(t *testing.T) {
 		"y",
 		"1",
 		"http://localhost:11434",
-		"llama3.2",
 		"y",
 	}, "\n") + "\n"
 
@@ -207,7 +205,6 @@ func TestWizardWarnsAndContinuesWhenQuotaCheckUnavailable(t *testing.T) {
 		"y",
 		"1",
 		"http://localhost:11434",
-		"llama3.2",
 		"y",
 	}, "\n") + "\n"
 
@@ -249,7 +246,6 @@ func TestWizardFallsBackToBundledImagesWhenSSMIsUnavailable(t *testing.T) {
 		"y",
 		"1",
 		"http://localhost:11434",
-		"llama3.2",
 		"y",
 	}, "\n") + "\n"
 
@@ -303,7 +299,6 @@ func TestWizardFallsBackToBundledImagesWhenImageLookupFails(t *testing.T) {
 		"y",
 		"1",
 		"http://localhost:11434",
-		"llama3.2",
 		"y",
 	}, "\n") + "\n"
 
