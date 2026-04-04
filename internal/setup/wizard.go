@@ -53,6 +53,26 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		return nil, err
 	}
 
+	profile, prompted, err := w.selectAWSProfile()
+	if err != nil {
+		return nil, err
+	}
+	w.AWSProfile = profile
+	if profile == "" {
+		return nil, errors.New("AWS profile is required")
+	}
+	fmt.Fprintf(w.Out, "Using AWS profile: %s\n", profile)
+	if prompted {
+		fmt.Fprintf(w.Out, "If this profile uses AWS SSO, run `aws sso login --profile %s` now.\n", profile)
+		ready, err := w.Prompter.Confirm("Continue after AWS SSO login", true)
+		if err != nil {
+			return nil, err
+		}
+		if !ready {
+			return nil, errors.New("setup cancelled")
+		}
+	}
+
 	if w.Provider == nil && w.ProviderFactory != nil {
 		w.Provider = w.ProviderFactory(platform, computeClass)
 	}
@@ -91,7 +111,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	instanceType, err := w.Prompter.Select("Select instance type", instanceTypes, defaultInstanceType(computeClass))
+	instanceType, err := w.Prompter.SelectSearch("Select instance type", instanceTypes, defaultInstanceType(computeClass))
 	if err != nil {
 		return nil, err
 	}
@@ -331,30 +351,59 @@ func defaultRuntimeModel(provider string) string {
 	}
 }
 
+func (w *Wizard) selectAWSProfile() (string, bool, error) {
+	profile := strings.TrimSpace(w.AWSProfile)
+	if profile == "" {
+		profile = strings.TrimSpace(os.Getenv("AWS_PROFILE"))
+	}
+	if profile == "" {
+		profile = strings.TrimSpace(os.Getenv("AWS_DEFAULT_PROFILE"))
+	}
+	if profile != "" {
+		return profile, false, nil
+	}
+	if !w.Prompter.Interactive {
+		return "", false, errors.New("AWS profile is required: pass --profile, set AWS_PROFILE, or run interactively")
+	}
+	value, err := w.Prompter.Text("AWS profile", "")
+	if err != nil {
+		return "", false, err
+	}
+	return strings.TrimSpace(value), true, nil
+}
+
 func (w *Wizard) listRegions(ctx context.Context) ([]string, error) {
 	if w.Provider == nil {
-		return []string{"us-east-1", "us-west-2"}, nil
+		return fallbackAWSRegions(), nil
 	}
-	return w.Provider.ListRegions(ctx)
+	regions, err := w.Provider.ListRegions(ctx)
+	if err != nil {
+		fmt.Fprintln(w.Out, "Warning: AWS region lookup unavailable; using bundled fallback regions.")
+		return fallbackAWSRegions(), nil
+	}
+	if len(regions) == 0 {
+		fmt.Fprintln(w.Out, "Warning: AWS region lookup returned no regions; using bundled fallback regions.")
+		return fallbackAWSRegions(), nil
+	}
+	return regions, nil
 }
 
 func (w *Wizard) listInstanceTypes(ctx context.Context, region, computeClass string) ([]string, error) {
 	if w.Provider == nil {
-		if config.EffectiveComputeClass(computeClass) == config.ComputeClassCPU {
-			return []string{"t3.xlarge", "t3.2xlarge", "t3.medium"}, nil
-		}
-		return []string{"g5.xlarge", "g4dn.xlarge", "g6.xlarge"}, nil
+		return fallbackAWSInstanceTypes(computeClass), nil
 	}
 	items, err := w.Provider.RecommendInstanceTypes(ctx, region, computeClass)
 	if err != nil {
-		return nil, err
+		fmt.Fprintln(w.Out, "Warning: AWS instance type lookup unavailable; using bundled fallback instance types.")
+		return fallbackAWSInstanceTypes(computeClass), nil
 	}
 	options := make([]string, 0, len(items))
 	for _, item := range items {
 		options = append(options, item.Name)
 	}
 	if len(options) == 0 {
-		return []string{"g5.xlarge"}, nil
+		fmt.Fprintln(w.Out, "Warning: AWS instance type lookup returned no options; using bundled fallback instance types.")
+		return fallbackAWSInstanceTypes(computeClass), nil
 	}
 	return options, nil
 }
@@ -415,18 +464,6 @@ func (w *Wizard) warnOnQuota(ctx context.Context, region string) error {
 		return errors.New("setup cancelled due to insufficient quota")
 	}
 	return nil
-}
-
-func defaultOption(options []string, fallback string) string {
-	if len(options) == 0 {
-		return fallback
-	}
-	for _, option := range options {
-		if option == fallback {
-			return fallback
-		}
-	}
-	return options[0]
 }
 
 func defaultComputeClass(existing *config.Config) string {
@@ -599,6 +636,17 @@ func fallbackAWSBaseImages(region, computeClass string) []provider.BaseImage {
 		Source:             "fallback",
 		SSMParameter:       "/aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id",
 	}}
+}
+
+func fallbackAWSRegions() []string {
+	return []string{"us-east-1", "us-west-2"}
+}
+
+func fallbackAWSInstanceTypes(computeClass string) []string {
+	if config.EffectiveComputeClass(computeClass) == config.ComputeClassCPU {
+		return []string{"t3.xlarge", "t3.2xlarge", "t3.medium"}
+	}
+	return []string{"g5.xlarge", "g4dn.xlarge", "g6.xlarge"}
 }
 
 func bestEffortAWSContext(ctx context.Context) (context.Context, context.CancelFunc) {

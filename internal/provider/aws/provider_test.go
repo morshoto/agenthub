@@ -19,6 +19,118 @@ import (
 	"openclaw/internal/config"
 )
 
+func TestListRegionsUsesDescribeRegions(t *testing.T) {
+	p := &Provider{
+		Config: Config{Profile: "test-profile"},
+		loadDefaultConfig: func(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (awsbase.Config, error) {
+			return awsbase.Config{Region: "us-east-1"}, nil
+		},
+		newEC2Client: func(cfg awsbase.Config) ec2Client {
+			if cfg.Region != "us-east-1" {
+				t.Fatalf("cfg.Region = %q, want us-east-1", cfg.Region)
+			}
+			return &fakeEC2Client{
+				describeRegionsOut: &ec2.DescribeRegionsOutput{
+					Regions: []ec2types.Region{
+						{RegionName: awsbase.String("us-west-2")},
+						{RegionName: awsbase.String("ap-northeast-1")},
+						{RegionName: awsbase.String("us-east-1")},
+					},
+				},
+			}
+		},
+	}
+
+	regions, err := p.ListRegions(context.Background())
+	if err != nil {
+		t.Fatalf("ListRegions() error = %v", err)
+	}
+	want := []string{"ap-northeast-1", "us-east-1", "us-west-2"}
+	if len(regions) != len(want) {
+		t.Fatalf("ListRegions() len = %d, want %d", len(regions), len(want))
+	}
+	for i := range want {
+		if regions[i] != want[i] {
+			t.Fatalf("ListRegions()[%d] = %q, want %q", i, regions[i], want[i])
+		}
+	}
+}
+
+func TestRecommendInstanceTypesUsesDescribeInstanceTypes(t *testing.T) {
+	p := &Provider{
+		Config: Config{Profile: "test-profile"},
+		loadDefaultConfig: func(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (awsbase.Config, error) {
+			return awsbase.Config{Region: "us-east-1"}, nil
+		},
+		newEC2Client: func(cfg awsbase.Config) ec2Client {
+			if cfg.Region != "ap-northeast-1" {
+				t.Fatalf("cfg.Region = %q, want ap-northeast-1", cfg.Region)
+			}
+			return &fakeEC2Client{
+				describeInstanceTypesOut: &ec2.DescribeInstanceTypesOutput{
+					InstanceTypes: []ec2types.InstanceTypeInfo{
+						{
+							InstanceType: ec2types.InstanceType("g4dn.xlarge"),
+							MemoryInfo:   &ec2types.MemoryInfo{SizeInMiB: awsbase.Int64(16384)},
+							GpuInfo:      &ec2types.GpuInfo{Gpus: []ec2types.GpuDeviceInfo{{Count: awsbase.Int32(1)}}},
+						},
+						{
+							InstanceType: ec2types.InstanceType("t3.medium"),
+							MemoryInfo:   &ec2types.MemoryInfo{SizeInMiB: awsbase.Int64(4096)},
+						},
+						{
+							InstanceType: ec2types.InstanceType("g6.xlarge"),
+							MemoryInfo:   &ec2types.MemoryInfo{SizeInMiB: awsbase.Int64(16384)},
+							GpuInfo:      &ec2types.GpuInfo{Gpus: []ec2types.GpuDeviceInfo{{Count: awsbase.Int32(1)}}},
+						},
+						{
+							InstanceType: ec2types.InstanceType("t3.xlarge"),
+							MemoryInfo:   &ec2types.MemoryInfo{SizeInMiB: awsbase.Int64(16384)},
+						},
+						{
+							InstanceType: ec2types.InstanceType("g5.xlarge"),
+							MemoryInfo:   &ec2types.MemoryInfo{SizeInMiB: awsbase.Int64(16384)},
+							GpuInfo:      &ec2types.GpuInfo{Gpus: []ec2types.GpuDeviceInfo{{Count: awsbase.Int32(1)}}},
+						},
+						{
+							InstanceType: ec2types.InstanceType("t3.2xlarge"),
+							MemoryInfo:   &ec2types.MemoryInfo{SizeInMiB: awsbase.Int64(32768)},
+						},
+					},
+				},
+			}
+		},
+	}
+
+	cpuTypes, err := p.RecommendInstanceTypes(context.Background(), "ap-northeast-1", config.ComputeClassCPU)
+	if err != nil {
+		t.Fatalf("RecommendInstanceTypes(cpu) error = %v", err)
+	}
+	wantCPU := []string{"t3.2xlarge", "t3.medium", "t3.xlarge"}
+	if len(cpuTypes) != len(wantCPU) {
+		t.Fatalf("RecommendInstanceTypes(cpu) len = %d, want %d", len(cpuTypes), len(wantCPU))
+	}
+	for i := range wantCPU {
+		if cpuTypes[i].Name != wantCPU[i] {
+			t.Fatalf("RecommendInstanceTypes(cpu)[%d] = %q, want %q", i, cpuTypes[i].Name, wantCPU[i])
+		}
+	}
+
+	gpuTypes, err := p.RecommendInstanceTypes(context.Background(), "ap-northeast-1", config.ComputeClassGPU)
+	if err != nil {
+		t.Fatalf("RecommendInstanceTypes(gpu) error = %v", err)
+	}
+	wantGPU := []string{"g4dn.xlarge", "g5.xlarge", "g6.xlarge"}
+	if len(gpuTypes) != len(wantGPU) {
+		t.Fatalf("RecommendInstanceTypes(gpu) len = %d, want %d", len(gpuTypes), len(wantGPU))
+	}
+	for i := range wantGPU {
+		if gpuTypes[i].Name != wantGPU[i] {
+			t.Fatalf("RecommendInstanceTypes(gpu)[%d] = %q, want %q", i, gpuTypes[i].Name, wantGPU[i])
+		}
+	}
+}
+
 func TestAuthCheckReturnsProfileNotFound(t *testing.T) {
 	p := &Provider{
 		Config: Config{Profile: "missing"},
@@ -338,6 +450,22 @@ type fakeEC2Client struct {
 	runImageID               string
 	runInstanceType          string
 	associatePublicIP        bool
+	describeRegionsOut       *ec2.DescribeRegionsOutput
+	describeInstanceTypesOut *ec2.DescribeInstanceTypesOutput
+}
+
+func (f *fakeEC2Client) DescribeRegions(ctx context.Context, params *ec2.DescribeRegionsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeRegionsOutput, error) {
+	if f.describeRegionsOut != nil {
+		return f.describeRegionsOut, nil
+	}
+	return &ec2.DescribeRegionsOutput{}, nil
+}
+
+func (f *fakeEC2Client) DescribeInstanceTypes(ctx context.Context, params *ec2.DescribeInstanceTypesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeInstanceTypesOutput, error) {
+	if f.describeInstanceTypesOut != nil {
+		return f.describeInstanceTypesOut, nil
+	}
+	return &ec2.DescribeInstanceTypesOutput{}, nil
 }
 
 func (f *fakeEC2Client) CreateSecurityGroup(ctx context.Context, params *ec2.CreateSecurityGroupInput, optFns ...func(*ec2.Options)) (*ec2.CreateSecurityGroupOutput, error) {
