@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -53,6 +54,8 @@ type serviceQuotasClient interface {
 }
 
 type ec2Client interface {
+	DescribeRegions(ctx context.Context, params *ec2.DescribeRegionsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeRegionsOutput, error)
+	DescribeInstanceTypes(ctx context.Context, params *ec2.DescribeInstanceTypesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeInstanceTypesOutput, error)
 	DescribeInstances(ctx context.Context, params *ec2.DescribeInstancesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
 }
 
@@ -115,7 +118,26 @@ func (p *Provider) AuthCheck(ctx context.Context) (provider.AuthStatus, error) {
 }
 
 func (p *Provider) ListRegions(ctx context.Context) ([]string, error) {
-	return []string{"ap-northeast-1", "us-east-1", "us-west-2"}, nil
+	cfg, err := p.loadAWSConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	client := p.newEC2Client(cfg)
+	out, err := client.DescribeRegions(ctx, &ec2.DescribeRegionsInput{})
+	if err != nil {
+		return nil, fmt.Errorf("describe AWS regions: %w", err)
+	}
+	regions := make([]string, 0, len(out.Regions))
+	for _, region := range out.Regions {
+		if name := strings.TrimSpace(awsString(region.RegionName)); name != "" {
+			regions = append(regions, name)
+		}
+	}
+	if len(regions) == 0 {
+		return nil, errors.New("describe AWS regions: no regions returned")
+	}
+	sort.Strings(regions)
+	return regions, nil
 }
 
 func (p *Provider) CheckGPUQuota(ctx context.Context, region, instanceFamily string) (provider.GPUQuotaReport, error) {
@@ -155,20 +177,33 @@ func (p *Provider) CheckGPUQuota(ctx context.Context, region, instanceFamily str
 }
 
 func (p *Provider) RecommendInstanceTypes(ctx context.Context, region, computeClass string) ([]provider.InstanceType, error) {
-	switch config.EffectiveComputeClass(computeClass) {
-	case config.ComputeClassCPU:
-		return []provider.InstanceType{
-			{Name: "t3.xlarge", MemoryGB: 16},
-			{Name: "t3.2xlarge", MemoryGB: 32},
-			{Name: "t3.medium", MemoryGB: 4},
-		}, nil
-	default:
-		return []provider.InstanceType{
-			{Name: "g5.xlarge", GPUCount: 1, MemoryGB: 16},
-			{Name: "g4dn.xlarge", GPUCount: 1, MemoryGB: 16},
-			{Name: "g6.xlarge", GPUCount: 1, MemoryGB: 16},
-		}, nil
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return nil, errors.New("region is required")
 	}
+
+	cfg, err := p.loadAWSConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Region = region
+
+	client := p.newEC2Client(cfg)
+	paginator := ec2.NewDescribeInstanceTypesPaginator(client, &ec2.DescribeInstanceTypesInput{})
+	var all []ec2types.InstanceTypeInfo
+	for paginator.HasMorePages() {
+		out, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("describe EC2 instance types: %w", err)
+		}
+		all = append(all, out.InstanceTypes...)
+	}
+
+	items := selectAWSInstanceTypes(all, computeClass)
+	if len(items) == 0 {
+		return nil, errors.New("describe EC2 instance types: no matching types returned")
+	}
+	return items, nil
 }
 
 func (p *Provider) ListInstanceTypes(ctx context.Context, region string) ([]provider.InstanceType, error) {
@@ -375,6 +410,96 @@ func awsString(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+func selectAWSInstanceTypes(types []ec2types.InstanceTypeInfo, computeClass string) []provider.InstanceType {
+	candidates := make([]provider.InstanceType, 0, len(types))
+	for _, info := range types {
+		name := strings.TrimSpace(string(info.InstanceType))
+		if name == "" {
+			continue
+		}
+		memoryGB := 0
+		if info.MemoryInfo != nil && info.MemoryInfo.SizeInMiB != nil {
+			memoryGB = int((*info.MemoryInfo.SizeInMiB + 1023) / 1024)
+		}
+		gpuCount := 0
+		if info.GpuInfo != nil {
+			for _, gpu := range info.GpuInfo.Gpus {
+				if gpu.Count != nil {
+					gpuCount += int(*gpu.Count)
+				}
+			}
+		}
+		candidates = append(candidates, provider.InstanceType{
+			Name:     name,
+			GPUCount: gpuCount,
+			MemoryGB: memoryGB,
+		})
+	}
+
+	switch config.EffectiveComputeClass(computeClass) {
+	case config.ComputeClassCPU:
+		return pickPreferredInstanceTypes(candidates, func(item provider.InstanceType) bool {
+			return item.GPUCount == 0 && strings.HasPrefix(item.Name, "t")
+		}, []int{4, 16, 32})
+	default:
+		return pickPreferredInstanceTypes(candidates, func(item provider.InstanceType) bool {
+			return item.GPUCount > 0 && strings.HasPrefix(item.Name, "g")
+		}, []int{16, 32, 64})
+	}
+}
+
+func pickPreferredInstanceTypes(candidates []provider.InstanceType, accept func(provider.InstanceType) bool, targets []int) []provider.InstanceType {
+	filtered := make([]provider.InstanceType, 0, len(candidates))
+	for _, item := range candidates {
+		if accept(item) {
+			filtered = append(filtered, item)
+		}
+	}
+	if len(filtered) == 0 {
+		filtered = append(filtered, candidates...)
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		if filtered[i].MemoryGB == filtered[j].MemoryGB {
+			return filtered[i].Name < filtered[j].Name
+		}
+		return filtered[i].MemoryGB < filtered[j].MemoryGB
+	})
+
+	selected := make([]provider.InstanceType, 0, len(targets))
+	used := make(map[string]struct{}, len(targets))
+	for _, target := range targets {
+		bestIndex := -1
+		bestScore := 0
+		for i, item := range filtered {
+			if _, seen := used[item.Name]; seen {
+				continue
+			}
+			score := item.MemoryGB - target
+			if score < 0 {
+				score = -score
+			}
+			if bestIndex == -1 || score < bestScore || (score == bestScore && item.Name < filtered[bestIndex].Name) {
+				bestIndex = i
+				bestScore = score
+			}
+		}
+		if bestIndex == -1 {
+			continue
+		}
+		item := filtered[bestIndex]
+		used[item.Name] = struct{}{}
+		selected = append(selected, item)
+	}
+
+	if len(selected) == 0 {
+		if len(filtered) > 3 {
+			filtered = filtered[:3]
+		}
+		return filtered
+	}
+	return selected
 }
 
 func (p *Provider) ensureDeps() {

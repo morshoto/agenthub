@@ -15,9 +15,11 @@ import (
 )
 
 type fakeProvider struct {
-	regions  []string
-	report   provider.GPUQuotaReport
-	quotaErr error
+	regions          []string
+	report           provider.GPUQuotaReport
+	quotaErr         error
+	regionsErr       error
+	instanceTypesErr error
 }
 
 func (f fakeProvider) AuthCheck(ctx context.Context) (provider.AuthStatus, error) {
@@ -27,6 +29,9 @@ func (f fakeProvider) CheckAuth(ctx context.Context) (provider.AuthStatus, error
 	return f.AuthCheck(ctx)
 }
 func (f fakeProvider) ListRegions(ctx context.Context) ([]string, error) {
+	if f.regionsErr != nil {
+		return nil, f.regionsErr
+	}
 	return f.regions, nil
 }
 func (f fakeProvider) CheckGPUQuota(ctx context.Context, region, instanceFamily string) (provider.GPUQuotaReport, error) {
@@ -36,9 +41,15 @@ func (f fakeProvider) CheckGPUQuota(ctx context.Context, region, instanceFamily 
 	return f.report, nil
 }
 func (f fakeProvider) ListInstanceTypes(ctx context.Context, region string) ([]provider.InstanceType, error) {
+	if f.instanceTypesErr != nil {
+		return nil, f.instanceTypesErr
+	}
 	return []provider.InstanceType{{Name: "t3.medium"}, {Name: "g5.xlarge"}}, nil
 }
 func (f fakeProvider) RecommendInstanceTypes(ctx context.Context, region, computeClass string) ([]provider.InstanceType, error) {
+	if f.instanceTypesErr != nil {
+		return nil, f.instanceTypesErr
+	}
 	if config.EffectiveComputeClass(computeClass) == config.ComputeClassCPU {
 		return []provider.InstanceType{{Name: "t3.xlarge"}, {Name: "t3.2xlarge"}}, nil
 	}
@@ -136,6 +147,64 @@ func TestWizardWarnsAndContinuesWhenQuotaInsufficient(t *testing.T) {
 	}
 	if cfg.Region.Name != "us-east-1" {
 		t.Fatalf("Region.Name = %q, want us-east-1", cfg.Region.Name)
+	}
+}
+
+func TestWizardFallsBackToBundledLookupsWhenAWSDataIsUnavailable(t *testing.T) {
+	originalStore := codexauth.StoreAPIKeyFunc
+	codexauth.StoreAPIKeyFunc = func(ctx context.Context, profile, region, secretName, apiKey string) (string, error) {
+		return "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:openclaw/codex-api-key", nil
+	}
+	defer func() { codexauth.StoreAPIKeyFunc = originalStore }()
+
+	input := strings.Join([]string{
+		"1", // platform aws
+		"",  // accept default GPU compute mode
+		"1", // fallback region us-east-1
+		"",  // accept fallback instance type
+		"1", // base image
+		"20",
+		"1",
+		"y",
+		"1",
+		"sk-test",
+		"http://localhost:11434",
+		"llama3.2",
+		"y",
+	}, "\n") + "\n"
+
+	out := &bytes.Buffer{}
+	wizard := NewWizard(
+		prompt.NewSession(strings.NewReader(input), out),
+		out,
+		func(platform, computeClass string) provider.CloudProvider {
+			return fakeProvider{
+				regionsErr:       errors.New("access denied"),
+				instanceTypesErr: errors.New("timeout"),
+				quotaErr:         errors.New("quota unavailable"),
+			}
+		},
+		&config.Config{},
+	)
+
+	cfg, err := wizard.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if cfg.Region.Name != "us-east-1" {
+		t.Fatalf("Region.Name = %q, want us-east-1", cfg.Region.Name)
+	}
+	if cfg.Instance.Type != "g5.xlarge" {
+		t.Fatalf("Instance.Type = %q, want g5.xlarge", cfg.Instance.Type)
+	}
+	got := out.String()
+	for _, fragment := range []string{
+		"Warning: AWS region lookup unavailable; using bundled fallback regions.",
+		"Warning: AWS instance type lookup unavailable; using bundled fallback instance types.",
+	} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("output = %q, want %q", got, fragment)
+		}
 	}
 }
 
