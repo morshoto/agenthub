@@ -41,6 +41,7 @@ func newRootCommand(app *App) *cobra.Command {
 	rootCmd.AddCommand(newAuthCommand(app))
 	rootCmd.AddCommand(newOnboardCommand(app))
 	rootCmd.AddCommand(newConfigCommand(app))
+	rootCmd.AddCommand(newStatusCommand(app))
 	rootCmd.AddCommand(newQuotaCommand(app))
 	rootCmd.AddCommand(newInitCommand(app))
 	rootCmd.AddCommand(newCreateCommand(app))
