@@ -106,13 +106,13 @@ func TestRecommendInstanceTypesUsesDescribeInstanceTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecommendInstanceTypes(cpu) error = %v", err)
 	}
-	want := []string{"g4dn.xlarge", "g5.xlarge", "g6.xlarge", "t3.2xlarge", "t3.medium", "t3.xlarge"}
-	if len(cpuTypes) != len(want) {
-		t.Fatalf("RecommendInstanceTypes(cpu) len = %d, want %d", len(cpuTypes), len(want))
+	wantCPU := []string{"t3.2xlarge", "t3.medium", "t3.xlarge"}
+	if len(cpuTypes) != len(wantCPU) {
+		t.Fatalf("RecommendInstanceTypes(cpu) len = %d, want %d", len(cpuTypes), len(wantCPU))
 	}
-	for i := range want {
-		if cpuTypes[i].Name != want[i] {
-			t.Fatalf("RecommendInstanceTypes(cpu)[%d] = %q, want %q", i, cpuTypes[i].Name, want[i])
+	for i := range wantCPU {
+		if cpuTypes[i].Name != wantCPU[i] {
+			t.Fatalf("RecommendInstanceTypes(cpu)[%d] = %q, want %q", i, cpuTypes[i].Name, wantCPU[i])
 		}
 	}
 
@@ -120,12 +120,13 @@ func TestRecommendInstanceTypesUsesDescribeInstanceTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecommendInstanceTypes(gpu) error = %v", err)
 	}
-	if len(gpuTypes) != len(want) {
-		t.Fatalf("RecommendInstanceTypes(gpu) len = %d, want %d", len(gpuTypes), len(want))
+	wantGPU := []string{"g4dn.xlarge", "g5.xlarge", "g6.xlarge"}
+	if len(gpuTypes) != len(wantGPU) {
+		t.Fatalf("RecommendInstanceTypes(gpu) len = %d, want %d", len(gpuTypes), len(wantGPU))
 	}
-	for i := range want {
-		if gpuTypes[i].Name != want[i] {
-			t.Fatalf("RecommendInstanceTypes(gpu)[%d] = %q, want %q", i, gpuTypes[i].Name, want[i])
+	for i := range wantGPU {
+		if gpuTypes[i].Name != wantGPU[i] {
+			t.Fatalf("RecommendInstanceTypes(gpu)[%d] = %q, want %q", i, gpuTypes[i].Name, wantGPU[i])
 		}
 	}
 }

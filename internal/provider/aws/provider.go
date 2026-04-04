@@ -226,6 +226,7 @@ func (p *Provider) RecommendInstanceTypes(ctx context.Context, region, computeCl
 			MemoryGB: memoryGB,
 		})
 	}
+	items = filterInstanceTypesByComputeClass(items, computeClass)
 	if len(items) == 0 {
 		return nil, errors.New("describe EC2 instance types: no matching types returned")
 	}
@@ -234,6 +235,29 @@ func (p *Provider) RecommendInstanceTypes(ctx context.Context, region, computeCl
 
 func (p *Provider) ListInstanceTypes(ctx context.Context, region string) ([]provider.InstanceType, error) {
 	return p.RecommendInstanceTypes(ctx, region, p.Config.ComputeClass)
+}
+
+func filterInstanceTypesByComputeClass(items []provider.InstanceType, computeClass string) []provider.InstanceType {
+	class := config.EffectiveComputeClass(computeClass)
+	if class == "" {
+		return items
+	}
+	filtered := make([]provider.InstanceType, 0, len(items))
+	for _, item := range items {
+		switch class {
+		case config.ComputeClassCPU:
+			if item.GPUCount == 0 {
+				filtered = append(filtered, item)
+			}
+		case config.ComputeClassGPU:
+			if item.GPUCount > 0 {
+				filtered = append(filtered, item)
+			}
+		default:
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }
 
 func (p *Provider) RecommendBaseImages(ctx context.Context, region, computeClass string) ([]provider.BaseImage, error) {
