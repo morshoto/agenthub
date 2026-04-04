@@ -1,130 +1,356 @@
 package app
 
 import (
-	"context"
-	"encoding/json"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
-	"openclaw/internal/runtimeinstall"
+	"gopkg.in/yaml.v3"
+
+	"openclaw/internal/config"
 )
 
-type runtimeStatusClient interface {
-	Do(req *http.Request) (*http.Response, error)
+type agentStatusReport struct {
+	Root   string
+	Agents []agentStatusEntry
 }
 
-var resolveRuntimeStatusURL = runtimeStatusURL
-
-var newRuntimeStatusClient = func() runtimeStatusClient {
-	return &http.Client{Timeout: 5 * time.Second}
+type agentStatusEntry struct {
+	Name   string
+	Path   string
+	Files  []string
+	Config config.Config
+	Err    error
 }
 
 func newStatusCommand(app *App) *cobra.Command {
-	var runtimeConfigPath string
+	var agentsDir string
 
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Show runtime agent activity",
+		Short: "Show formatted agent configuration status",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			runtimeCfg, err := loadRuntimeConfig(runtimeConfigPath)
-			if err != nil {
-				return err
-			}
-
-			url, err := resolveRuntimeStatusURL(runtimeCfg)
-			if err != nil {
-				return err
-			}
-
-			status, err := fetchRuntimeStatus(cmd.Context(), url, newRuntimeStatusClient())
-			if err != nil {
-				return err
-			}
-
-			printRuntimeStatus(cmd.OutOrStdout(), status)
-			return nil
+			report, err := loadAgentStatusReport(agentsDir)
+			printAgentStatusReport(cmd.OutOrStdout(), report)
+			return err
 		},
 	}
 
-	cmd.Flags().StringVar(&runtimeConfigPath, "runtime-config", "/opt/openclaw/runtime.yaml", "path to the runtime config on the local host")
+	cmd.Flags().StringVar(&agentsDir, "agents-dir", "agents", "path to the agents directory")
 	return cmd
 }
 
-func runtimeStatusURL(cfg *runtimeinstall.RuntimeConfig) (string, error) {
-	if cfg == nil {
-		return "", errors.New("runtime status requires a config")
+func loadAgentStatusReport(root string) (agentStatusReport, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		root = "agents"
 	}
-	port := cfg.Port
-	if port <= 0 {
-		port = 8080
-	}
-	return fmt.Sprintf("http://127.0.0.1:%d/status", port), nil
-}
 
-func fetchRuntimeStatus(ctx context.Context, url string, client runtimeStatusClient) (runtimeStatusResponse, error) {
-	if client == nil {
-		client = newRuntimeStatusClient()
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	entries, err := os.ReadDir(root)
 	if err != nil {
-		return runtimeStatusResponse{}, fmt.Errorf("create status request: %w", err)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return runtimeStatusResponse{}, fmt.Errorf("query runtime status at %s: %w", url, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		msg := strings.TrimSpace(string(body))
-		if msg != "" {
-			return runtimeStatusResponse{}, fmt.Errorf("query runtime status at %s: %s", url, msg)
+		if errors.Is(err, os.ErrNotExist) {
+			return agentStatusReport{Root: root}, nil
 		}
-		return runtimeStatusResponse{}, fmt.Errorf("query runtime status at %s: unexpected http status %s", url, resp.Status)
+		return agentStatusReport{}, fmt.Errorf("read agents directory %q: %w", root, err)
 	}
 
-	var status runtimeStatusResponse
-	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
-		return runtimeStatusResponse{}, fmt.Errorf("decode runtime status from %s: %w", url, err)
+	var report agentStatusReport
+	report.Root = root
+
+	var errs []error
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		agent, agentErr := loadAgentStatusEntry(filepath.Join(root, entry.Name()))
+		report.Agents = append(report.Agents, agent)
+		if agentErr != nil {
+			errs = append(errs, agentErr)
+		}
 	}
-	return status, nil
+
+	sort.Slice(report.Agents, func(i, j int) bool {
+		return report.Agents[i].Name < report.Agents[j].Name
+	})
+
+	return report, errors.Join(errs...)
 }
 
-func printRuntimeStatus(out io.Writer, status runtimeStatusResponse) {
-	fmt.Fprintln(out, "runtime status")
-	if !status.Active || len(status.ActiveAgents) == 0 {
-		fmt.Fprintln(out, "no active agents")
+func loadAgentStatusEntry(path string) (agentStatusEntry, error) {
+	name := filepath.Base(path)
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return agentStatusEntry{Name: name, Path: path, Err: fmt.Errorf("read agent directory %q: %w", path, err)}, fmt.Errorf("%s: %w", name, err)
+	}
+
+	files := make([]string, 0, len(entries))
+	merged := map[string]any{}
+	var errs []error
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if !isYAMLConfigFile(entry.Name()) {
+			continue
+		}
+		files = append(files, entry.Name())
+		fragment, fragmentErr := loadYAMLDocument(filepath.Join(path, entry.Name()))
+		if fragmentErr != nil {
+			errs = append(errs, fmt.Errorf("%s/%s: %w", name, entry.Name(), fragmentErr))
+			continue
+		}
+		mergeYAMLDocuments(merged, fragment)
+	}
+
+	if len(files) == 0 {
+		err := fmt.Errorf("no YAML config files found in %q", path)
+		return agentStatusEntry{Name: name, Path: path, Err: err}, err
+	}
+	if len(errs) > 0 {
+		err := errors.Join(errs...)
+		return agentStatusEntry{Name: name, Path: path, Files: append([]string(nil), files...), Err: err}, err
+	}
+
+	cfg, decodeErr := decodeMergedAgentConfig(merged)
+	if decodeErr != nil {
+		err := fmt.Errorf("decode merged config: %w", decodeErr)
+		return agentStatusEntry{Name: name, Path: path, Files: append([]string(nil), files...), Err: err}, err
+	}
+	if validateErr := config.Validate(&cfg); validateErr != nil {
+		err := fmt.Errorf("validate merged config: %w", validateErr)
+		return agentStatusEntry{Name: name, Path: path, Files: append([]string(nil), files...), Config: cfg, Err: err}, err
+	}
+
+	return agentStatusEntry{Name: name, Path: path, Files: append([]string(nil), files...), Config: cfg}, nil
+}
+
+func loadYAMLDocument(path string) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read config %q: %w", path, err)
+	}
+	if strings.TrimSpace(string(data)) == "" {
+		return map[string]any{}, nil
+	}
+
+	var raw any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parse config %q: %w", path, err)
+	}
+
+	doc, ok := normalizeYAMLMap(raw).(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("config %q must contain a YAML mapping at the top level", path)
+	}
+	return doc, nil
+}
+
+func decodeMergedAgentConfig(doc map[string]any) (config.Config, error) {
+	data, err := yaml.Marshal(doc)
+	if err != nil {
+		return config.Config{}, fmt.Errorf("marshal merged config: %w", err)
+	}
+
+	var cfg config.Config
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&cfg); err != nil {
+		return config.Config{}, fmt.Errorf("decode merged config: %w", err)
+	}
+	return cfg, nil
+}
+
+func mergeYAMLDocuments(dst, src map[string]any) {
+	for key, srcValue := range src {
+		if dstValue, ok := dst[key]; ok {
+			dstMap, dstOK := dstValue.(map[string]any)
+			srcMap, srcOK := srcValue.(map[string]any)
+			if dstOK && srcOK {
+				mergeYAMLDocuments(dstMap, srcMap)
+				continue
+			}
+		}
+		dst[key] = srcValue
+	}
+}
+
+func normalizeYAMLMap(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[key] = normalizeYAMLMap(item)
+		}
+		return out
+	case map[interface{}]interface{}:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[fmt.Sprint(key)] = normalizeYAMLMap(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = normalizeYAMLMap(item)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func isYAMLConfigFile(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".yaml", ".yml":
+		return true
+	default:
+		return false
+	}
+}
+
+func printAgentStatusReport(out io.Writer, report agentStatusReport) {
+	fmt.Fprintln(out, "agent status")
+	if len(report.Agents) == 0 {
+		fmt.Fprintf(out, "no agents found under %s\n", report.Root)
 		return
 	}
 
-	fmt.Fprintf(out, "active agents: %d\n", len(status.ActiveAgents))
-	for _, agent := range status.ActiveAgents {
-		task := strings.TrimSpace(agent.Task)
-		if task == "" {
-			task = "working"
+	for _, agent := range report.Agents {
+		fmt.Fprintf(out, "agent: %s\n", agent.Name)
+		fmt.Fprintf(out, "  path: %s\n", agent.Path)
+		if len(agent.Files) > 0 {
+			fmt.Fprintf(out, "  files: %s\n", strings.Join(agent.Files, ", "))
 		}
-		line := fmt.Sprintf("- %s: %s", agent.ID, task)
-		parts := make([]string, 0, 2)
-		if strings.TrimSpace(agent.Model) != "" {
-			parts = append(parts, fmt.Sprintf("model: %s", agent.Model))
+		if agent.Err != nil {
+			fmt.Fprintln(out, "  status: invalid")
+			fmt.Fprintf(out, "  error: %v\n", agent.Err)
+			continue
 		}
-		parts = append(parts, fmt.Sprintf("running %s", formatRuntimeDuration(agent.RunningForSeconds)))
-		if len(parts) > 0 {
-			line += " (" + strings.Join(parts, ", ") + ")"
+		fmt.Fprintln(out, "  status: valid")
+		for _, line := range formatAgentConfigSummary(agent.Config) {
+			fmt.Fprintf(out, "  %s\n", line)
 		}
-		fmt.Fprintln(out, line)
 	}
 }
 
-func formatRuntimeDuration(seconds int64) string {
-	if seconds <= 0 {
-		return "0s"
+func formatAgentConfigSummary(cfg config.Config) []string {
+	lines := make([]string, 0, 8)
+
+	if value := strings.TrimSpace(cfg.Platform.Name); value != "" {
+		lines = append(lines, fmt.Sprintf("platform: %s", value))
 	}
-	return (time.Duration(seconds) * time.Second).String()
+	if value := strings.TrimSpace(cfg.Compute.Class); value != "" {
+		lines = append(lines, fmt.Sprintf("compute: %s", value))
+	}
+	if value := strings.TrimSpace(cfg.Region.Name); value != "" {
+		lines = append(lines, fmt.Sprintf("region: %s", value))
+	}
+	if value := strings.TrimSpace(cfg.Instance.Type); value != "" {
+		if cfg.Instance.DiskSizeGB > 0 {
+			lines = append(lines, fmt.Sprintf("instance: %s (%d GB)", value, cfg.Instance.DiskSizeGB))
+		} else {
+			lines = append(lines, fmt.Sprintf("instance: %s", value))
+		}
+	}
+	if value := strings.TrimSpace(cfg.Image.Name); value != "" {
+		if imageID := strings.TrimSpace(cfg.Image.ID); imageID != "" {
+			lines = append(lines, fmt.Sprintf("image: %s (%s)", value, imageID))
+		} else {
+			lines = append(lines, fmt.Sprintf("image: %s", value))
+		}
+	}
+	if value := formatRuntimeSummary(cfg.Runtime); value != "" {
+		lines = append(lines, "runtime: "+value)
+	}
+	if value := formatSandboxSummary(cfg.Sandbox); value != "" {
+		lines = append(lines, "sandbox: "+value)
+	}
+	if value := formatSSHSummary(cfg.SSH); value != "" {
+		lines = append(lines, "ssh: "+value)
+	}
+	if value := formatInfraSummary(cfg.Infra); value != "" {
+		lines = append(lines, "infra: "+value)
+	}
+
+	return lines
+}
+
+func formatRuntimeSummary(cfg config.RuntimeConfig) string {
+	parts := make([]string, 0, 5)
+	if value := strings.TrimSpace(cfg.Provider); value != "" {
+		parts = append(parts, "provider="+value)
+	}
+	if value := strings.TrimSpace(cfg.Endpoint); value != "" {
+		parts = append(parts, "endpoint="+value)
+	}
+	if value := strings.TrimSpace(cfg.Model); value != "" {
+		parts = append(parts, "model="+value)
+	}
+	if cfg.Port > 0 {
+		parts = append(parts, fmt.Sprintf("port=%d", cfg.Port))
+	}
+	if value := strings.TrimSpace(cfg.PublicCIDR); value != "" {
+		parts = append(parts, "public_cidr="+value)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " ")
+}
+
+func formatSandboxSummary(cfg config.SandboxConfig) string {
+	parts := make([]string, 0, 3)
+	parts = append(parts, fmt.Sprintf("enabled=%t", cfg.Enabled))
+	if value := strings.TrimSpace(cfg.NetworkMode); value != "" {
+		parts = append(parts, "network="+value)
+	}
+	parts = append(parts, fmt.Sprintf("use_nemoclaw=%t", cfg.UseNemoClaw))
+	if len(cfg.FilesystemAllow) > 0 {
+		parts = append(parts, "filesystem_allow="+strings.Join(cfg.FilesystemAllow, ","))
+	}
+	return strings.Join(parts, " ")
+}
+
+func formatSSHSummary(cfg config.SSHConfig) string {
+	parts := make([]string, 0, 4)
+	if value := strings.TrimSpace(cfg.User); value != "" {
+		parts = append(parts, "user="+value)
+	}
+	if value := strings.TrimSpace(cfg.KeyName); value != "" {
+		parts = append(parts, "key_name="+value)
+	}
+	if value := strings.TrimSpace(cfg.CIDR); value != "" {
+		parts = append(parts, "cidr="+value)
+	}
+	if value := strings.TrimSpace(cfg.PrivateKeyPath); value != "" {
+		parts = append(parts, "private_key_path="+value)
+	}
+	if value := strings.TrimSpace(cfg.GitHubPrivateKeyPath); value != "" {
+		parts = append(parts, "github_private_key_path="+value)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " ")
+}
+
+func formatInfraSummary(cfg config.InfraConfig) string {
+	parts := make([]string, 0, 2)
+	if value := strings.TrimSpace(cfg.Backend); value != "" {
+		parts = append(parts, "backend="+value)
+	}
+	if value := strings.TrimSpace(cfg.ModuleDir); value != "" {
+		parts = append(parts, "module_dir="+value)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " ")
 }
