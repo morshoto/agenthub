@@ -456,20 +456,20 @@ func waitForBootstrapReady(ctx context.Context, cfg *config.Config, target, sshU
 		msg := strings.ToLower(strings.TrimSpace(result.Stderr + " " + err.Error()))
 		if attempt == 1 || attempt%3 == 0 {
 			if status, statusErr := probeBootstrapStatus(waitCtx, exec); statusErr == nil {
-				fmt.Fprintf(out, "bootstrap still running on %s\n%s\n", target, status)
+				fmt.Fprintf(out, "bootstrap still running on %s: %s\n", target, summarizeBootstrapStatus(status))
 			} else {
-				fmt.Fprintf(out, "bootstrap still running on %s (status unavailable: %v)\n", target, statusErr)
+				fmt.Fprintf(out, "bootstrap still running on %s (status unavailable)\n", target)
 			}
 		}
 		if waitCtx.Err() != nil {
-			return fmt.Errorf("wait for docker bootstrap on %s: %w", target, waitCtx.Err())
+			return fmt.Errorf("wait for bootstrap on %s: %w", target, waitCtx.Err())
 		}
 		if isTransientSSHError(err) {
 			timer := time.NewTimer(delay)
 			select {
 			case <-waitCtx.Done():
 				timer.Stop()
-				return fmt.Errorf("wait for docker bootstrap on %s: %w", target, waitCtx.Err())
+				return fmt.Errorf("wait for bootstrap on %s: %w", target, waitCtx.Err())
 			case <-timer.C:
 			}
 			if delay < 30*time.Second {
@@ -482,7 +482,7 @@ func waitForBootstrapReady(ctx context.Context, cfg *config.Config, target, sshU
 			select {
 			case <-waitCtx.Done():
 				timer.Stop()
-				return fmt.Errorf("wait for docker bootstrap on %s: %w", target, waitCtx.Err())
+				return fmt.Errorf("wait for bootstrap on %s: %w", target, waitCtx.Err())
 			case <-timer.C:
 			}
 			if delay < 30*time.Second {
@@ -490,7 +490,7 @@ func waitForBootstrapReady(ctx context.Context, cfg *config.Config, target, sshU
 			}
 			continue
 		}
-		return fmt.Errorf("wait for docker bootstrap on %s: %w", target, err)
+		return fmt.Errorf("wait for bootstrap on %s: %w", target, err)
 	}
 	return nil
 }
@@ -513,6 +513,44 @@ tail -n 20 /var/log/openclaw-bootstrap.log 2>&1 || true
 		text = "no bootstrap status available yet"
 	}
 	return text, nil
+}
+
+func summarizeBootstrapStatus(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "no bootstrap status available yet"
+	}
+
+	lines := strings.Split(text, "\n")
+	parts := make([]string, 0, 3)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "cloud-init status:"):
+			continue
+		case strings.HasPrefix(line, "bootstrap log tail:"):
+			continue
+		case strings.HasPrefix(line, "tail: cannot open"):
+			parts = append(parts, "bootstrap log unavailable")
+		default:
+			parts = append(parts, line)
+		}
+		if len(parts) >= 3 {
+			break
+		}
+	}
+	if len(parts) == 0 {
+		return "no bootstrap status available yet"
+	}
+	summary := strings.Join(parts, "; ")
+	const maxLen = 180
+	if len(summary) > maxLen {
+		return summary[:maxLen-1] + "…"
+	}
+	return summary
 }
 
 func resolveCodexAPIKey(ctx context.Context, profile string, cfg *config.Config) (string, error) {
@@ -808,10 +846,10 @@ func printWorkflowSuccess(out io.Writer, instance *provider.Instance, installRes
 		printVerificationReport(out, verifyReport)
 	}
 	if strings.TrimSpace(cfgPath) != "" && strings.TrimSpace(target) != "" {
-		fmt.Fprintf(out, "verify command example: openclaw verify --config %s --target %s\n", cfgPath, target)
+		fmt.Fprintf(out, "verify command example: %s\n", commandRef(out, "openclaw", "verify", "--config", cfgPath, "--target", target))
 	}
 	if createMode && strings.TrimSpace(cfgPath) != "" && strings.TrimSpace(target) != "" && strings.TrimSpace(installResult.ServicePath) != "" {
-		fmt.Fprintf(out, "install command example: openclaw install --config %s --target %s\n", cfgPath, target)
+		fmt.Fprintf(out, "install command example: %s\n", commandRef(out, "openclaw", "install", "--config", cfgPath, "--target", target))
 	}
 	fmt.Fprintln(out, "next step: keep the runtime config and SSH target handy for future verify runs")
 }
@@ -877,10 +915,10 @@ func printVerificationReport(out io.Writer, report verify.Report) {
 func printSuccessNextSteps(out io.Writer, cfgPath, target string, includeInstall bool) {
 	fmt.Fprintln(out, "next steps")
 	if strings.TrimSpace(target) != "" && strings.TrimSpace(cfgPath) != "" {
-		fmt.Fprintf(out, "- verify: openclaw verify --config %s --target %s\n", cfgPath, target)
+		fmt.Fprintf(out, "- verify: %s\n", commandRef(out, "openclaw", "verify", "--config", cfgPath, "--target", target))
 	}
 	if includeInstall && strings.TrimSpace(target) != "" && strings.TrimSpace(cfgPath) != "" {
-		fmt.Fprintf(out, "- install: openclaw install --config %s --target %s\n", cfgPath, target)
+		fmt.Fprintf(out, "- install: %s\n", commandRef(out, "openclaw", "install", "--config", cfgPath, "--target", target))
 	}
 	fmt.Fprintln(out, "- destroy: not implemented yet")
 }

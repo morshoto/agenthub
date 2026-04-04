@@ -156,6 +156,42 @@ func TestAuthCheckCommandReportsSuccess(t *testing.T) {
 	}
 }
 
+func TestRootHelpGroupsCommands(t *testing.T) {
+	app := New()
+	cmd := newRootCommand(app)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"openclaw", "--help"}
+
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	got := stdout.String()
+	for _, fragment := range []string{
+		"Setup",
+		"Provision",
+		"Runtime",
+		"Inspect",
+		"Support",
+		"init",
+		"create",
+		"status",
+		"verify",
+	} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("help output %q missing %q", got, fragment)
+		}
+	}
+	if strings.Contains(got, "\x1b[34m") {
+		t.Fatalf("help output should be plain text when not writing to a terminal: %q", got)
+	}
+}
+
 func TestInfraCreateCommandReportsCreatedInstance(t *testing.T) {
 	original := newAWSProvider
 	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {

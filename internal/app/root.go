@@ -37,6 +37,7 @@ func newRootCommand(app *App) *cobra.Command {
 	rootCmd.PersistentFlags().StringVar(&app.opts.ConfigPath, "config", "", "path to the configuration file")
 	rootCmd.PersistentFlags().StringVar(&app.opts.Profile, "profile", "", "AWS profile to use")
 
+	configureRootCommandDisplay(rootCmd)
 	rootCmd.AddCommand(newVersionCommand(app))
 	rootCmd.AddCommand(newDoctorCommand())
 	rootCmd.AddCommand(newAuthCommand(app))
@@ -56,8 +57,9 @@ func newRootCommand(app *App) *cobra.Command {
 
 func newDoctorCommand() *cobra.Command {
 	return &cobra.Command{
-		Use:   "doctor",
-		Short: "Check the CLI runtime wiring",
+		Use:     "doctor",
+		Short:   "Check the CLI runtime wiring",
+		GroupID: "inspect",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := loggerFromContext(cmd.Context())
 			logger.Debug("starting doctor check")
@@ -70,8 +72,9 @@ func newDoctorCommand() *cobra.Command {
 
 func newAuthCommand(app *App) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "auth",
-		Short: "Check AWS authentication",
+		Use:     "auth",
+		Short:   "Check AWS authentication",
+		GroupID: "inspect",
 	}
 	cmd.AddCommand(newAuthCheckCommand(app))
 	return cmd
@@ -108,8 +111,9 @@ func loggerFromContext(ctx context.Context) *slog.Logger {
 
 func newConfigCommand(app *App) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "config",
-		Short: "Manage configuration files",
+		Use:     "config",
+		Short:   "Manage configuration files",
+		GroupID: "setup",
 	}
 	cmd.AddCommand(newConfigValidateCommand(app))
 	return cmd
@@ -141,8 +145,9 @@ func newInitCommand(app *App) *cobra.Command {
 	var provisionNow bool
 
 	cmd := &cobra.Command{
-		Use:   "init",
-		Short: "Run the interactive setup flow",
+		Use:     "init",
+		Short:   "Run the interactive setup flow",
+		GroupID: "setup",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			existing, err := existingConfig(app.opts.ConfigPath)
 			if err != nil {
@@ -178,7 +183,7 @@ func newInitCommand(app *App) *cobra.Command {
 			fmt.Fprintf(cmd.OutOrStdout(), "configuration written to %s\n", configPath)
 			if !provisionNow {
 				fmt.Fprintln(cmd.OutOrStdout(), "provisioning skipped")
-				fmt.Fprintln(cmd.OutOrStdout(), "next step: run `openclaw create --config "+configPath+"` when you are ready")
+				fmt.Fprintf(cmd.OutOrStdout(), "next step: run %s when you are ready\n", commandRef(cmd.OutOrStdout(), "openclaw", "create", "--config", configPath))
 				return nil
 			}
 
@@ -192,7 +197,7 @@ func newInitCommand(app *App) *cobra.Command {
 					err,
 					"the create workflow failed after the configuration was written",
 					"inspect the summary above",
-					"run `openclaw create --config "+configPath+"` once the host is ready",
+					"run "+commandRef(cmd.OutOrStdout(), "openclaw", "create", "--config", configPath)+" once the host is ready",
 				)
 			}
 			printWorkflowSuccess(cmd.OutOrStdout(), instance, installResult, verifyReport, configPath, cfg, instanceTarget(instance), true)
@@ -207,8 +212,9 @@ func newInitCommand(app *App) *cobra.Command {
 
 func newQuotaCommand(app *App) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "quota",
-		Short: "Inspect cloud quotas",
+		Use:     "quota",
+		Short:   "Inspect cloud quotas",
+		GroupID: "inspect",
 	}
 	cmd.AddCommand(newQuotaCheckCommand(app))
 	return cmd

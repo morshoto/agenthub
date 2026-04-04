@@ -33,8 +33,9 @@ func newStatusCommand(app *App) *cobra.Command {
 	var agentsDir string
 
 	cmd := &cobra.Command{
-		Use:   "status",
-		Short: "Show formatted agent configuration status",
+		Use:     "status",
+		Short:   "Show formatted agent configuration status",
+		GroupID: "runtime",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			report, err := loadAgentStatusReport(agentsDir)
 			printAgentStatusReport(cmd.OutOrStdout(), report)

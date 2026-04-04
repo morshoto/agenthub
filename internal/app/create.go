@@ -27,8 +27,9 @@ func newCreateCommand(app *App) *cobra.Command {
 	var agentsDir string
 
 	cmd := &cobra.Command{
-		Use:   "create",
-		Short: "Create and verify a new environment",
+		Use:     "create",
+		Short:   "Create and verify a new environment",
+		GroupID: "provision",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configPath := strings.TrimSpace(app.opts.ConfigPath)
 			if configPath == "" {

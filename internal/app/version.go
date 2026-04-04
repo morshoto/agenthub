@@ -4,8 +4,9 @@ import "github.com/spf13/cobra"
 
 func newVersionCommand(app *App) *cobra.Command {
 	return &cobra.Command{
-		Use:   "version",
-		Short: "Show version information",
+		Use:     "version",
+		Short:   "Show version information",
+		GroupID: "support",
 		Run: func(cmd *cobra.Command, args []string) {
 			_, _ = cmd.OutOrStdout().Write([]byte(app.versionString() + "\n"))
 		},

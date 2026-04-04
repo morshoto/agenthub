@@ -30,8 +30,9 @@ func newServeCommand(app *App) *cobra.Command {
 	var idleShutdownCommand string
 
 	cmd := &cobra.Command{
-		Use:   "serve",
-		Short: "Run the OpenClaw runtime daemon",
+		Use:     "serve",
+		Short:   "Run the OpenClaw runtime daemon",
+		GroupID: "runtime",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(runtimeConfigPath) == "" {
 				return errors.New("runtime config path is required")
