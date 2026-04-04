@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -136,7 +137,7 @@ func newConfigValidateCommand(app *App) *cobra.Command {
 }
 
 func newInitCommand(app *App) *cobra.Command {
-	var outputPath string
+	var agentsDir string
 	var provisionNow bool
 
 	cmd := &cobra.Command{
@@ -165,16 +166,23 @@ func newInitCommand(app *App) *cobra.Command {
 				return err
 			}
 
-			if strings.TrimSpace(outputPath) == "" {
-				return errors.New("output path is required")
-			}
-			if err := config.Save(outputPath, cfg); err != nil {
+			agentName, err := session.Text("Agent name", "")
+			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "configuration written to %s\n", outputPath)
+			agentName, err = validateAgentName(agentName)
+			if err != nil {
+				return err
+			}
+
+			configPath := filepath.Join(agentsDir, agentName, "config.yaml")
+			if err := config.Save(configPath, cfg); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "configuration written to %s\n", configPath)
 			if !provisionNow {
 				fmt.Fprintln(cmd.OutOrStdout(), "provisioning skipped")
-				fmt.Fprintln(cmd.OutOrStdout(), "next step: run `openclaw create --config "+outputPath+"` when you are ready")
+				fmt.Fprintln(cmd.OutOrStdout(), "next step: run `openclaw create --config "+configPath+"` when you are ready")
 				return nil
 			}
 
@@ -188,17 +196,37 @@ func newInitCommand(app *App) *cobra.Command {
 					err,
 					"the create workflow failed after the configuration was written",
 					"inspect the summary above",
-					"run `openclaw create --config "+outputPath+"` once the host is ready",
+					"run `openclaw create --config "+configPath+"` once the host is ready",
 				)
 			}
-			printWorkflowSuccess(cmd.OutOrStdout(), instance, installResult, verifyReport, outputPath, cfg, instanceTarget(instance), true)
+			printWorkflowSuccess(cmd.OutOrStdout(), instance, installResult, verifyReport, configPath, cfg, instanceTarget(instance), true)
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&outputPath, "output", "openclaw.yaml", "path to write the generated configuration")
+	cmd.Flags().StringVar(&agentsDir, "agents-dir", "agents", "path to the agents directory")
 	cmd.Flags().BoolVar(&provisionNow, "provision", false, "provision infrastructure after writing the configuration")
 	return cmd
+}
+
+func validateAgentName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", errors.New("agent name is required")
+	}
+	if name == "." || name == ".." {
+		return "", fmt.Errorf("invalid agent name %q", name)
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("invalid agent name %q: path separators are not allowed", name)
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return "", fmt.Errorf("invalid agent name %q: use letters, digits, hyphen, or underscore", name)
+	}
+	return name, nil
 }
 
 func newQuotaCommand(app *App) *cobra.Command {

@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -244,6 +245,11 @@ func Save(path string, cfg *Config) error {
 	}
 	if strings.TrimSpace(path) == "" {
 		return errors.New("config save failed: output path is required")
+	}
+	if dir := filepath.Dir(path); dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("prepare config output directory: %w", err)
+		}
 	}
 
 	data, err := yaml.Marshal(cfg)

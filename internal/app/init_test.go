@@ -54,7 +54,8 @@ func TestInitWritesConfigFile(t *testing.T) {
 	stubGitHubSSHSetup(t)
 
 	dir := t.TempDir()
-	output := filepath.Join(dir, "openclaw.yaml")
+	agentsDir := filepath.Join(dir, "agents")
+	configPath := filepath.Join(agentsDir, "alpha", "config.yaml")
 	input := strings.Join([]string{
 		"1",                      // platform aws
 		"",                       // accept default GPU compute mode
@@ -72,11 +73,12 @@ func TestInitWritesConfigFile(t *testing.T) {
 		"1",                      // provider codex
 		"http://localhost:11434", // endpoint
 		"y",                      // confirm summary
+		"alpha",                  // agent name
 	}, "\n") + "\n"
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--output", output}
+	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -89,7 +91,7 @@ func TestInitWritesConfigFile(t *testing.T) {
 		t.Fatalf("Execute() error = %v", err)
 	}
 
-	data, err := os.ReadFile(output)
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
@@ -133,7 +135,8 @@ func TestInitSupportsCPUComputeMode(t *testing.T) {
 	stubGitHubSSHSetup(t)
 
 	dir := t.TempDir()
-	output := filepath.Join(dir, "openclaw.yaml")
+	agentsDir := filepath.Join(dir, "agents")
+	configPath := filepath.Join(agentsDir, "alpha", "config.yaml")
 	input := strings.Join([]string{
 		"1", // platform aws
 		"1", // cpu compute mode
@@ -151,11 +154,12 @@ func TestInitSupportsCPUComputeMode(t *testing.T) {
 		"1",
 		"", // accept placeholder external endpoint
 		"y",
+		"alpha",
 	}, "\n") + "\n"
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--output", output}
+	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -167,7 +171,7 @@ func TestInitSupportsCPUComputeMode(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	loaded, err := config.Load(output)
+	loaded, err := config.Load(configPath)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -198,7 +202,7 @@ func TestInitRejectsNonAWSPlatform(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--output", filepath.Join(t.TempDir(), "openclaw.yaml")}
+	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", filepath.Join(t.TempDir(), "agents")}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -231,7 +235,7 @@ func TestInitDoesNotCreateAWSProviderBeforePlatformSelection(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--output", filepath.Join(t.TempDir(), "openclaw.yaml")}
+	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", filepath.Join(t.TempDir(), "agents")}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -277,7 +281,8 @@ sandbox:
   network_mode: private
   use_nemoclaw: false
 `)
-	output := filepath.Join(dir, "output.yaml")
+	agentsDir := filepath.Join(dir, "agents")
+	configPath := filepath.Join(agentsDir, "alpha", "config.yaml")
 	input := strings.Join([]string{
 		"1", // platform aws
 		"",  // accept default GPU compute mode
@@ -295,11 +300,12 @@ sandbox:
 		"1",
 		"http://localhost:11434",
 		"y",
+		"alpha",
 	}, "\n") + "\n"
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "--config", existing, "init", "--output", output}
+	os.Args = []string{"openclaw", "--profile", "sso-dev", "--config", existing, "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -311,7 +317,7 @@ sandbox:
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	loaded, err := config.Load(output)
+	loaded, err := config.Load(configPath)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -337,7 +343,7 @@ func TestInitContinuesWhenAWSAuthCheckIsPermissionDenied(t *testing.T) {
 	stubGitHubSSHSetup(t)
 
 	dir := t.TempDir()
-	output := filepath.Join(dir, "openclaw.yaml")
+	agentsDir := filepath.Join(dir, "agents")
 	input := strings.Join([]string{
 		"1",                      // platform aws
 		"",                       // accept default GPU compute mode
@@ -355,11 +361,12 @@ func TestInitContinuesWhenAWSAuthCheckIsPermissionDenied(t *testing.T) {
 		"1",                      // provider codex
 		"http://localhost:11434", // endpoint
 		"y",                      // confirm summary
+		"alpha",                  // agent name
 	}, "\n") + "\n"
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--output", output}
+	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -393,7 +400,7 @@ func TestInitContinuesWhenAWSAuthCheckFailsAtSTS(t *testing.T) {
 	stubGitHubSSHSetup(t)
 
 	dir := t.TempDir()
-	output := filepath.Join(dir, "openclaw.yaml")
+	agentsDir := filepath.Join(dir, "agents")
 	input := strings.Join([]string{
 		"1",                      // platform aws
 		"",                       // accept default GPU compute mode
@@ -411,11 +418,12 @@ func TestInitContinuesWhenAWSAuthCheckFailsAtSTS(t *testing.T) {
 		"1",                      // provider codex
 		"http://localhost:11434", // endpoint
 		"y",                      // confirm summary
+		"alpha",                  // agent name
 	}, "\n") + "\n"
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--output", output}
+	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -449,7 +457,7 @@ func TestInitFallsBackWhenAWSImageLookupIsPermissionDenied(t *testing.T) {
 	stubGitHubSSHSetup(t)
 
 	dir := t.TempDir()
-	output := filepath.Join(dir, "openclaw.yaml")
+	agentsDir := filepath.Join(dir, "agents")
 	input := strings.Join([]string{
 		"1",                      // platform aws
 		"",                       // accept default GPU compute mode
@@ -467,11 +475,12 @@ func TestInitFallsBackWhenAWSImageLookupIsPermissionDenied(t *testing.T) {
 		"1",                      // provider codex
 		"http://localhost:11434", // endpoint
 		"y",                      // confirm summary
+		"alpha",                  // agent name
 	}, "\n") + "\n"
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--output", output}
+	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
