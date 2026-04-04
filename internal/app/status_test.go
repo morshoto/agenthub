@@ -10,15 +10,15 @@ import (
 
 func TestStatusCommandReportsNoAgentsFound(t *testing.T) {
 	agentsDir := filepath.Join(t.TempDir(), "agents")
-	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
 
 	stdout, err := runStatusCommand(t, agentsDir)
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
-	for _, fragment := range []string{"agent status", "no agents found under " + agentsDir} {
+	for _, fragment := range []string{
+		"agent status",
+		"no agents found under " + agentsDir,
+	} {
 		if !strings.Contains(stdout, fragment) {
 			t.Fatalf("stdout = %q, want %q", stdout, fragment)
 		}
@@ -66,7 +66,6 @@ ssh:
 sandbox:
   use_nemoclaw: true
 `)
-
 	writeConfig(t, filepath.Join(betaDir, "config.yaml"), `
 platform:
   name: aws
@@ -95,8 +94,8 @@ sandbox:
 		"agent: beta",
 		"status: valid",
 		"runtime: provider=aws-bedrock endpoint=http://localhost:11434 model=llama3.2 port=8080",
-		"sandbox: enabled=true network=public use_nemoclaw=true",
 		"ssh: user=ubuntu key_name=demo-key",
+		"sandbox: enabled=true network=public use_nemoclaw=true",
 		"instance: g5.xlarge (40 GB)",
 		"instance: t3.medium (20 GB)",
 	} {
@@ -152,6 +151,7 @@ runtime:
 	if err == nil {
 		t.Fatal("Execute() error = nil, want failure for invalid agent config")
 	}
+
 	for _, fragment := range []string{
 		"agent: beta",
 		"status: invalid",
