@@ -198,8 +198,34 @@ func (p *Provider) RecommendInstanceTypes(ctx context.Context, region, computeCl
 		}
 		all = append(all, out.InstanceTypes...)
 	}
+	sort.Slice(all, func(i, j int) bool {
+		return string(all[i].InstanceType) < string(all[j].InstanceType)
+	})
 
-	items := selectAWSInstanceTypes(all, computeClass)
+	items := make([]provider.InstanceType, 0, len(all))
+	for _, info := range all {
+		name := strings.TrimSpace(string(info.InstanceType))
+		if name == "" {
+			continue
+		}
+		memoryGB := 0
+		if info.MemoryInfo != nil && info.MemoryInfo.SizeInMiB != nil {
+			memoryGB = int((*info.MemoryInfo.SizeInMiB + 1023) / 1024)
+		}
+		gpuCount := 0
+		if info.GpuInfo != nil {
+			for _, gpu := range info.GpuInfo.Gpus {
+				if gpu.Count != nil {
+					gpuCount += int(*gpu.Count)
+				}
+			}
+		}
+		items = append(items, provider.InstanceType{
+			Name:     name,
+			GPUCount: gpuCount,
+			MemoryGB: memoryGB,
+		})
+	}
 	if len(items) == 0 {
 		return nil, errors.New("describe EC2 instance types: no matching types returned")
 	}
@@ -240,266 +266,6 @@ func (p *Provider) RecommendBaseImages(ctx context.Context, region, computeClass
 
 func (p *Provider) ListBaseImages(ctx context.Context, region string) ([]provider.BaseImage, error) {
 	return p.RecommendBaseImages(ctx, region, p.Config.ComputeClass)
-}
-
-func (p *Provider) GetInstance(ctx context.Context, region, instanceID string) (*provider.Instance, error) {
-	region = strings.TrimSpace(region)
-	instanceID = strings.TrimSpace(instanceID)
-	if region == "" {
-		return nil, errors.New("region is required")
-	}
-	if instanceID == "" {
-		return nil, errors.New("instance id is required")
-	}
-
-	cfg, err := p.loadAWSConfig(ctx)
-	if err != nil {
-		return nil, err
-	}
-	cfg.Region = region
-
-	client := p.newEC2Client(cfg)
-	describeOut, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{instanceID}})
-	if err != nil {
-		return nil, fmt.Errorf("describe EC2 instance %s: %w", instanceID, err)
-	}
-	var ec2Instance *ec2types.Instance
-	for _, reservation := range describeOut.Reservations {
-		for i := range reservation.Instances {
-			if reservation.Instances[i].InstanceId != nil && *reservation.Instances[i].InstanceId == instanceID {
-				ec2Instance = &reservation.Instances[i]
-				break
-			}
-		}
-		if ec2Instance != nil {
-			break
-		}
-	}
-	if ec2Instance == nil {
-		return nil, fmt.Errorf("describe EC2 instance %s: instance not found", instanceID)
-	}
-
-	publicIP := awsString(ec2Instance.PublicIpAddress)
-	privateIP := awsString(ec2Instance.PrivateIpAddress)
-	connectionInfo := "connection details unavailable"
-	if publicIP != "" {
-		connectionInfo = fmt.Sprintf("public IP: %s", publicIP)
-	} else if privateIP != "" {
-		connectionInfo = fmt.Sprintf("private IP: %s", privateIP)
-	}
-
-	return &provider.Instance{
-		ID:             instanceID,
-		Name:           instanceID,
-		Region:         region,
-		PublicIP:       publicIP,
-		PrivateIP:      privateIP,
-		ConnectionInfo: connectionInfo,
-	}, nil
-}
-
-const (
-	authStageConfig      = "config"
-	authStageCredentials = "credentials"
-	authStageAPI         = "api"
-)
-
-type AuthError struct {
-	Kind    string
-	Profile string
-	Stage   string
-	Cause   error
-}
-
-func (e *AuthError) Error() string {
-	if e == nil {
-		return ""
-	}
-	return e.message()
-}
-
-func (e *AuthError) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	return e.Cause
-}
-
-func (e *AuthError) message() string {
-	switch e.Kind {
-	case "profile_not_found":
-		if e.Profile != "" {
-			return fmt.Sprintf("AWS profile %q was not found; pass a valid --profile or configure AWS_PROFILE", e.Profile)
-		}
-		return "AWS profile was not found; pass a valid --profile or configure AWS_PROFILE"
-	case "no_credentials":
-		return "AWS credentials are not configured; set environment credentials, configure an AWS profile, or run aws sso login"
-	case "permission_denied":
-		return "AWS credentials were found, but sts:GetCallerIdentity was denied; check IAM permissions for the selected profile"
-	case "api_call_failed":
-		return "AWS auth check failed while calling sts:GetCallerIdentity; verify credentials, network access, and the selected profile"
-	default:
-		if e.Cause != nil {
-			return e.Cause.Error()
-		}
-		return "AWS auth check failed"
-	}
-}
-
-func (p *Provider) loadAWSConfig(ctx context.Context) (awsbase.Config, error) {
-	p.ensureDeps()
-	optFns := make([]func(*awsconfig.LoadOptions) error, 0, 1)
-	if profile := strings.TrimSpace(p.Config.Profile); profile != "" {
-		optFns = append(optFns, awsconfig.WithSharedConfigProfile(profile))
-	}
-	cfg, err := p.loadDefaultConfig(ctx, optFns...)
-	if err != nil {
-		return awsbase.Config{}, classifyAuthError(err, p.Config.Profile, authStageConfig)
-	}
-	if strings.TrimSpace(cfg.Region) == "" {
-		cfg.Region = "us-east-1"
-	}
-	return cfg, nil
-}
-
-func classifyAuthError(err error, profile, stage string) error {
-	if err == nil {
-		return nil
-	}
-
-	lower := strings.ToLower(err.Error())
-	switch {
-	case stage == authStageConfig && (strings.Contains(lower, "shared config profile") || (strings.Contains(lower, "profile") && strings.Contains(lower, "not found"))):
-		return &AuthError{Kind: "profile_not_found", Profile: profile, Stage: stage, Cause: err}
-	case strings.Contains(lower, "no credential providers") ||
-		strings.Contains(lower, "no valid providers") ||
-		strings.Contains(lower, "failed to refresh cached credentials") ||
-		strings.Contains(lower, "no ec2 imds role found"):
-		return &AuthError{Kind: "no_credentials", Profile: profile, Stage: stage, Cause: err}
-	}
-
-	if isPermissionDenied(err) {
-		return &AuthError{Kind: "permission_denied", Profile: profile, Stage: stage, Cause: err}
-	}
-	return &AuthError{Kind: "api_call_failed", Profile: profile, Stage: stage, Cause: err}
-}
-
-func isPermissionDenied(err error) bool {
-	var responseErr *smithyhttp.ResponseError
-	if errors.As(err, &responseErr) && responseErr.Response != nil {
-		switch responseErr.Response.StatusCode {
-		case http.StatusForbidden, http.StatusUnauthorized:
-			return true
-		}
-	}
-
-	var apiErr smithy.APIError
-	if errors.As(err, &apiErr) {
-		switch strings.ToLower(apiErr.ErrorCode()) {
-		case "accessdenied", "accessdeniedexception", "unauthorizedoperation", "invalidclienttokenid", "unrecognizedclientexception", "signaturedoesnotmatch":
-			return true
-		}
-	}
-
-	lower := strings.ToLower(err.Error())
-	return strings.Contains(lower, "access denied") || strings.Contains(lower, "not authorized") || strings.Contains(lower, "unauthorized")
-}
-
-func awsString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
-func selectAWSInstanceTypes(types []ec2types.InstanceTypeInfo, computeClass string) []provider.InstanceType {
-	candidates := make([]provider.InstanceType, 0, len(types))
-	for _, info := range types {
-		name := strings.TrimSpace(string(info.InstanceType))
-		if name == "" {
-			continue
-		}
-		memoryGB := 0
-		if info.MemoryInfo != nil && info.MemoryInfo.SizeInMiB != nil {
-			memoryGB = int((*info.MemoryInfo.SizeInMiB + 1023) / 1024)
-		}
-		gpuCount := 0
-		if info.GpuInfo != nil {
-			for _, gpu := range info.GpuInfo.Gpus {
-				if gpu.Count != nil {
-					gpuCount += int(*gpu.Count)
-				}
-			}
-		}
-		candidates = append(candidates, provider.InstanceType{
-			Name:     name,
-			GPUCount: gpuCount,
-			MemoryGB: memoryGB,
-		})
-	}
-
-	switch config.EffectiveComputeClass(computeClass) {
-	case config.ComputeClassCPU:
-		return pickPreferredInstanceTypes(candidates, func(item provider.InstanceType) bool {
-			return item.GPUCount == 0 && strings.HasPrefix(item.Name, "t")
-		}, []int{4, 16, 32})
-	default:
-		return pickPreferredInstanceTypes(candidates, func(item provider.InstanceType) bool {
-			return item.GPUCount > 0 && strings.HasPrefix(item.Name, "g")
-		}, []int{16, 32, 64})
-	}
-}
-
-func pickPreferredInstanceTypes(candidates []provider.InstanceType, accept func(provider.InstanceType) bool, targets []int) []provider.InstanceType {
-	filtered := make([]provider.InstanceType, 0, len(candidates))
-	for _, item := range candidates {
-		if accept(item) {
-			filtered = append(filtered, item)
-		}
-	}
-	if len(filtered) == 0 {
-		filtered = append(filtered, candidates...)
-	}
-	sort.Slice(filtered, func(i, j int) bool {
-		if filtered[i].MemoryGB == filtered[j].MemoryGB {
-			return filtered[i].Name < filtered[j].Name
-		}
-		return filtered[i].MemoryGB < filtered[j].MemoryGB
-	})
-
-	selected := make([]provider.InstanceType, 0, len(targets))
-	used := make(map[string]struct{}, len(targets))
-	for _, target := range targets {
-		bestIndex := -1
-		bestScore := 0
-		for i, item := range filtered {
-			if _, seen := used[item.Name]; seen {
-				continue
-			}
-			score := item.MemoryGB - target
-			if score < 0 {
-				score = -score
-			}
-			if bestIndex == -1 || score < bestScore || (score == bestScore && item.Name < filtered[bestIndex].Name) {
-				bestIndex = i
-				bestScore = score
-			}
-		}
-		if bestIndex == -1 {
-			continue
-		}
-		item := filtered[bestIndex]
-		used[item.Name] = struct{}{}
-		selected = append(selected, item)
-	}
-
-	if len(selected) == 0 {
-		if len(filtered) > 3 {
-			filtered = filtered[:3]
-		}
-		return filtered
-	}
-	return selected
 }
 
 func (p *Provider) ensureDeps() {
@@ -754,4 +520,174 @@ func (p *Provider) resolveUbuntu2204(ctx context.Context, cfg awsbase.Config) (p
 		Source:             "canonical-ssm-public-parameter",
 		SSMParameter:       parameterName,
 	}, nil
+}
+
+func (p *Provider) GetInstance(ctx context.Context, region, instanceID string) (*provider.Instance, error) {
+	region = strings.TrimSpace(region)
+	instanceID = strings.TrimSpace(instanceID)
+	if region == "" {
+		return nil, errors.New("region is required")
+	}
+	if instanceID == "" {
+		return nil, errors.New("instance id is required")
+	}
+
+	cfg, err := p.loadAWSConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Region = region
+
+	client := p.newEC2Client(cfg)
+	describeOut, err := client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{instanceID}})
+	if err != nil {
+		return nil, fmt.Errorf("describe EC2 instance %s: %w", instanceID, err)
+	}
+	var ec2Instance *ec2types.Instance
+	for _, reservation := range describeOut.Reservations {
+		for i := range reservation.Instances {
+			if reservation.Instances[i].InstanceId != nil && *reservation.Instances[i].InstanceId == instanceID {
+				ec2Instance = &reservation.Instances[i]
+				break
+			}
+		}
+		if ec2Instance != nil {
+			break
+		}
+	}
+	if ec2Instance == nil {
+		return nil, fmt.Errorf("describe EC2 instance %s: instance not found", instanceID)
+	}
+
+	publicIP := awsString(ec2Instance.PublicIpAddress)
+	privateIP := awsString(ec2Instance.PrivateIpAddress)
+	connectionInfo := "connection details unavailable"
+	if publicIP != "" {
+		connectionInfo = fmt.Sprintf("public IP: %s", publicIP)
+	} else if privateIP != "" {
+		connectionInfo = fmt.Sprintf("private IP: %s", privateIP)
+	}
+
+	return &provider.Instance{
+		ID:             instanceID,
+		Name:           instanceID,
+		Region:         region,
+		PublicIP:       publicIP,
+		PrivateIP:      privateIP,
+		ConnectionInfo: connectionInfo,
+	}, nil
+}
+
+const (
+	authStageConfig      = "config"
+	authStageCredentials = "credentials"
+	authStageAPI         = "api"
+)
+
+type AuthError struct {
+	Kind    string
+	Profile string
+	Stage   string
+	Cause   error
+}
+
+func (e *AuthError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.message()
+}
+
+func (e *AuthError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func (e *AuthError) message() string {
+	switch e.Kind {
+	case "profile_not_found":
+		if e.Profile != "" {
+			return fmt.Sprintf("AWS profile %q was not found; pass a valid --profile or configure AWS_PROFILE", e.Profile)
+		}
+		return "AWS profile was not found; pass a valid --profile or configure AWS_PROFILE"
+	case "no_credentials":
+		return "AWS credentials are not configured; set environment credentials, configure an AWS profile, or run aws sso login"
+	case "permission_denied":
+		return "AWS credentials were found, but sts:GetCallerIdentity was denied; check IAM permissions for the selected profile"
+	case "api_call_failed":
+		return "AWS auth check failed while calling sts:GetCallerIdentity; verify credentials, network access, and the selected profile"
+	default:
+		if e.Cause != nil {
+			return e.Cause.Error()
+		}
+		return "AWS auth check failed"
+	}
+}
+
+func (p *Provider) loadAWSConfig(ctx context.Context) (awsbase.Config, error) {
+	p.ensureDeps()
+	optFns := make([]func(*awsconfig.LoadOptions) error, 0, 1)
+	if profile := strings.TrimSpace(p.Config.Profile); profile != "" {
+		optFns = append(optFns, awsconfig.WithSharedConfigProfile(profile))
+	}
+	cfg, err := p.loadDefaultConfig(ctx, optFns...)
+	if err != nil {
+		return awsbase.Config{}, classifyAuthError(err, p.Config.Profile, authStageConfig)
+	}
+	if strings.TrimSpace(cfg.Region) == "" {
+		cfg.Region = "us-east-1"
+	}
+	return cfg, nil
+}
+
+func classifyAuthError(err error, profile, stage string) error {
+	if err == nil {
+		return nil
+	}
+
+	lower := strings.ToLower(err.Error())
+	switch {
+	case stage == authStageConfig && (strings.Contains(lower, "shared config profile") || (strings.Contains(lower, "profile") && strings.Contains(lower, "not found"))):
+		return &AuthError{Kind: "profile_not_found", Profile: profile, Stage: stage, Cause: err}
+	case strings.Contains(lower, "no credential providers") ||
+		strings.Contains(lower, "no valid providers") ||
+		strings.Contains(lower, "failed to refresh cached credentials") ||
+		strings.Contains(lower, "no ec2 imds role found"):
+		return &AuthError{Kind: "no_credentials", Profile: profile, Stage: stage, Cause: err}
+	}
+
+	if isPermissionDenied(err) {
+		return &AuthError{Kind: "permission_denied", Profile: profile, Stage: stage, Cause: err}
+	}
+	return &AuthError{Kind: "api_call_failed", Profile: profile, Stage: stage, Cause: err}
+}
+
+func isPermissionDenied(err error) bool {
+	var responseErr *smithyhttp.ResponseError
+	if errors.As(err, &responseErr) && responseErr.Response != nil {
+		switch responseErr.Response.StatusCode {
+		case http.StatusForbidden, http.StatusUnauthorized:
+			return true
+		}
+	}
+
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		switch strings.ToLower(apiErr.ErrorCode()) {
+		case "accessdenied", "accessdeniedexception", "unauthorizedoperation", "invalidclienttokenid", "unrecognizedclientexception", "signaturedoesnotmatch":
+			return true
+		}
+	}
+
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "access denied") || strings.Contains(lower, "not authorized") || strings.Contains(lower, "unauthorized")
+}
+
+func awsString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
