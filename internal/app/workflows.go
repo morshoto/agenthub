@@ -347,18 +347,28 @@ func runVerifyWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 	return report, resolvedTarget, err
 }
 
-func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, opts createOptions, progress stageRunner) (*provider.Instance, runtimeinstall.Result, verify.Report, error) {
+func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, opts createOptions, progress stageRunner) (_ *provider.Instance, _ runtimeinstall.Result, _ verify.Report, err error) {
 	if progress == nil {
 		progress = newProgressRenderer(io.Discard)
 	}
 
 	var instance *provider.Instance
-	if err := progress.Run(ctx, "provisioning infrastructure", func(runCtx context.Context) error {
+	if err = progress.Run(ctx, "provisioning infrastructure", func(runCtx context.Context) error {
 		var err error
 		instance, err = runInfraCreate(runCtx, profile, cfg, opts)
 		return err
 	}); err != nil {
 		return instance, runtimeinstall.Result{}, verify.Report{}, err
+	}
+	if instance != nil {
+		defer func() {
+			if err == nil {
+				return
+			}
+			if cleanupErr := cleanupCreatedInstance(context.Background(), profile, cfg, instance); cleanupErr != nil {
+				err = errors.Join(err, cleanupErr)
+			}
+		}()
 	}
 
 	target := instanceTarget(instance)
@@ -366,14 +376,14 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 		WorkingDir: "/opt/openclaw",
 		ConfigPath: "/opt/openclaw/runtime.yaml",
 	}
-	if err := progress.Run(ctx, "waiting for bootstrap", func(runCtx context.Context) error {
+	if err = progress.Run(ctx, "waiting for bootstrap", func(runCtx context.Context) error {
 		return waitForBootstrapReady(runCtx, cfg, target, opts.SSHUser, opts.SSHKey, opts.SSHPort, os.Stdout)
 	}); err != nil {
 		return instance, installResult, verify.Report{}, err
 	}
 
 	var verifyReport verify.Report
-	if err := progress.Run(ctx, "verifying runtime", func(runCtx context.Context) error {
+	if err = progress.Run(ctx, "verifying runtime", func(runCtx context.Context) error {
 		var err error
 		verifyReport, _, err = runVerifyWorkflow(runCtx, profile, cfg, verifyOptions{
 			Target:            target,
@@ -387,6 +397,27 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 		return instance, installResult, verify.Report{}, err
 	}
 	return instance, installResult, verifyReport, nil
+}
+
+func cleanupCreatedInstance(ctx context.Context, profile string, cfg *config.Config, instance *provider.Instance) error {
+	if cfg == nil || instance == nil {
+		return nil
+	}
+	region := strings.TrimSpace(instance.Region)
+	if region == "" {
+		region = strings.TrimSpace(cfg.Region.Name)
+	}
+	if region == "" || strings.TrimSpace(instance.ID) == "" {
+		return nil
+	}
+	cleanupCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	provider := newAWSProvider(profile, cfg.Compute.Class)
+	if err := provider.DeleteInstance(cleanupCtx, region, instance.ID); err != nil {
+		return fmt.Errorf("cleanup created instance %s: %w", instance.ID, err)
+	}
+	return nil
 }
 
 func waitForBootstrapReady(ctx context.Context, cfg *config.Config, target, sshUser, sshKey string, sshPort int, out io.Writer) error {
@@ -432,6 +463,19 @@ func waitForBootstrapReady(ctx context.Context, cfg *config.Config, target, sshU
 		}
 		if waitCtx.Err() != nil {
 			return fmt.Errorf("wait for docker bootstrap on %s: %w", target, waitCtx.Err())
+		}
+		if isTransientSSHError(err) {
+			timer := time.NewTimer(delay)
+			select {
+			case <-waitCtx.Done():
+				timer.Stop()
+				return fmt.Errorf("wait for docker bootstrap on %s: %w", target, waitCtx.Err())
+			case <-timer.C:
+			}
+			if delay < 30*time.Second {
+				delay *= 2
+			}
+			continue
 		}
 		if result.ExitCode == 1 || strings.Contains(msg, "permission denied") || strings.Contains(msg, "no such file") || strings.Contains(msg, "exit status 1") || strings.Contains(msg, "exit code 1") {
 			timer := time.NewTimer(delay)

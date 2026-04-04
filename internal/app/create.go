@@ -52,8 +52,13 @@ func newCreateCommand(app *App) *cobra.Command {
 				return err
 			}
 			app.opts.Profile = profile
+			refreshedSSHCIDR, err := refreshCreateSSHCIDR(cmd.Context(), cfg, sshCIDR)
+			if err != nil {
+				return err
+			}
+			cfg.SSH.CIDR = refreshedSSHCIDR
 			effectiveSSHKeyName := firstNonEmpty(sshKeyName, cfg.SSH.KeyName)
-			effectiveSSHCIDR := firstNonEmpty(sshCIDR, cfg.SSH.CIDR)
+			effectiveSSHCIDR := refreshedSSHCIDR
 			if err := validateCreateWorkflowSSHFlags(cfg, effectiveSSHKeyName, effectiveSSHCIDR); err != nil {
 				return err
 			}
@@ -66,7 +71,7 @@ func newCreateCommand(app *App) *cobra.Command {
 			progress := newProgressRenderer(cmd.OutOrStdout())
 			instance, installResult, verifyReport, err := runCreateWorkflow(cmd.Context(), profile, cfg, createOptions{
 				SSHKeyName:      sshKeyName,
-				SSHCIDR:         sshCIDR,
+				SSHCIDR:         effectiveSSHCIDR,
 				SSHUser:         sshUser,
 				SSHKey:          sshKey,
 				SSHPort:         sshPort,
@@ -174,6 +179,33 @@ func selectCreateAWSProfile(ctx context.Context, in io.Reader, out io.Writer, ex
 		return "", err
 	}
 	return strings.TrimSpace(value), nil
+}
+
+func refreshCreateSSHCIDR(ctx context.Context, cfg *config.Config, sshCIDR string) (string, error) {
+	if trimmed := strings.TrimSpace(sshCIDR); trimmed != "" {
+		return normalizeSSHCIDR(trimmed)
+	}
+	if cfg == nil {
+		return "", errors.New("config is required")
+	}
+	if strings.TrimSpace(cfg.SSH.KeyName) == "" {
+		if trimmed := strings.TrimSpace(cfg.SSH.CIDR); trimmed != "" {
+			return normalizeSSHCIDR(trimmed)
+		}
+		return "", nil
+	}
+	sshKeyName := firstNonEmpty(cfg.SSH.KeyName, defaultSSHKeyName())
+	refreshed, err := resolveSSHCIDR(ctx, sshKeyName, "")
+	if err == nil && strings.TrimSpace(refreshed) != "" {
+		return refreshed, nil
+	}
+	if trimmed := strings.TrimSpace(cfg.SSH.CIDR); trimmed != "" {
+		return normalizeSSHCIDR(trimmed)
+	}
+	if err != nil {
+		return "", err
+	}
+	return "", errors.New("ssh cidr is required")
 }
 
 func validateCreateWorkflowSSHFlags(cfg *config.Config, sshKeyName, sshCIDR string) error {

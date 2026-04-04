@@ -89,7 +89,9 @@ func (f fakeProvider) GetInstance(ctx context.Context, region, instanceID string
 func (f fakeProvider) CreateInstance(ctx context.Context, req provider.CreateInstanceRequest) (*provider.Instance, error) {
 	return nil, errors.New("not implemented")
 }
-func (f fakeProvider) DeleteInstance(ctx context.Context, instanceID string) error { return nil }
+func (f fakeProvider) DeleteInstance(ctx context.Context, region, instanceID string) error {
+	return nil
+}
 
 func TestWizardWarnsAndContinuesWhenQuotaInsufficient(t *testing.T) {
 	input := strings.Join([]string{
