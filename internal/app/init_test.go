@@ -24,10 +24,45 @@ func stubCodexSecretStore(t *testing.T) {
 	t.Cleanup(func() { codexauth.StoreAPIKeyFunc = original })
 }
 
+func stubGitHubSSHSetup(t *testing.T) {
+	t.Helper()
+
+	originalDerive := deriveSSHPublicKeyFunc
+	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey openclaw", nil
+	}
+	t.Cleanup(func() { deriveSSHPublicKeyFunc = originalDerive })
+
+	originalStatus := runGHAuthStatusFunc
+	runGHAuthStatusFunc = func(ctx context.Context) (bool, error) {
+		return true, nil
+	}
+	t.Cleanup(func() { runGHAuthStatusFunc = originalStatus })
+
+	originalLogin := runGHAuthLoginFunc
+	runGHAuthLoginFunc = func(ctx context.Context) error {
+		return nil
+	}
+	t.Cleanup(func() { runGHAuthLoginFunc = originalLogin })
+
+	originalList := listGHSSHKeysFunc
+	listGHSSHKeysFunc = func(ctx context.Context) ([]string, error) {
+		return []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey openclaw"}, nil
+	}
+	t.Cleanup(func() { listGHSSHKeysFunc = originalList })
+
+	originalAdd := addGHSSHKeyFunc
+	addGHSSHKeyFunc = func(ctx context.Context, publicKeyPath string) error {
+		return nil
+	}
+	t.Cleanup(func() { addGHSSHKeyFunc = originalAdd })
+}
+
 func TestInitWritesConfigFile(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()
 	stubCodexSecretStore(t)
+	stubGitHubSSHSetup(t)
 
 	dir := t.TempDir()
 	output := filepath.Join(dir, "openclaw.yaml")
@@ -43,6 +78,7 @@ func TestInitWritesConfigFile(t *testing.T) {
 		"/tmp/demo.pem",          // ssh private key
 		"203.0.113.0/24",         // ssh cidr
 		"ubuntu",                 // ssh user
+		"",                       // authenticate Git with your GitHub credentials
 		"y",                      // use NemoClaw
 		"1",                      // provider codex
 		"sk-test",                // OpenAI API key
@@ -110,6 +146,7 @@ func TestInitSupportsCPUComputeMode(t *testing.T) {
 	}
 	defer func() { newAWSProvider = original }()
 	stubCodexSecretStore(t)
+	stubGitHubSSHSetup(t)
 
 	dir := t.TempDir()
 	output := filepath.Join(dir, "openclaw.yaml")
@@ -125,6 +162,7 @@ func TestInitSupportsCPUComputeMode(t *testing.T) {
 		"/tmp/demo.pem",
 		"203.0.113.0/24",
 		"ubuntu",
+		"",
 		"y",
 		"1",
 		"sk-test",
@@ -236,6 +274,7 @@ func TestInitPreselectsRegionFromExistingConfig(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()
 	stubCodexSecretStore(t)
+	stubGitHubSSHSetup(t)
 
 	dir := t.TempDir()
 	existing := filepath.Join(dir, "existing.yaml")
@@ -270,6 +309,7 @@ sandbox:
 		"/tmp/demo.pem",
 		"203.0.113.0/24",
 		"ubuntu",
+		"",
 		"y",
 		"1",
 		"sk-test",
@@ -316,6 +356,7 @@ func TestInitContinuesWhenAWSAuthCheckIsPermissionDenied(t *testing.T) {
 	}
 	defer func() { newAWSProvider = original }()
 	stubCodexSecretStore(t)
+	stubGitHubSSHSetup(t)
 
 	dir := t.TempDir()
 	output := filepath.Join(dir, "openclaw.yaml")
@@ -331,6 +372,7 @@ func TestInitContinuesWhenAWSAuthCheckIsPermissionDenied(t *testing.T) {
 		"/tmp/demo.pem",          // ssh private key
 		"203.0.113.0/24",         // ssh cidr
 		"ubuntu",                 // ssh user
+		"",                       // authenticate Git with your GitHub credentials
 		"y",                      // use NemoClaw
 		"1",                      // provider codex
 		"sk-test",                // OpenAI API key
@@ -373,6 +415,7 @@ func TestInitContinuesWhenAWSAuthCheckFailsAtSTS(t *testing.T) {
 	}
 	defer func() { newAWSProvider = original }()
 	stubCodexSecretStore(t)
+	stubGitHubSSHSetup(t)
 
 	dir := t.TempDir()
 	output := filepath.Join(dir, "openclaw.yaml")
@@ -388,6 +431,7 @@ func TestInitContinuesWhenAWSAuthCheckFailsAtSTS(t *testing.T) {
 		"/tmp/demo.pem",          // ssh private key
 		"203.0.113.0/24",         // ssh cidr
 		"ubuntu",                 // ssh user
+		"",                       // authenticate Git with your GitHub credentials
 		"y",                      // use NemoClaw
 		"1",                      // provider codex
 		"sk-test",                // OpenAI API key
@@ -430,6 +474,7 @@ func TestInitFallsBackWhenAWSImageLookupIsPermissionDenied(t *testing.T) {
 	}
 	defer func() { newAWSProvider = original }()
 	stubCodexSecretStore(t)
+	stubGitHubSSHSetup(t)
 
 	dir := t.TempDir()
 	output := filepath.Join(dir, "openclaw.yaml")
@@ -445,6 +490,7 @@ func TestInitFallsBackWhenAWSImageLookupIsPermissionDenied(t *testing.T) {
 		"/tmp/demo.pem",          // ssh private key
 		"203.0.113.0/24",         // ssh cidr
 		"ubuntu",                 // ssh user
+		"",                       // authenticate Git with your GitHub credentials
 		"y",                      // use NemoClaw
 		"1",                      // provider codex
 		"sk-test",                // OpenAI API key

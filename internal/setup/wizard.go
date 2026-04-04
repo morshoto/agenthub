@@ -27,6 +27,7 @@ type Wizard struct {
 	Provider        provider.CloudProvider
 	Existing        *config.Config
 	AWSProfile      string
+	GitHubSetup     func(context.Context, string) error
 }
 
 const initAWSLookupTimeout = 5 * time.Second
@@ -155,6 +156,18 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		sshUser, err = w.Prompter.Text("SSH user", sshUserDefault)
 		if err != nil {
 			return nil, err
+		}
+	}
+
+	if w.GitHubSetup != nil {
+		connectGitHub, err := w.Prompter.Confirm("Authenticate Git with your GitHub credentials?", true)
+		if err != nil {
+			return nil, err
+		}
+		if connectGitHub {
+			if err := w.GitHubSetup(ctx, sshPrivateKeyPath); err != nil {
+				return nil, err
+			}
 		}
 	}
 
