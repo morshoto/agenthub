@@ -26,6 +26,7 @@ type Wizard struct {
 	Provider        provider.CloudProvider
 	Existing        *config.Config
 	AWSProfile      string
+	AgentName       string
 	GitHubSetup     func(context.Context, string) error
 }
 
@@ -38,6 +39,16 @@ func NewWizard(prompter *prompt.Session, out io.Writer, factory func(platform, c
 }
 
 func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
+	agentName, err := w.Prompter.Text("Agent name", defaultAgentName())
+	if err != nil {
+		return nil, err
+	}
+	agentName, err = normalizeAgentName(agentName)
+	if err != nil {
+		return nil, err
+	}
+	w.AgentName = agentName
+
 	platform, err := w.Prompter.Select("Select platform", []string{"aws", "gcp", "azure"}, config.PlatformAWS)
 	if err != nil {
 		return nil, err
@@ -177,12 +188,6 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 			return nil, err
 		}
 	}
-
-	agentName, err := w.Prompter.Text("Agent name", defaultAgentName(w.Existing))
-	if err != nil {
-		return nil, err
-	}
-	agentName = sanitizeAgentName(agentName)
 
 	if w.GitHubSetup != nil {
 		connectGitHub, err := w.Prompter.Confirm("Authenticate Git with your GitHub credentials?", true)
@@ -337,19 +342,28 @@ func defaultRuntimeProvider(existing *config.Config) string {
 	return provider
 }
 
-func defaultAgentName(existing *config.Config) string {
-	if existing == nil {
-		return "default"
-	}
-	return sanitizeAgentName(strings.TrimSpace(existing.Infra.ModuleDir))
+func defaultAgentName() string {
+	return "default"
 }
 
-func sanitizeAgentName(name string) string {
+func normalizeAgentName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return "default"
+		return "default", nil
 	}
-	return name
+	if name == "." || name == ".." {
+		return "", fmt.Errorf("invalid agent name %q", name)
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("invalid agent name %q: path separators are not allowed", name)
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return "", fmt.Errorf("invalid agent name %q: use letters, digits, hyphen, or underscore", name)
+	}
+	return name, nil
 }
 
 func defaultRuntimeModel(provider string) string {

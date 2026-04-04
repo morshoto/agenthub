@@ -93,6 +93,7 @@ func (f fakeProvider) DeleteInstance(ctx context.Context, instanceID string) err
 
 func TestWizardWarnsAndContinuesWhenQuotaInsufficient(t *testing.T) {
 	input := strings.Join([]string{
+		"alpha",
 		"1", // platform aws
 		"",  // accept default GPU compute mode
 		"1", // region
@@ -144,6 +145,7 @@ func TestWizardWarnsAndContinuesWhenQuotaInsufficient(t *testing.T) {
 
 func TestWizardFallsBackToBundledLookupsWhenAWSDataIsUnavailable(t *testing.T) {
 	input := strings.Join([]string{
+		"alpha",
 		"1", // platform aws
 		"",  // accept default GPU compute mode
 		"1", // fallback region us-east-1
@@ -195,6 +197,7 @@ func TestWizardFallsBackToBundledLookupsWhenAWSDataIsUnavailable(t *testing.T) {
 
 func TestWizardWarnsAndContinuesWhenQuotaCheckUnavailable(t *testing.T) {
 	input := strings.Join([]string{
+		"alpha",
 		"1", // platform aws
 		"",  // accept default GPU compute mode
 		"1", // region
@@ -236,6 +239,7 @@ func TestWizardWarnsAndContinuesWhenQuotaCheckUnavailable(t *testing.T) {
 
 func TestWizardFallsBackToBundledImagesWhenSSMIsUnavailable(t *testing.T) {
 	input := strings.Join([]string{
+		"alpha",
 		"1", // platform aws
 		"",  // accept default GPU compute mode
 		"1", // region
@@ -289,6 +293,7 @@ func TestWizardFallsBackToBundledImagesWhenSSMIsUnavailable(t *testing.T) {
 
 func TestWizardFallsBackToBundledImagesWhenImageLookupFails(t *testing.T) {
 	input := strings.Join([]string{
+		"alpha",
 		"1", // platform aws
 		"",  // accept default GPU compute mode
 		"1", // region

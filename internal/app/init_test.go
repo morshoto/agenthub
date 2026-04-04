@@ -57,6 +57,7 @@ func TestInitWritesConfigFile(t *testing.T) {
 	agentsDir := filepath.Join(dir, "agents")
 	configPath := filepath.Join(agentsDir, "alpha", "config.yaml")
 	input := strings.Join([]string{
+		"alpha",                  // agent name
 		"1",                      // platform aws
 		"",                       // accept default GPU compute mode
 		"2",                      // region us-east-1
@@ -73,7 +74,6 @@ func TestInitWritesConfigFile(t *testing.T) {
 		"1",                      // provider codex
 		"http://localhost:11434", // endpoint
 		"y",                      // confirm summary
-		"alpha",                  // agent name
 	}, "\n") + "\n"
 
 	oldArgs := os.Args
@@ -132,6 +132,7 @@ func TestInitUsesDefaultAgentNameWhenBlank(t *testing.T) {
 	agentsDir := filepath.Join(dir, "agents")
 	configPath := filepath.Join(agentsDir, "default", "config.yaml")
 	input := strings.Join([]string{
+		"",                       // accept default agent name
 		"1",                      // platform aws
 		"",                       // accept default GPU compute mode
 		"2",                      // region us-east-1
@@ -148,7 +149,6 @@ func TestInitUsesDefaultAgentNameWhenBlank(t *testing.T) {
 		"1",                      // provider codex
 		"http://localhost:11434", // endpoint
 		"y",                      // confirm summary
-		"",                       // accept default agent name
 	}, "\n") + "\n"
 
 	oldArgs := os.Args
@@ -185,6 +185,7 @@ func TestInitSupportsCPUComputeMode(t *testing.T) {
 	agentsDir := filepath.Join(dir, "agents")
 	configPath := filepath.Join(agentsDir, "alpha", "config.yaml")
 	input := strings.Join([]string{
+		"alpha",
 		"1", // platform aws
 		"1", // cpu compute mode
 		"2", // region us-east-1
@@ -201,7 +202,6 @@ func TestInitSupportsCPUComputeMode(t *testing.T) {
 		"1",
 		"", // accept placeholder external endpoint
 		"y",
-		"alpha",
 	}, "\n") + "\n"
 
 	oldArgs := os.Args
@@ -244,7 +244,8 @@ func TestInitRejectsNonAWSPlatform(t *testing.T) {
 	defer restore()
 
 	input := strings.Join([]string{
-		"2", // gcp
+		"alpha", // agent name
+		"2",     // gcp
 	}, "\n") + "\n"
 
 	oldArgs := os.Args
@@ -277,7 +278,8 @@ func TestInitDoesNotCreateAWSProviderBeforePlatformSelection(t *testing.T) {
 	defer func() { newAWSProvider = original }()
 
 	input := strings.Join([]string{
-		"2", // gcp
+		"alpha", // agent name
+		"2",     // gcp
 	}, "\n") + "\n"
 
 	oldArgs := os.Args
@@ -331,6 +333,7 @@ sandbox:
 	agentsDir := filepath.Join(dir, "agents")
 	configPath := filepath.Join(agentsDir, "alpha", "config.yaml")
 	input := strings.Join([]string{
+		"alpha",
 		"1", // platform aws
 		"",  // accept default GPU compute mode
 		"",  // accept preselected region from existing config
@@ -347,7 +350,6 @@ sandbox:
 		"1",
 		"http://localhost:11434",
 		"y",
-		"alpha",
 	}, "\n") + "\n"
 
 	oldArgs := os.Args
@@ -392,6 +394,7 @@ func TestInitContinuesWhenAWSAuthCheckIsPermissionDenied(t *testing.T) {
 	dir := t.TempDir()
 	agentsDir := filepath.Join(dir, "agents")
 	input := strings.Join([]string{
+		"alpha",
 		"1",                      // platform aws
 		"",                       // accept default GPU compute mode
 		"2",                      // region us-east-1
@@ -408,7 +411,6 @@ func TestInitContinuesWhenAWSAuthCheckIsPermissionDenied(t *testing.T) {
 		"1",                      // provider codex
 		"http://localhost:11434", // endpoint
 		"y",                      // confirm summary
-		"alpha",                  // agent name
 	}, "\n") + "\n"
 
 	oldArgs := os.Args
@@ -449,6 +451,7 @@ func TestInitContinuesWhenAWSAuthCheckFailsAtSTS(t *testing.T) {
 	dir := t.TempDir()
 	agentsDir := filepath.Join(dir, "agents")
 	input := strings.Join([]string{
+		"alpha",
 		"1",                      // platform aws
 		"",                       // accept default GPU compute mode
 		"2",                      // region us-east-1
@@ -465,7 +468,6 @@ func TestInitContinuesWhenAWSAuthCheckFailsAtSTS(t *testing.T) {
 		"1",                      // provider codex
 		"http://localhost:11434", // endpoint
 		"y",                      // confirm summary
-		"alpha",                  // agent name
 	}, "\n") + "\n"
 
 	oldArgs := os.Args
@@ -506,6 +508,7 @@ func TestInitFallsBackWhenAWSImageLookupIsPermissionDenied(t *testing.T) {
 	dir := t.TempDir()
 	agentsDir := filepath.Join(dir, "agents")
 	input := strings.Join([]string{
+		"alpha",
 		"1",                      // platform aws
 		"",                       // accept default GPU compute mode
 		"2",                      // region us-east-1
@@ -522,7 +525,6 @@ func TestInitFallsBackWhenAWSImageLookupIsPermissionDenied(t *testing.T) {
 		"1",                      // provider codex
 		"http://localhost:11434", // endpoint
 		"y",                      // confirm summary
-		"alpha",                  // agent name
 	}, "\n") + "\n"
 
 	oldArgs := os.Args

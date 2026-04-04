@@ -139,7 +139,6 @@ func newConfigValidateCommand(app *App) *cobra.Command {
 func newInitCommand(app *App) *cobra.Command {
 	var agentsDir string
 	var provisionNow bool
-	const defaultAgentName = "default"
 
 	cmd := &cobra.Command{
 		Use:   "init",
@@ -167,15 +166,10 @@ func newInitCommand(app *App) *cobra.Command {
 				return err
 			}
 
-			agentName, err := session.Text("Agent name", defaultAgentName)
-			if err != nil {
-				return err
+			agentName := strings.TrimSpace(wizard.AgentName)
+			if agentName == "" {
+				agentName = "default"
 			}
-			agentName, err = validateAgentName(agentName)
-			if err != nil {
-				return err
-			}
-
 			configPath := filepath.Join(agentsDir, agentName, "config.yaml")
 			if err := config.Save(configPath, cfg); err != nil {
 				return err
@@ -208,26 +202,6 @@ func newInitCommand(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&agentsDir, "agents-dir", "agents", "path to the agents directory")
 	cmd.Flags().BoolVar(&provisionNow, "provision", false, "provision infrastructure after writing the configuration")
 	return cmd
-}
-
-func validateAgentName(name string) (string, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return "", errors.New("agent name is required")
-	}
-	if name == "." || name == ".." {
-		return "", fmt.Errorf("invalid agent name %q", name)
-	}
-	if strings.ContainsAny(name, `/\`) {
-		return "", fmt.Errorf("invalid agent name %q: path separators are not allowed", name)
-	}
-	for _, r := range name {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			continue
-		}
-		return "", fmt.Errorf("invalid agent name %q: use letters, digits, hyphen, or underscore", name)
-	}
-	return name, nil
 }
 
 func newQuotaCommand(app *App) *cobra.Command {
