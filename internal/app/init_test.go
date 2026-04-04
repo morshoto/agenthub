@@ -89,7 +89,7 @@ func TestInitWritesConfigFile(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "init", "--output", output}
+	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--output", output}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -173,7 +173,7 @@ func TestInitSupportsCPUComputeMode(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "init", "--output", output}
+	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--output", output}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -216,7 +216,7 @@ func TestInitRejectsNonAWSPlatform(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "init", "--output", filepath.Join(t.TempDir(), "openclaw.yaml")}
+	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--output", filepath.Join(t.TempDir(), "openclaw.yaml")}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -249,7 +249,7 @@ func TestInitDoesNotCreateAWSProviderBeforePlatformSelection(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "init", "--output", filepath.Join(t.TempDir(), "openclaw.yaml")}
+	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--output", filepath.Join(t.TempDir(), "openclaw.yaml")}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -320,7 +320,7 @@ sandbox:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--config", existing, "init", "--output", output}
+	os.Args = []string{"openclaw", "--profile", "sso-dev", "--config", existing, "init", "--output", output}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -383,7 +383,7 @@ func TestInitContinuesWhenAWSAuthCheckIsPermissionDenied(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "init", "--output", output}
+	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--output", output}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -442,7 +442,7 @@ func TestInitContinuesWhenAWSAuthCheckFailsAtSTS(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "init", "--output", output}
+	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--output", output}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -501,7 +501,7 @@ func TestInitFallsBackWhenAWSImageLookupIsPermissionDenied(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "init", "--output", output}
+	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--output", output}
 
 	app := New()
 	cmd := newRootCommand(app)

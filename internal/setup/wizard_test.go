@@ -140,6 +140,7 @@ func TestWizardWarnsAndContinuesWhenQuotaInsufficient(t *testing.T) {
 		},
 		&config.Config{Region: config.RegionConfig{Name: "us-west-2"}},
 	)
+	wizard.AWSProfile = "sso-dev"
 
 	cfg, err := wizard.Run(context.Background())
 	if err != nil {
@@ -186,6 +187,7 @@ func TestWizardFallsBackToBundledLookupsWhenAWSDataIsUnavailable(t *testing.T) {
 		},
 		&config.Config{},
 	)
+	wizard.AWSProfile = "sso-dev"
 
 	cfg, err := wizard.Run(context.Background())
 	if err != nil {
@@ -243,6 +245,7 @@ func TestWizardWarnsAndContinuesWhenQuotaCheckUnavailable(t *testing.T) {
 		},
 		&config.Config{},
 	)
+	wizard.AWSProfile = "sso-dev"
 
 	cfg, err := wizard.Run(context.Background())
 	if err != nil {
@@ -295,6 +298,7 @@ func TestWizardFallsBackToBundledImagesWhenSSMIsUnavailable(t *testing.T) {
 		},
 		&config.Config{},
 	)
+	wizard.AWSProfile = "sso-dev"
 	wizard.Provider = failingImageProvider{fakeProvider: fakeProvider{
 		regions: []string{"us-east-1", "us-west-2"},
 		report: provider.GPUQuotaReport{
@@ -355,6 +359,7 @@ func TestWizardFallsBackToBundledImagesWhenImageLookupFails(t *testing.T) {
 		},
 		&config.Config{},
 	)
+	wizard.AWSProfile = "sso-dev"
 	wizard.Provider = genericFailingImageProvider{fakeProvider: fakeProvider{
 		regions: []string{"us-east-1", "us-west-2"},
 		report: provider.GPUQuotaReport{

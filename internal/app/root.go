@@ -147,12 +147,13 @@ func newInitCommand(app *App) *cobra.Command {
 				return err
 			}
 			session := prompt.NewSession(cmd.InOrStdin(), cmd.OutOrStdout())
-			wizard := setup.NewWizard(session, cmd.OutOrStdout(), func(platform, computeClass string) provider.CloudProvider {
+			wizard := setup.NewWizard(session, cmd.OutOrStdout(), nil, existing)
+			wizard.ProviderFactory = func(platform, computeClass string) provider.CloudProvider {
 				if platform != config.PlatformAWS {
 					return nil
 				}
-				return newAWSProvider(app.opts.Profile, computeClass)
-			}, existing)
+				return newAWSProvider(wizard.AWSProfile, computeClass)
+			}
 			wizard.AWSProfile = app.opts.Profile
 			wizard.GitHubSetup = ensureGitHubSSHAccess
 			cfg, err := wizard.Run(cmd.Context())

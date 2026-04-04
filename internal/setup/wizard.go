@@ -53,6 +53,26 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		return nil, err
 	}
 
+	profile, prompted, err := w.selectAWSProfile()
+	if err != nil {
+		return nil, err
+	}
+	w.AWSProfile = profile
+	if profile == "" {
+		return nil, errors.New("AWS profile is required")
+	}
+	fmt.Fprintf(w.Out, "Using AWS profile: %s\n", profile)
+	if prompted {
+		fmt.Fprintf(w.Out, "If this profile uses AWS SSO, run `aws sso login --profile %s` now.\n", profile)
+		ready, err := w.Prompter.Confirm("Continue after AWS SSO login", true)
+		if err != nil {
+			return nil, err
+		}
+		if !ready {
+			return nil, errors.New("setup cancelled")
+		}
+	}
+
 	if w.Provider == nil && w.ProviderFactory != nil {
 		w.Provider = w.ProviderFactory(platform, computeClass)
 	}
@@ -329,6 +349,27 @@ func defaultRuntimeModel(provider string) string {
 	default:
 		return "llama3.2"
 	}
+}
+
+func (w *Wizard) selectAWSProfile() (string, bool, error) {
+	profile := strings.TrimSpace(w.AWSProfile)
+	if profile == "" {
+		profile = strings.TrimSpace(os.Getenv("AWS_PROFILE"))
+	}
+	if profile == "" {
+		profile = strings.TrimSpace(os.Getenv("AWS_DEFAULT_PROFILE"))
+	}
+	if profile != "" {
+		return profile, false, nil
+	}
+	if !w.Prompter.Interactive {
+		return "", false, errors.New("AWS profile is required: pass --profile, set AWS_PROFILE, or run interactively")
+	}
+	value, err := w.Prompter.Text("AWS profile", "")
+	if err != nil {
+		return "", false, err
+	}
+	return strings.TrimSpace(value), true, nil
 }
 
 func (w *Wizard) listRegions(ctx context.Context) ([]string, error) {
