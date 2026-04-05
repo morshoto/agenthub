@@ -87,11 +87,11 @@ type SSHConfig struct {
 }
 
 type InfraConfig struct {
-	Backend    string `yaml:"backend,omitempty"`
-	ModuleDir  string `yaml:"module_dir,omitempty"`
-	AWSProfile string `yaml:"aws_profile,omitempty"`
+	Backend     string `yaml:"backend,omitempty"`
+	ModuleDir   string `yaml:"module_dir,omitempty"`
+	AWSProfile  string `yaml:"aws_profile,omitempty"`
 	Environment string `yaml:"environment,omitempty"`
-	InstanceID string `yaml:"instance_id,omitempty"`
+	InstanceID  string `yaml:"instance_id,omitempty"`
 }
 
 type SandboxConfig struct {
