@@ -10,15 +10,15 @@ import (
 
 func TestParseGitHubRepoSlug(t *testing.T) {
 	for remote, want := range map[string]string{
-		"git@github.com:owner/repo.git":          "owner/repo",
-		"ssh://git@github.com/owner/repo.git":    "owner/repo",
-		"https://github.com/owner/repo.git":      "owner/repo",
-		"http://github.com/owner/repo":           "owner/repo",
-		"git@github.com:owner/sub/repo.git":      "",
-		"git@github.com:owner":                   "",
-		"https://example.com/owner/repo.git":     "",
-		"":                                       "",
-		"   ":                                    "",
+		"git@github.com:owner/repo.git":       "owner/repo",
+		"ssh://git@github.com/owner/repo.git": "owner/repo",
+		"https://github.com/owner/repo.git":   "owner/repo",
+		"http://github.com/owner/repo":        "owner/repo",
+		"git@github.com:owner/sub/repo.git":   "",
+		"git@github.com:owner":                "",
+		"https://example.com/owner/repo.git":  "",
+		"":                                    "",
+		"   ":                                 "",
 	} {
 		if got := parseGitHubRepoSlug(remote); got != want {
 			t.Fatalf("parseGitHubRepoSlug(%q) = %q, want %q", remote, got, want)
