@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"openclaw/internal/config"
-	"openclaw/internal/prompt"
-	"openclaw/internal/slackbot"
+	"agenthub/internal/config"
+	"agenthub/internal/prompt"
+	"agenthub/internal/slackbot"
 )
 
 var runSlackAdapter = slackbot.Run
@@ -59,7 +59,7 @@ func newSlackServeCommand(app *App) *cobra.Command {
 			slackAllowedChannels := append([]string(nil), agentCfg.Slack.AllowedChannels...)
 
 			cfg := slackbot.Config{
-				RuntimeURL:      firstNonEmpty(runtimeURL, slackRuntimeURL, os.Getenv("OPENCLAW_RUNTIME_URL")),
+				RuntimeURL:      firstNonEmpty(runtimeURL, slackRuntimeURL, os.Getenv("AGENTHUB_RUNTIME_URL")),
 				Provider:        agentCfg.Runtime.Provider,
 				Model:           agentCfg.Runtime.Model,
 				BotToken:        firstNonEmpty(botToken, fileValue("SLACK_BOT_TOKEN"), os.Getenv("SLACK_BOT_TOKEN")),
@@ -88,7 +88,7 @@ func newSlackServeCommand(app *App) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&runtimeURL, "runtime-url", "", "URL of the OpenClaw runtime server")
+	cmd.Flags().StringVar(&runtimeURL, "runtime-url", "", "URL of the AgentHub runtime server")
 	cmd.Flags().StringVar(&botToken, "bot-token", "", "Slack bot token; defaults to SLACK_BOT_TOKEN")
 	cmd.Flags().StringVar(&appToken, "app-token", "", "Slack app-level token; defaults to SLACK_APP_TOKEN")
 	cmd.Flags().StringVar(&botUserID, "bot-user-id", "", "Slack bot user id; defaults to SLACK_BOT_USER_ID or AuthTest")

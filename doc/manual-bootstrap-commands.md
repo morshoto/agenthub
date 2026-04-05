@@ -18,10 +18,10 @@ If the identity call succeeds, your AWS credentials are ready.
 
 The Terraform module lives in `infra/aws/ec2`.
 
-Generate a `terraform.tfvars` file from your OpenClaw config:
+Generate a `terraform.tfvars` file from your AgentHub config:
 
 ```bash
-openclaw infra tfvars --config openclaw.yaml --output infra/aws/ec2/terraform.tfvars
+agenthub infra tfvars --config agenthub.yaml --output infra/aws/ec2/terraform.tfvars
 ```
 
 If you want to pin the AWS profile explicitly, pass `--profile sso-dev`.
@@ -64,13 +64,13 @@ The EC2 user-data script prepares the host, writes the runtime config, and marks
 You can watch the bootstrap log over SSH if you want to inspect what happened:
 
 ```bash
-sudo tail -f /var/log/openclaw-bootstrap.log
+sudo tail -f /var/log/agenthub-bootstrap.log
 ```
 
 When bootstrap completes, the marker file appears:
 
 ```bash
-test -f /opt/openclaw/bootstrap.done
+test -f /opt/agenthub/bootstrap.done
 ```
 
 ## 6. Authenticate Codex locally
@@ -78,7 +78,7 @@ test -f /opt/openclaw/bootstrap.done
 If you want to use the Codex CLI on your workstation, run:
 
 ```bash
-openclaw onboard --auth-choice openai-codex
+agenthub onboard --auth-choice openai-codex
 ```
 
 This opens the browser-based sign-in flow and stores the local Codex credential cache.
@@ -88,7 +88,7 @@ You do not need to provide an OpenAI API key for this path.
 If you need to troubleshoot the OAuth flow, see:
 
 - https://note.com/akira_papa_ai/n/ne3a82fe5205f
-- https://zenn.dev/aria3/articles/openclaw-oauth-troubleshooting
+- https://zenn.dev/aria3/articles/agenthub-oauth-troubleshooting
 
 ## 7. Verify the host
 
@@ -96,7 +96,7 @@ Once bootstrap is ready, verify the machine:
 
 ```bash
 docker info
-docker ps --filter name='^/openclaw$'
+docker ps --filter name='^/agenthub$'
 curl -fsS http://127.0.0.1:8080/healthz
 ```
 

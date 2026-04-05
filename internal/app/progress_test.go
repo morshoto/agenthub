@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"openclaw/internal/config"
-	"openclaw/internal/host"
+	"agenthub/internal/config"
+	"agenthub/internal/host"
 )
 
 func TestProgressRendererClearLineUsesANSIEraseSequence(t *testing.T) {
@@ -75,7 +75,7 @@ extended_status: running
 detail: DataSourceEc2Local
 
 bootstrap log tail:
-tail: cannot open '/var/log/openclaw-bootstrap.log' for reading: No such file or directory
+tail: cannot open '/var/log/agenthub-bootstrap.log' for reading: No such file or directory
 `)
 	want := "status: running; extended_status: running; detail: DataSourceEc2Local"
 	if got != want {
@@ -105,7 +105,7 @@ func TestWaitForBootstrapReadyRetriesUntilDeadlineOnTransientSSHErrors(t *testin
 				switch {
 				case strings.TrimSpace(key) == "true":
 					return host.CommandResult{}, nil
-				case key == "test -f /opt/openclaw/bootstrap.done":
+				case key == "test -f /opt/agenthub/bootstrap.done":
 					attempts++
 					return host.CommandResult{}, errors.New("ssh connection timed out: verify the host address, network path, and security groups: exit status 255")
 				default:

@@ -27,7 +27,7 @@ func defaultSSHPrivateKeyPath() string {
 }
 
 func defaultSSHKeyName() string {
-	return "openclaw"
+	return "agenthub"
 }
 
 func resolveSSHPrivateKeyPath(value string) (string, error) {
@@ -77,7 +77,7 @@ func ensureSSHPrivateKeyExists(ctx context.Context, privateKeyPath string) (stri
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", fmt.Errorf("create ssh key directory %q: %w", filepath.Dir(path), err)
 	}
-	cmd := exec.CommandContext(ctx, "ssh-keygen", "-t", "ed25519", "-N", "", "-f", path, "-C", "openclaw")
+	cmd := exec.CommandContext(ctx, "ssh-keygen", "-t", "ed25519", "-N", "", "-f", path, "-C", "agenthub")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))

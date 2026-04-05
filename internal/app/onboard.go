@@ -36,7 +36,7 @@ func newOnboardCommand(app *App) *cobra.Command {
 						"onboard failed",
 						err,
 						"the Codex CLI is missing or the browser login did not complete",
-						"install or update the Codex CLI, then run "+commandRef(cmd.OutOrStdout(), "openclaw", "onboard", "--auth-choice", "openai-codex")+" again",
+						"install or update the Codex CLI, then run "+commandRef(cmd.OutOrStdout(), "agenthub", "onboard", "--auth-choice", "openai-codex")+" again",
 					)
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), "Codex authentication configured")

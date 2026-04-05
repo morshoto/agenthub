@@ -21,8 +21,8 @@ import (
 	"github.com/aws/smithy-go"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 
-	"openclaw/internal/config"
-	"openclaw/internal/provider"
+	"agenthub/internal/config"
+	"agenthub/internal/provider"
 )
 
 type Config struct {

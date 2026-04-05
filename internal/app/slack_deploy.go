@@ -13,10 +13,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"openclaw/internal/codexauth"
-	"openclaw/internal/config"
-	"openclaw/internal/host"
-	"openclaw/internal/prompt"
+	"agenthub/internal/codexauth"
+	"agenthub/internal/config"
+	"agenthub/internal/host"
+	"agenthub/internal/prompt"
 )
 
 type slackDeployOptions struct {
@@ -74,7 +74,7 @@ func newSlackDeployCommand(app *App) *cobra.Command {
 				targetValue = strings.TrimSpace(agentCfg.Infra.InstanceID)
 			}
 			if targetValue == "" {
-				return errors.New("target is required: pass --target or run openclaw create first so infra.instance_id is recorded")
+				return errors.New("target is required: pass --target or run agenthub create first so infra.instance_id is recorded")
 			}
 			agentEnvPath := agentEnvPathFromConfigPath(configPath)
 			agentEnv, err := loadAgentEnvFile(agentEnvPath)
@@ -96,11 +96,11 @@ func newSlackDeployCommand(app *App) *cobra.Command {
 				WorkingDir: workingDir,
 			}, progress)
 			if err != nil {
-				details := "the SSH target is unreachable, the host OpenClaw binary is missing, or Slack tokens are missing"
-				nextStep := "confirm the EC2 host was prepared with openclaw create, then rerun " + commandRef(cmd.OutOrStdout(), "openclaw", "slack", "deploy")
+				details := "the SSH target is unreachable, the host AgentHub binary is missing, or Slack tokens are missing"
+				nextStep := "confirm the EC2 host was prepared with agenthub create, then rerun " + commandRef(cmd.OutOrStdout(), "agenthub", "slack", "deploy")
 				if hasCodexSecret {
-					details = "the SSH target is unreachable, the host OpenClaw binary is missing, or Slack tokens are missing"
-					nextStep = "confirm runtime.codex.secret_id points to a readable AWS secret, then rerun " + commandRef(cmd.OutOrStdout(), "openclaw", "slack", "deploy")
+					details = "the SSH target is unreachable, the host AgentHub binary is missing, or Slack tokens are missing"
+					nextStep = "confirm runtime.codex.secret_id points to a readable AWS secret, then rerun " + commandRef(cmd.OutOrStdout(), "agenthub", "slack", "deploy")
 				}
 				return wrapUserFacingError(
 					"slack deploy failed",
@@ -122,7 +122,7 @@ func newSlackDeployCommand(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&sshUser, "ssh-user", "", "SSH username for the target host")
 	cmd.Flags().StringVar(&sshKey, "ssh-key", "", "path to the SSH private key")
 	cmd.Flags().IntVar(&sshPort, "ssh-port", 22, "SSH port")
-	cmd.Flags().StringVar(&workingDir, "working-dir", "/opt/openclaw", "remote working directory")
+	cmd.Flags().StringVar(&workingDir, "working-dir", "/opt/agenthub", "remote working directory")
 	cmd.Flags().StringVar(&agentsDir, "agents-dir", "agents", "path to the agents directory")
 	return cmd
 }
@@ -159,7 +159,7 @@ func runSlackDeployWorkflow(ctx context.Context, profile string, cfg *config.Con
 	remoteAgentDir := remoteSlackAgentDir(opts.WorkingDir, agentName)
 	remoteConfigPath := pathJoin(remoteAgentDir, "config.yaml")
 	remoteEnvPath := pathJoin(remoteAgentDir, ".env")
-	stagedServicePath := pathJoin(remoteAgentDir, "openclaw-slack.service")
+	stagedServicePath := pathJoin(remoteAgentDir, "agenthub-slack.service")
 	remoteServicePath := slackServiceUnitPathForAgent(agentName)
 	if remoteServicePath == "" {
 		return "", errors.New("failed to build slack service unit path")
@@ -190,10 +190,10 @@ func runSlackDeployWorkflow(ctx context.Context, profile string, cfg *config.Con
 		return "", err
 	}
 
-	remoteBinaryPath := pathJoin(opts.WorkingDir, "bin", "openclaw")
-	if err := progress.Run(ctx, "checking host openclaw binary", func(runCtx context.Context) error {
+	remoteBinaryPath := pathJoin(opts.WorkingDir, "bin", "agenthub")
+	if err := progress.Run(ctx, "checking host agenthub binary", func(runCtx context.Context) error {
 		if _, err := exec.Run(runCtx, "test", "-x", remoteBinaryPath); err != nil {
-			return fmt.Errorf("check host openclaw binary %q: %w", remoteBinaryPath, err)
+			return fmt.Errorf("check host agenthub binary %q: %w", remoteBinaryPath, err)
 		}
 		return nil
 	}); err != nil {
@@ -226,7 +226,7 @@ func runSlackDeployWorkflow(ctx context.Context, profile string, cfg *config.Con
 		return "", err
 	}
 
-	tmpDir, err := os.MkdirTemp("", "openclaw-slack-*")
+	tmpDir, err := os.MkdirTemp("", "agenthub-slack-*")
 	if err != nil {
 		return "", fmt.Errorf("create temporary slack deployment workspace: %w", err)
 	}
@@ -262,7 +262,7 @@ func runSlackDeployWorkflow(ctx context.Context, profile string, cfg *config.Con
 		return "", err
 	}
 
-	localUnitPath := filepath.Join(tmpDir, "openclaw-slack.service")
+	localUnitPath := filepath.Join(tmpDir, "agenthub-slack.service")
 	if err := os.WriteFile(localUnitPath, []byte(renderSlackSystemdUnit(remoteBinaryPath, remoteConfigPath, remoteEnvPath, remoteAgentDir, agentName)), 0o600); err != nil {
 		return "", fmt.Errorf("write slack systemd unit: %w", err)
 	}
@@ -410,7 +410,7 @@ func syncLocalCodexAuthState(ctx context.Context, exec host.Executor, remoteAgen
 		}
 	}
 	if !foundAny {
-		return errors.New("codex authentication is missing on the local machine; run `openclaw onboard --auth-choice openai-codex` or set runtime.codex.secret_id")
+		return errors.New("codex authentication is missing on the local machine; run `agenthub onboard --auth-choice openai-codex` or set runtime.codex.secret_id")
 	}
 	if _, err := exec.Run(ctx, "sudo", "rm", "-rf", remoteCodexTargetDir); err != nil {
 		return fmt.Errorf("prepare codex auth directory: %w", err)
@@ -434,7 +434,7 @@ func syncLocalCodexAuthState(ctx context.Context, exec host.Executor, remoteAgen
 }
 
 func downloadCodexBinaryArchive(ctx context.Context) (string, error) {
-	tmpDir, err := os.MkdirTemp("", "openclaw-codex-archive-*")
+	tmpDir, err := os.MkdirTemp("", "agenthub-codex-archive-*")
 	if err != nil {
 		return "", fmt.Errorf("create temporary codex archive workspace: %w", err)
 	}
@@ -457,7 +457,7 @@ func extractCodexBinary(ctx context.Context, archivePath string) (string, error)
 	if archivePath == "" {
 		return "", errors.New("codex archive path is required")
 	}
-	tmpDir, err := os.MkdirTemp("", "openclaw-codex-bin-*")
+	tmpDir, err := os.MkdirTemp("", "agenthub-codex-bin-*")
 	if err != nil {
 		return "", fmt.Errorf("create temporary codex binary workspace: %w", err)
 	}
@@ -475,7 +475,7 @@ func extractCodexBinary(ctx context.Context, archivePath string) (string, error)
 
 func renderSlackSystemdUnit(binaryPath, configPath, envFilePath, agentDir, agentName string) string {
 	return fmt.Sprintf(`[Unit]
-Description=OpenClaw Slack adapter (%s)
+Description=AgentHub Slack adapter (%s)
 After=network-online.target
 Wants=network-online.target
 
@@ -546,5 +546,5 @@ func slackServiceName(agentName string) string {
 			b.WriteRune('-')
 		}
 	}
-	return "openclaw-slack-" + strings.Trim(b.String(), "-")
+	return "agenthub-slack-" + strings.Trim(b.String(), "-")
 }

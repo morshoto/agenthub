@@ -6,8 +6,8 @@ diff.txt
 
 # Configuration files
 agents/
-openclaw
-openclaw.yaml
+agenthub
+agenthub.yaml
 
 # Terraform local variable files
 terraform/**/terraform.tfvars

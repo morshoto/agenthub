@@ -11,7 +11,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"openclaw/internal/runtimeinstall"
+	"agenthub/internal/runtimeinstall"
 )
 
 type runtimeActivityTracker struct {
@@ -242,7 +242,7 @@ func newRuntimeServerMux(state *runtimeServerState) *http.ServeMux {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		state.touch()
 		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte("openclaw runtime"))
+		_, _ = w.Write([]byte("agenthub runtime"))
 	})
 	return mux
 }

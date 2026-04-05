@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"openclaw/internal/config"
+	"agenthub/internal/config"
 )
 
 func newVerifyCommand(app *App) *cobra.Command {
@@ -53,7 +53,7 @@ func newVerifyCommand(app *App) *cobra.Command {
 					"verification failed",
 					err,
 					"the target host is not reachable or the runtime config is missing",
-					"re-run "+commandRef(cmd.OutOrStdout(), "openclaw", "install", "--target", "...")+" to refresh the runtime",
+					"re-run "+commandRef(cmd.OutOrStdout(), "agenthub", "install", "--target", "...")+" to refresh the runtime",
 					"check the host logs and network connectivity",
 				)
 			}
@@ -62,7 +62,7 @@ func newVerifyCommand(app *App) *cobra.Command {
 					"verification failed",
 					errors.New(fmt.Sprintf("%d required checks failed", report.RequiredFailures())),
 					"one or more required readiness checks did not pass",
-					"fix the failed checks and run "+commandRef(cmd.OutOrStdout(), "openclaw", "verify")+" again",
+					"fix the failed checks and run "+commandRef(cmd.OutOrStdout(), "agenthub", "verify")+" again",
 				)
 			}
 			return nil
@@ -73,6 +73,6 @@ func newVerifyCommand(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&sshUser, "ssh-user", "", "SSH username for the target host")
 	cmd.Flags().StringVar(&sshKey, "ssh-key", "", "path to the SSH private key")
 	cmd.Flags().IntVar(&sshPort, "ssh-port", 22, "SSH port")
-	cmd.Flags().StringVar(&runtimeConfigPath, "runtime-config", "/opt/openclaw/runtime.yaml", "path to the runtime config on the target host")
+	cmd.Flags().StringVar(&runtimeConfigPath, "runtime-config", "/opt/agenthub/runtime.yaml", "path to the runtime config on the target host")
 	return cmd
 }

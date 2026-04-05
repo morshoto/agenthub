@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"openclaw/internal/config"
-	"openclaw/internal/prompt"
-	"openclaw/internal/provider"
-	awsprovider "openclaw/internal/provider/aws"
+	"agenthub/internal/config"
+	"agenthub/internal/prompt"
+	"agenthub/internal/provider"
+	awsprovider "agenthub/internal/provider/aws"
 )
 
 type fakeProvider struct {

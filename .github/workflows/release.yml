@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          binary="$(find release-assets -type f -name "openclaw_*_linux_amd64" -print -quit)"
+                  binary="$(find release-assets -type f -name "agenthub_*_linux_amd64" -print -quit)"
           if [[ -z "${binary}" ]]; then
             echo "linux_amd64 release asset was not found"
             exit 1

@@ -6,7 +6,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"openclaw/internal/config"
+	"agenthub/internal/config"
 )
 
 // RuntimeConfig is the file written to the remote host for the runtime installer.

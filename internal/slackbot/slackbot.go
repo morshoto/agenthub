@@ -42,7 +42,7 @@ type Config struct {
 	Debug           bool
 }
 
-// RuntimeClient sends prompts to an OpenClaw runtime server.
+// RuntimeClient sends prompts to an AgentHub runtime server.
 type RuntimeClient struct {
 	baseURL *url.URL
 	client  *http.Client
@@ -52,7 +52,7 @@ type runtimeGenerator interface {
 	Generate(ctx context.Context, prompt string) (string, error)
 }
 
-// NewRuntimeClient creates a runtime client for the OpenClaw HTTP API.
+// NewRuntimeClient creates a runtime client for the AgentHub HTTP API.
 func NewRuntimeClient(runtimeURL string, timeout time.Duration) (*RuntimeClient, error) {
 	parsed, err := url.Parse(strings.TrimSpace(runtimeURL))
 	if err != nil {
@@ -192,7 +192,7 @@ func (s *conversationStore) prompt(key, latest string) string {
 	s.mu.Unlock()
 
 	var b strings.Builder
-	b.WriteString("You are OpenClaw, a concise Slack assistant.\n")
+	b.WriteString("You are AgentHub, a concise Slack assistant.\n")
 	b.WriteString("Answer the latest user message directly. Keep it short unless details are requested.\n")
 	if len(turns) > 0 {
 		b.WriteString("\nConversation so far:\n")
@@ -370,7 +370,7 @@ func normalizeConfig(cfg Config) Config {
 	cfg.Provider = strings.TrimSpace(cfg.Provider)
 	cfg.Model = strings.TrimSpace(cfg.Model)
 	if strings.TrimSpace(cfg.RuntimeURL) == "" {
-		cfg.RuntimeURL = os.Getenv("OPENCLAW_RUNTIME_URL")
+		cfg.RuntimeURL = os.Getenv("AGENTHUB_RUNTIME_URL")
 	}
 	if strings.TrimSpace(cfg.RuntimeURL) == "" && !strings.EqualFold(cfg.Provider, "codex") {
 		cfg.RuntimeURL = defaultRuntimeURL
@@ -505,7 +505,7 @@ func (s *Service) replyToMessage(ctx context.Context, channel, threadTS, userID,
 	reply, err := s.runtime.Generate(runCtx, prompt)
 	if err != nil {
 		s.logf("runtime request failed for %s: %v", channel, err)
-		_ = s.poster.PostMessage(runCtx, channel, fmt.Sprintf("OpenClaw error: %v", err), threadTS)
+		_ = s.poster.PostMessage(runCtx, channel, fmt.Sprintf("AgentHub error: %v", err), threadTS)
 		return
 	}
 
@@ -639,7 +639,7 @@ func (c *codexRuntime) Generate(ctx context.Context, prompt string) (string, err
 		return "", errors.New("prompt is required")
 	}
 
-	tmpDir, err := os.MkdirTemp("", "openclaw-codex-*")
+	tmpDir, err := os.MkdirTemp("", "agenthub-codex-*")
 	if err != nil {
 		return "", fmt.Errorf("create codex output workspace: %w", err)
 	}
@@ -707,7 +707,7 @@ func codexAuthError(output string, err error) error {
 		strings.Contains(lower, "missing bearer or basic authentication"),
 		strings.Contains(lower, "not authenticated"),
 		strings.Contains(lower, "unauthenticated"):
-		return errors.New("codex authentication is missing or expired on the EC2 host; run `sudo -u ubuntu openclaw onboard --auth-choice openai-codex` or refresh the OPENAI_API_KEY for the host user")
+		return errors.New("codex authentication is missing or expired on the EC2 host; run `sudo -u ubuntu agenthub onboard --auth-choice openai-codex` or refresh the OPENAI_API_KEY for the host user")
 	default:
 		return nil
 	}

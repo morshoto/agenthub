@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"openclaw/internal/runtime"
+	"agenthub/internal/runtime"
 )
 
 // version information is injected at build time.
@@ -44,5 +44,5 @@ func (a *App) applyRuntime(ctx context.Context) context.Context {
 }
 
 func (a *App) versionString() string {
-	return fmt.Sprintf("openclaw %s\ncommit: %s\nbuild date: %s", Version, CommitSHA, BuildDate)
+	return fmt.Sprintf("agenthub %s\ncommit: %s\nbuild date: %s", Version, CommitSHA, BuildDate)
 }

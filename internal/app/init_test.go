@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"openclaw/internal/config"
-	"openclaw/internal/provider"
-	awsprovider "openclaw/internal/provider/aws"
+	"agenthub/internal/config"
+	"agenthub/internal/provider"
+	awsprovider "agenthub/internal/provider/aws"
 )
 
 func stubGitHubSSHSetup(t *testing.T) {
@@ -19,7 +19,7 @@ func stubGitHubSSHSetup(t *testing.T) {
 
 	originalDerive := deriveSSHPublicKeyFunc
 	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
-		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey openclaw", nil
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub", nil
 	}
 	t.Cleanup(func() { deriveSSHPublicKeyFunc = originalDerive })
 
@@ -37,7 +37,7 @@ func stubGitHubSSHSetup(t *testing.T) {
 
 	originalList := listGHSSHKeysFunc
 	listGHSSHKeysFunc = func(ctx context.Context) ([]string, error) {
-		return []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey openclaw"}, nil
+		return []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub"}, nil
 	}
 	t.Cleanup(func() { listGHSSHKeysFunc = originalList })
 
@@ -78,7 +78,7 @@ func TestInitWritesConfigFile(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -168,7 +168,7 @@ func TestInitUsesDefaultAgentNameWhenBlank(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -224,7 +224,7 @@ func TestInitSupportsCPUComputeMode(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -268,7 +268,7 @@ func TestInitRejectsNonAWSPlatform(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", filepath.Join(t.TempDir(), "agents")}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", filepath.Join(t.TempDir(), "agents")}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -302,7 +302,7 @@ func TestInitDoesNotCreateAWSProviderBeforePlatformSelection(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", filepath.Join(t.TempDir(), "agents")}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", filepath.Join(t.TempDir(), "agents")}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -372,7 +372,7 @@ sandbox:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "--config", existing, "init", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "--config", existing, "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -433,7 +433,7 @@ func TestInitContinuesWhenAWSAuthCheckIsPermissionDenied(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -490,7 +490,7 @@ func TestInitContinuesWhenAWSAuthCheckFailsAtSTS(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -547,7 +547,7 @@ func TestInitFallsBackWhenAWSImageLookupIsPermissionDenied(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)

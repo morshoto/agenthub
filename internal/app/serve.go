@@ -13,8 +13,8 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"openclaw/internal/bedrock"
-	"openclaw/internal/runtimeinstall"
+	"agenthub/internal/bedrock"
+	"agenthub/internal/runtimeinstall"
 )
 
 type runtimeGenerator interface {
@@ -31,7 +31,7 @@ func newServeCommand(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:     "serve",
-		Short:   "Run the OpenClaw runtime daemon",
+		Short:   "Run the AgentHub runtime daemon",
 		GroupID: "runtime",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(runtimeConfigPath) == "" {
@@ -58,7 +58,7 @@ func newServeCommand(app *App) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&runtimeConfigPath, "runtime-config", "/opt/openclaw/runtime.yaml", "path to the runtime config")
+	cmd.Flags().StringVar(&runtimeConfigPath, "runtime-config", "/opt/agenthub/runtime.yaml", "path to the runtime config")
 	cmd.Flags().StringVar(&listenAddr, "listen", "", "address to listen on; defaults to the runtime config port")
 	cmd.Flags().DurationVar(&idleTimeout, "idle-timeout", 0, "shutdown after this period with no requests")
 	cmd.Flags().StringVar(&idleShutdownCommand, "idle-shutdown-command", "", "shell command to run before exiting on idle timeout")

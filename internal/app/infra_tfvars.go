@@ -13,8 +13,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"openclaw/internal/config"
-	"openclaw/internal/prompt"
+	"agenthub/internal/config"
+	"agenthub/internal/prompt"
 )
 
 var listAWSProfilesFunc = defaultListAWSProfiles
@@ -25,7 +25,7 @@ func newInfraTFVarsCommand(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tfvars",
 		Short: "Generate deploy-ready terraform.tfvars from a configuration file",
-		Long: strings.TrimSpace(`Generate a deploy-ready terraform.tfvars file from an OpenClaw config.
+		Long: strings.TrimSpace(`Generate a deploy-ready terraform.tfvars file from an AgentHub config.
 
 This command resolves the active AWS profile, derives the SSH public key from the configured private key path, provisions the same key material for GitHub SSH access on the host, and stages the current working tree as a bootstrap archive URL. It is intended for deploy-time use and can fail if the local git state, SSH key, or AWS environment is not ready.`),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -141,7 +141,7 @@ func buildTerraformVars(ctx context.Context, profile string, cfg *config.Config)
 		GitHubPrivateKey: inputs.GitHubPrivateKey,
 		SSHCIDR:          inputs.SSHCIDR,
 		SSHUser:          inputs.SSHUser,
-		NamePrefix:       "openclaw",
+		NamePrefix:       "agenthub",
 		UseNemoClaw:      cfg.Sandbox.UseNemoClaw,
 		NIMEndpoint:      cfg.Runtime.Endpoint,
 		Model:            cfg.Runtime.Model,

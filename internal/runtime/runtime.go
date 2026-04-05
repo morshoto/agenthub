@@ -9,8 +9,8 @@ import (
 type contextKey string
 
 const (
-	loggerKey contextKey = "openclaw/logger"
-	configKey contextKey = "openclaw/config"
+	loggerKey contextKey = "agenthub/logger"
+	configKey contextKey = "agenthub/config"
 )
 
 func NewLogger(verbose, debug bool) *slog.Logger {

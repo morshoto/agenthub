@@ -15,7 +15,7 @@ import (
 var StoreAPIKeyFunc = StoreAPIKey
 var LoadAPIKeyFunc = LoadAPIKey
 
-const defaultSecretName = "openclaw/codex-api-key"
+const defaultSecretName = "agenthub/codex-api-key"
 
 func DefaultSecretName() string {
 	return defaultSecretName

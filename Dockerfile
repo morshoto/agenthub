@@ -6,13 +6,13 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/openclaw ./cmd/openclaw
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o /out/agenthub ./cmd/agenthub
 
 FROM alpine:3.21
 
 RUN apk add --no-cache ca-certificates curl tar
 
-WORKDIR /opt/openclaw
+WORKDIR /opt/agenthub
 
 # Keep the Codex CLI available in the image so Slack/Codex workflows can run
 # without depending on a separate host-side install.
@@ -24,9 +24,9 @@ RUN set -eux; \
     install -m 755 codex-x86_64-unknown-linux-musl /usr/local/bin/codex; \
     rm -rf "$tmpdir"
 
-COPY --from=build /out/openclaw /usr/local/bin/openclaw
+COPY --from=build /out/agenthub /usr/local/bin/agenthub
 
 EXPOSE 8080
 
-ENTRYPOINT ["openclaw"]
+ENTRYPOINT ["agenthub"]
 CMD ["serve", "--listen", "0.0.0.0:8080"]

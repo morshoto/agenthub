@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"openclaw/internal/app"
+	"agenthub/internal/app"
 )
 
 func main() {

@@ -46,14 +46,14 @@ func resolveSourceArchiveURL(ctx context.Context, profile, region string) (strin
 		return "", "", errors.New("aws account id is required to stage the Docker bootstrap archive")
 	}
 
-	bucketName := fmt.Sprintf("openclaw-bootstrap-%s-%s", accountID, region)
+	bucketName := fmt.Sprintf("agenthub-bootstrap-%s-%s", accountID, region)
 	if _, err := awsOutput(ctx, profile, region, "s3api", "head-bucket", "--bucket", bucketName); err != nil {
 		if err := createBootstrapBucket(ctx, profile, region, bucketName); err != nil {
 			return "", "", err
 		}
 	}
 
-	objectKey := fmt.Sprintf("openclaw-%s.tar.gz", ref)
+	objectKey := fmt.Sprintf("agenthub-%s.tar.gz", ref)
 	if _, err := awsOutput(ctx, profile, region, "s3", "cp", archivePath, fmt.Sprintf("s3://%s/%s", bucketName, objectKey)); err != nil {
 		return "", "", err
 	}
@@ -74,7 +74,7 @@ func gitOutput(ctx context.Context, name string, args ...string) (string, error)
 }
 
 func archiveWorkingTree(ctx context.Context, ref string) (string, error) {
-	tmpDir, err := os.MkdirTemp("", "openclaw-source-*")
+	tmpDir, err := os.MkdirTemp("", "agenthub-source-*")
 	if err != nil {
 		return "", fmt.Errorf("create temporary source archive workspace: %w", err)
 	}

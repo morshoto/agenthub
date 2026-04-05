@@ -16,7 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go"
 
-	"openclaw/internal/config"
+	"agenthub/internal/config"
 )
 
 func TestListRegionsUsesDescribeRegions(t *testing.T) {

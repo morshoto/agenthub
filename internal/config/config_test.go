@@ -9,7 +9,7 @@ import (
 
 func TestLoadAndValidateValidConfig(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "openclaw.yaml")
+	path := filepath.Join(dir, "agenthub.yaml")
 	writeFile(t, path, `
 platform:
   name: aws
@@ -94,7 +94,7 @@ func TestValidateRejectsMalformedAWSRegion(t *testing.T) {
 
 func TestLoadRejectsInvalidYaml(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "openclaw.yaml")
+	path := filepath.Join(dir, "agenthub.yaml")
 	writeFile(t, path, `
 platform:
   name: aws
@@ -114,14 +114,14 @@ sandbox:
 
 func TestSaveAndLoadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "openclaw.yaml")
+	path := filepath.Join(dir, "agenthub.yaml")
 	cfg := &Config{
 		Platform: PlatformConfig{Name: PlatformAWS},
 		Compute:  ComputeConfig{Class: ComputeClassCPU},
 		Region:   RegionConfig{Name: "us-east-1"},
 		Instance: InstanceConfig{Type: "t3.medium", DiskSizeGB: 20},
 		Image:    ImageConfig{Name: "AWS Deep Learning AMI GPU Ubuntu 22.04", ID: "ami-0123456789abcdef0"},
-		Runtime:  RuntimeConfig{Endpoint: "http://localhost:11434", Model: "llama3.2", Provider: "codex", Codex: CodexConfig{SecretID: "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:openclaw/codex-api-key"}},
+		Runtime:  RuntimeConfig{Endpoint: "http://localhost:11434", Model: "llama3.2", Provider: "codex", Codex: CodexConfig{SecretID: "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/codex-api-key"}},
 		Sandbox:  SandboxConfig{Enabled: true, NetworkMode: "private", UseNemoClaw: true, FilesystemAllow: []string{"/tmp", "/var/tmp"}},
 	}
 
@@ -143,7 +143,7 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 
 func TestLoadSupportsListsAndNestedYAML(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "openclaw.yaml")
+	path := filepath.Join(dir, "agenthub.yaml")
 	writeFile(t, path, `
 platform:
   name: aws

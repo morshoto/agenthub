@@ -59,7 +59,7 @@ variable "ssh_user" {
 
 variable "name_prefix" {
   type    = string
-  default = "openclaw"
+  default = "agenthub"
 }
 
 variable "use_nemoclaw" {
@@ -98,5 +98,5 @@ variable "source_archive_url" {
 
 variable "container_name" {
   type    = string
-  default = "openclaw"
+  default = "agenthub"
 }

@@ -30,8 +30,8 @@ func ensureAgentEnvTemplate(configPath string) (string, bool, error) {
 	}
 
 	content := strings.Join([]string{
-		"# OpenClaw agent Slack environment",
-		"# Fill these secrets before running `openclaw slack serve`.",
+		"# AgentHub agent Slack environment",
+		"# Fill these secrets before running `agenthub slack serve`.",
 		"SLACK_BOT_TOKEN=",
 		"SLACK_APP_TOKEN=",
 		"",

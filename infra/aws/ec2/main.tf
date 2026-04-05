@@ -153,13 +153,13 @@ resource "random_id" "suffix" {
 
 resource "aws_security_group" "this" {
   name        = "${var.name_prefix}-${random_id.suffix.hex}"
-  description = "OpenClaw instance security group"
+  description = "AgentHub instance security group"
   vpc_id      = local.vpc_id
 
   dynamic "ingress" {
     for_each = var.network_mode == "public" && trimspace(var.ssh_cidr) != "" ? [1] : []
     content {
-      description = "SSH access for OpenClaw"
+      description = "SSH access for AgentHub"
       from_port   = 22
       to_port     = 22
       protocol    = "tcp"
@@ -170,7 +170,7 @@ resource "aws_security_group" "this" {
   dynamic "ingress" {
     for_each = var.network_mode == "public" && trimspace(local.runtime_cidr) != "" ? [1] : []
     content {
-      description = "OpenClaw runtime access"
+      description = "AgentHub runtime access"
       from_port   = local.listen_port
       to_port     = local.listen_port
       protocol    = "tcp"

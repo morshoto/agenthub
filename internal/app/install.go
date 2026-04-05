@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"openclaw/internal/config"
-	"openclaw/internal/runtimeinstall"
+	"agenthub/internal/config"
+	"agenthub/internal/runtimeinstall"
 )
 
 func newInstallCommand(app *App) *cobra.Command {
@@ -24,7 +24,7 @@ func newInstallCommand(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:     "install",
-		Short:   "Install the OpenClaw runtime on a prepared host",
+		Short:   "Install the AgentHub runtime on a prepared host",
 		GroupID: "provision",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(app.opts.ConfigPath) == "" {
@@ -61,7 +61,7 @@ func newInstallCommand(app *App) *cobra.Command {
 					"install failed",
 					err,
 					"the SSH target is unreachable or the host prerequisites are missing",
-					"run "+commandRef(cmd.OutOrStdout(), "openclaw", "verify", "--config", app.opts.ConfigPath, "--target", resolvedTarget)+" after fixing the host",
+					"run "+commandRef(cmd.OutOrStdout(), "agenthub", "verify", "--config", app.opts.ConfigPath, "--target", resolvedTarget)+" after fixing the host",
 					"check Docker, GPU drivers, and SSH access on the target host",
 				)
 			}
@@ -73,7 +73,7 @@ func newInstallCommand(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&sshUser, "ssh-user", "", "SSH username for the target host")
 	cmd.Flags().StringVar(&sshKey, "ssh-key", "", "path to the SSH private key")
 	cmd.Flags().IntVar(&sshPort, "ssh-port", 22, "SSH port")
-	cmd.Flags().StringVar(&workingDir, "working-dir", "/opt/openclaw", "remote working directory")
+	cmd.Flags().StringVar(&workingDir, "working-dir", "/opt/agenthub", "remote working directory")
 	cmd.Flags().IntVar(&port, "port", 0, "runtime port override")
 	cmd.Flags().BoolVar(&useNemoClaw, "use-nemoclaw", false, "enable NemoClaw settings for the generated runtime config")
 	cmd.Flags().BoolVar(&disableNemoClaw, "disable-nemoclaw", false, "disable NemoClaw settings for the generated runtime config")
