@@ -3,7 +3,10 @@ package setup
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 type wizardProgressStatus string
@@ -16,16 +19,20 @@ const (
 )
 
 type wizardProgressItem struct {
-	Label  string
-	Value  string
-	Status wizardProgressStatus
+	Label string
+	Value string
 }
 
-func renderWizardProgress(out io.Writer, title string, step, total int, current string, items []wizardProgressItem) {
+func renderWizardProgress(out io.Writer, phase, title string, step, total int, current string, items []wizardProgressItem) {
 	if out == nil {
 		return
 	}
 
+	if isTerminalWriter(out) {
+		fmt.Fprint(out, "\r\033[2J\033[H")
+	}
+
+	phase = strings.TrimSpace(phase)
 	title = strings.TrimSpace(title)
 	if title == "" {
 		title = "Setup"
@@ -38,55 +45,64 @@ func renderWizardProgress(out io.Writer, title string, step, total int, current 
 		step = 1
 	}
 
+	current = strings.TrimSpace(current)
+	currentIndex := -1
+	if current != "" {
+		for i, item := range items {
+			if strings.EqualFold(strings.TrimSpace(item.Label), current) {
+				currentIndex = i
+				break
+			}
+		}
+	}
+	if currentIndex < 0 {
+		currentIndex = step - 1
+	}
+
+	if phase != "" {
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, phase)
+	}
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "%s  Step %d/%d\n\n", title, step, total)
-	for _, item := range items {
+	for i, item := range items {
 		label := strings.TrimSpace(item.Label)
 		if label == "" {
 			continue
 		}
 		value := strings.TrimSpace(item.Value)
-		switch item.Status {
-		case wizardStatusDone:
+		switch {
+		case i < currentIndex:
 			if value == "" {
 				value = "done"
 			}
 			fmt.Fprintf(out, "✓ %-18s %s\n", label, value)
-		case wizardStatusSkipped:
-			if value == "" {
-				value = "n/a"
-			}
-			fmt.Fprintf(out, "- %-18s %s\n", label, value)
-		case wizardStatusCurrent:
-			if value == "" {
-				value = "-"
-			}
-			fmt.Fprintf(out, "→ %-18s %s\n", label, value)
+		case i == currentIndex:
+			fmt.Fprintf(out, "→ %-18s -\n", label)
 		default:
-			if value == "" {
-				value = "-"
-			}
-			fmt.Fprintf(out, "  %-18s %s\n", label, value)
+			fmt.Fprintf(out, "  %-18s -\n", label)
 		}
-	}
-	if current != "" {
-		fmt.Fprintf(out, "\nCurrent: %s\n", current)
 	}
 }
 
-func wizardDecisionLine(out io.Writer, label, value string) {
+func renderWizardPhase(out io.Writer, title string, body ...string) {
 	if out == nil {
 		return
 	}
-	label = strings.TrimSpace(label)
-	value = strings.TrimSpace(value)
-	if label == "" {
+	title = strings.TrimSpace(title)
+	if title == "" {
 		return
 	}
-	if value == "" {
-		value = "done"
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, title)
+	if len(body) == 0 {
+		return
 	}
-	fmt.Fprintf(out, "✓ %s: %s\n", label, value)
+	for _, line := range body {
+		if text := strings.TrimSpace(line); text != "" {
+			fmt.Fprintln(out, text)
+		}
+	}
 }
 
 func valueOrDash(value string) string {
@@ -95,4 +111,12 @@ func valueOrDash(value string) string {
 		return "-"
 	}
 	return value
+}
+
+func isTerminalWriter(w io.Writer) bool {
+	file, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	return term.IsTerminal(int(file.Fd()))
 }

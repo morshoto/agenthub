@@ -13,6 +13,46 @@ import (
 	awsprovider "agenthub/internal/provider/aws"
 )
 
+func TestRenderWizardProgressShowsCurrentStateWithoutHistoryNoise(t *testing.T) {
+	out := &bytes.Buffer{}
+	renderWizardProgress(out, "Setup", "Agent setup", 3, 8, "Compute mode", []wizardProgressItem{
+		{Label: "Agent name", Value: "default"},
+		{Label: "Platform", Value: "aws"},
+		{Label: "Compute mode", Value: "gpu"},
+		{Label: "Region"},
+		{Label: "Instance"},
+		{Label: "Access"},
+		{Label: "Runtime"},
+		{Label: "Review"},
+	})
+
+	got := out.String()
+	for _, fragment := range []string{
+		"Setup",
+		"Agent setup  Step 3/8",
+		"✓ Agent name         default",
+		"✓ Platform           aws",
+		"→ Compute mode       -",
+		"  Region             -",
+		"  Instance           -",
+		"  Access             -",
+		"  Runtime            -",
+		"  Review             -",
+	} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("render output %q missing %q", got, fragment)
+		}
+	}
+	for _, fragment := range []string{
+		"✓ Compute mode",
+		"... 4 more step(s)",
+	} {
+		if strings.Contains(got, fragment) {
+			t.Fatalf("render output %q unexpectedly contains %q", got, fragment)
+		}
+	}
+}
+
 type fakeProvider struct {
 	regions          []string
 	report           provider.GPUQuotaReport

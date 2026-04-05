@@ -51,45 +51,21 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		}
 		return strings.Join(filtered, " / ")
 	}
-	render := func(step int, current string, agentName, platform, computeClass, region, instanceSummary, accessSummary, runtimeSummary, reviewSummary string, accessPending, runtimePending bool) {
+	render := func(phase string, step int, current string, agentName, platform, computeClass, region, instanceSummary, accessSummary, runtimeSummary, reviewSummary string, accessPending, runtimePending bool) {
 		items := []wizardProgressItem{
-			{Label: "Agent name", Value: agentName, Status: wizardStatusPending},
-			{Label: "Platform", Value: platform, Status: wizardStatusPending},
-			{Label: "Compute mode", Value: computeClass, Status: wizardStatusPending},
-			{Label: "Region", Value: region, Status: wizardStatusPending},
-			{Label: "Instance", Value: instanceSummary, Status: wizardStatusPending},
-			{Label: "Access", Value: accessSummary, Status: wizardStatusPending},
-			{Label: "Runtime", Value: runtimeSummary, Status: wizardStatusPending},
-			{Label: "Review", Value: reviewSummary, Status: wizardStatusPending},
+			{Label: "Agent name", Value: agentName},
+			{Label: "Platform", Value: platform},
+			{Label: "Compute mode", Value: computeClass},
+			{Label: "Region", Value: region},
+			{Label: "Instance", Value: instanceSummary},
+			{Label: "Access", Value: accessSummary},
+			{Label: "Runtime", Value: runtimeSummary},
+			{Label: "Review", Value: reviewSummary},
 		}
-		for i := range items {
-			switch {
-			case i < step-1:
-				if strings.TrimSpace(items[i].Value) == "" {
-					items[i].Status = wizardStatusSkipped
-				} else {
-					items[i].Status = wizardStatusDone
-				}
-			case i == step-1:
-				if strings.TrimSpace(items[i].Value) == "" {
-					items[i].Status = wizardStatusCurrent
-				} else {
-					items[i].Status = wizardStatusDone
-				}
-			default:
-				items[i].Status = wizardStatusPending
-			}
-		}
-		if accessPending {
-			items[5].Status = wizardStatusCurrent
-		}
-		if runtimePending {
-			items[6].Status = wizardStatusCurrent
-		}
-		renderWizardProgress(w.Out, "Agent setup", step, 8, current, items)
+		renderWizardProgress(w.Out, phase, "Agent setup", step, 8, current, items)
 	}
 
-	render(1, "Enter agent name", "", "", "", "", "", "", "", "", false, false)
+	render("Setup", 1, "Agent name", "", "", "", "", "", "", "", "", false, false)
 	agentName, err := w.Prompter.Text("Agent name", defaultAgentName())
 	if err != nil {
 		return nil, err
@@ -99,9 +75,8 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		return nil, err
 	}
 	w.AgentName = agentName
-	wizardDecisionLine(w.Out, "Agent name", agentName)
 
-	render(2, "Select platform", agentName, "", "", "", "", "", "", "", false, false)
+	render("Setup", 2, "Platform", agentName, "", "", "", "", "", "", "", false, false)
 	platform, err := w.Prompter.Select("Select platform", []string{"aws", "gcp", "azure"}, config.PlatformAWS)
 	if err != nil {
 		return nil, err
@@ -109,15 +84,13 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if platform != config.PlatformAWS {
 		return nil, fmt.Errorf("%s is not implemented yet", platform)
 	}
-	wizardDecisionLine(w.Out, "Platform", platform)
 
 	computeClass := defaultComputeClass(w.Existing)
-	render(3, "Select compute mode", agentName, platform, computeClass, "", "", "", "", "", false, false)
+	render("Setup", 3, "Compute mode", agentName, platform, computeClass, "", "", "", "", "", false, false)
 	computeClass, err = w.Prompter.Select("Select compute mode", []string{config.ComputeClassCPU, config.ComputeClassGPU}, computeClass)
 	if err != nil {
 		return nil, err
 	}
-	wizardDecisionLine(w.Out, "Compute mode", computeClass)
 
 	profile, prompted, err := w.selectAWSProfile()
 	if err != nil {
@@ -127,10 +100,9 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if profile == "" {
 		return nil, errors.New("AWS profile is required")
 	}
-	fmt.Fprintf(w.Out, "Using AWS profile: %s\n", profile)
-	wizardDecisionLine(w.Out, "AWS profile", profile)
 	if prompted {
-		fmt.Fprintf(w.Out, "If this profile uses AWS SSO, run `aws sso login --profile %s` now.\n", profile)
+		fmt.Fprintf(w.Out, "! This profile uses AWS SSO\n")
+		fmt.Fprintf(w.Out, "Run `aws sso login --profile %s` if needed\n", profile)
 		ready, err := w.Prompter.Confirm("Continue after AWS SSO login", true)
 		if err != nil {
 			return nil, err
@@ -165,12 +137,11 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if w.Existing != nil && strings.TrimSpace(w.Existing.Region.Name) != "" && slices.Contains(regions, w.Existing.Region.Name) {
 		regionDefault = w.Existing.Region.Name
 	}
-	render(4, "Select AWS region", agentName, platform, computeClass, "", "", "", "", "", false, false)
+	render("Environment check", 4, "Region", agentName, platform, computeClass, "", "", "", "", "", false, false)
 	region, err := w.Prompter.Select("Select AWS region", regions, regionDefault)
 	if err != nil {
 		return nil, err
 	}
-	wizardDecisionLine(w.Out, "Region", region)
 
 	if err := w.warnOnQuota(ctx, region); err != nil {
 		return nil, err
@@ -180,38 +151,34 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	render(5, "Select instance type", agentName, platform, computeClass, region, "", "", "", "", false, false)
+	render("Environment check", 5, "Instance", agentName, platform, computeClass, region, "", "", "", "", false, false)
 	instanceType, err := w.Prompter.SelectSearch("Select instance type", instanceTypes, defaultInstanceType(computeClass))
 	if err != nil {
 		return nil, err
 	}
-	wizardDecisionLine(w.Out, "Instance type", instanceType)
 
 	images, err := w.listImages(ctx, region, computeClass)
 	if err != nil {
 		fmt.Fprintln(w.Out, "Warning: AWS image lookup unavailable; using bundled fallback images.")
 		images = fallbackAWSBaseImages(region, computeClass)
 	}
-	render(5, "Select base image", agentName, platform, computeClass, region, compact(instanceType), "", "", "", false, false)
+	render("Environment check", 5, "Instance", agentName, platform, computeClass, region, compact(instanceType), "", "", "", false, false)
 	image, err := selectBaseImage(w.Prompter, images)
 	if err != nil {
 		return nil, err
 	}
-	wizardDecisionLine(w.Out, "Base image", compact(image.Name, image.ID))
 
-	render(5, "Enter disk size", agentName, platform, computeClass, region, compact(instanceType, image.Name), "", "", "", false, false)
+	render("Environment check", 5, "Instance", agentName, platform, computeClass, region, compact(instanceType, image.Name), "", "", "", false, false)
 	diskSize, err := w.Prompter.Int("Enter disk size (GB)", 20)
 	if err != nil {
 		return nil, err
 	}
-	wizardDecisionLine(w.Out, "Disk size", fmt.Sprintf("%d GB", diskSize))
 
-	render(6, "Select network mode", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), "", "", "", false, false)
+	render("Environment check", 6, "Access", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), "", "", "", false, false)
 	networkMode, err := w.Prompter.Select("Select network mode", []string{"private", "public"}, defaultNetworkMode(computeClass))
 	if err != nil {
 		return nil, err
 	}
-	wizardDecisionLine(w.Out, "Network mode", networkMode)
 
 	sshKeyName := ""
 	sshPrivateKeyPath := defaultSSHPrivateKeyPath()
@@ -229,13 +196,12 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		sshKeyName = defaultSSHKeyName()
 	}
 	accessSummary := networkMode
-	render(6, "Configure SSH access", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), accessSummary, "", "", networkMode == "public", false)
+	render("Environment check", 6, "Access", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), accessSummary, "", "", networkMode == "public", false)
 	if networkMode == "public" {
 		sshKeyName, err = w.Prompter.Text("SSH key pair name", sshKeyName)
 		if err != nil {
 			return nil, err
 		}
-		wizardDecisionLine(w.Out, "SSH key pair", sshKeyName)
 		if sshCIDR == "" {
 			if detected, detectErr := detectInitSSHCIDR(ctx); detectErr == nil {
 				sshCIDR = detected
@@ -245,12 +211,10 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		wizardDecisionLine(w.Out, "SSH private key", sshPrivateKeyPath)
 		sshCIDR, err = w.Prompter.Text("SSH CIDR", sshCIDR)
 		if err != nil {
 			return nil, err
 		}
-		wizardDecisionLine(w.Out, "SSH CIDR", sshCIDR)
 		sshUserDefault := sshUser
 		if sshUserDefault == "" {
 			sshUserDefault = sshUsernameForImage(image.Name, image.ID)
@@ -259,7 +223,6 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		wizardDecisionLine(w.Out, "SSH user", sshUser)
 		accessSummary = compact(networkMode, sshKeyName, sshCIDR, sshUser)
 	} else {
 		sshKeyName = ""
@@ -270,12 +233,11 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	}
 
 	if w.GitHubSetup != nil {
-		render(6, "Configure access integrations", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), compact(networkMode, sshKeyName, sshCIDR, sshUser), "", "", false, false)
+		render("Environment check", 6, "Access", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), compact(networkMode, sshKeyName, sshCIDR, sshUser), "", "", false, false)
 		connectGitHub, err := w.Prompter.Confirm("Authenticate Git with your GitHub credentials?", true)
 		if err != nil {
 			return nil, err
 		}
-		wizardDecisionLine(w.Out, "GitHub auth", fmt.Sprintf("%t", connectGitHub))
 		if connectGitHub {
 			if err := w.GitHubSetup(ctx, sshPrivateKeyPath); err != nil {
 				return nil, err
@@ -287,14 +249,12 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	wizardDecisionLine(w.Out, "NemoClaw", fmt.Sprintf("%t", useNemoClaw))
 
-	render(7, "Select model provider", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), compact(networkMode, sshKeyName, sshCIDR, sshUser), "", "", false, false)
+	render("Environment check", 7, "Runtime", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), compact(networkMode, sshKeyName, sshCIDR, sshUser), "", "", false, false)
 	runtimeProvider, err := w.Prompter.Select("Select model provider", runtimeProviderOptions(), defaultRuntimeProvider(w.Existing))
 	if err != nil {
 		return nil, err
 	}
-	wizardDecisionLine(w.Out, "Runtime provider", runtimeProvider)
 
 	if runtimeProvider == "codex" {
 		fmt.Fprintln(w.Out, "Codex auth uses the local browser login flow or existing signed-in state.")
@@ -313,12 +273,11 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 
 	nimEndpoint := ""
 	if runtimeProvider != "aws-bedrock" {
-		render(7, "Configure runtime endpoint", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), accessSummary, runtimeProvider, "", false, false)
+		render("Environment check", 7, "Runtime", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), accessSummary, runtimeProvider, "", false, false)
 		nimEndpoint, err = w.Prompter.Text("NIM endpoint", defaultEndpoint(computeClass))
 		if err != nil {
 			return nil, err
 		}
-		wizardDecisionLine(w.Out, "NIM endpoint", nimEndpoint)
 	}
 
 	model := ""
@@ -327,7 +286,6 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		wizardDecisionLine(w.Out, "Model", model)
 	}
 
 	cfg := &config.Config{
@@ -368,13 +326,9 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		cfg.Sandbox.NetworkMode,
 		cfg.Runtime.Provider,
 	)
-	render(8, "Review and confirm", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), compact(networkMode, sshKeyName, sshCIDR, sshUser), compact(runtimeProvider, nimEndpoint, model), reviewSummary, false, false)
+	render("Review configuration", 8, "Review", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), compact(networkMode, sshKeyName, sshCIDR, sshUser), compact(runtimeProvider, nimEndpoint, model), reviewSummary, false, false)
 
-	fmt.Fprintln(w.Out)
-	fmt.Fprintln(w.Out, "Summary")
-	fmt.Fprintln(w.Out)
-	fmt.Fprintln(w.Out, "Review")
-	fmt.Fprintln(w.Out, "------")
+	renderWizardPhase(w.Out, "Review configuration")
 	fmt.Fprintf(w.Out, "Plan: %s\n", compact("Agent: "+agentName, "Platform: "+strings.ToUpper(platform), "Compute: "+computeClass, "Region: "+region, "Instance: "+instanceType))
 	fmt.Fprintf(w.Out, "Plan: %s\n", compact("Image: "+image.Name, "Network: "+networkMode, "Runtime provider: "+runtimeProvider))
 	fmt.Fprintln(w.Out, "Details")
@@ -419,7 +373,6 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if !confirm {
 		return nil, errors.New("setup cancelled")
 	}
-	wizardDecisionLine(w.Out, "Review", "confirmed")
 
 	return cfg, nil
 }
