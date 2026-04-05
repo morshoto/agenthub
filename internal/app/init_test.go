@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"openclaw/internal/config"
-	"openclaw/internal/provider"
-	awsprovider "openclaw/internal/provider/aws"
+	"agenthub/internal/config"
+	"agenthub/internal/provider"
+	awsprovider "agenthub/internal/provider/aws"
 )
 
 func stubGitHubSSHSetup(t *testing.T) {
@@ -19,7 +19,7 @@ func stubGitHubSSHSetup(t *testing.T) {
 
 	originalDerive := deriveSSHPublicKeyFunc
 	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
-		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey openclaw", nil
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub", nil
 	}
 	t.Cleanup(func() { deriveSSHPublicKeyFunc = originalDerive })
 
@@ -37,7 +37,7 @@ func stubGitHubSSHSetup(t *testing.T) {
 
 	originalList := listGHSSHKeysFunc
 	listGHSSHKeysFunc = func(ctx context.Context) ([]string, error) {
-		return []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey openclaw"}, nil
+		return []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub"}, nil
 	}
 	t.Cleanup(func() { listGHSSHKeysFunc = originalList })
 

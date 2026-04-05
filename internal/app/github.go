@@ -61,7 +61,7 @@ func ensureGitHubSSHAccess(ctx context.Context, privateKeyPath string) error {
 		return nil
 	}
 
-	tmpDir, err := os.MkdirTemp("", "openclaw-github-key-*")
+	tmpDir, err := os.MkdirTemp("", "agenthub-github-key-*")
 	if err != nil {
 		return fmt.Errorf("create temporary github key workspace: %w", err)
 	}
@@ -151,9 +151,9 @@ func listGHSSHKeys(ctx context.Context) ([]string, error) {
 }
 
 func addGHSSHKey(ctx context.Context, publicKeyPath string) error {
-	title := "openclaw"
+	title := "agenthub"
 	if host, err := os.Hostname(); err == nil && strings.TrimSpace(host) != "" {
-		title = fmt.Sprintf("openclaw-%s", host)
+		title = fmt.Sprintf("agenthub-%s", host)
 	}
 	cmd := exec.CommandContext(ctx, "gh", "ssh-key", "add", publicKeyPath, "--title", title, "--type", "authentication")
 	cmd.Stdin = os.Stdin

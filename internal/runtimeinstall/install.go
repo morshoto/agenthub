@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"openclaw/internal/config"
-	"openclaw/internal/host"
+	"agenthub/internal/config"
+	"agenthub/internal/host"
 )
 
 var BuildRuntimeBinaryFunc = buildRuntimeBinary
@@ -64,7 +64,7 @@ func (ShellBackend) ScriptContents(renderedConfigPath string) []byte {
 	buf.WriteString("#!/bin/sh\n")
 	buf.WriteString("set -eu\n")
 	buf.WriteString("CONFIG_PATH=\"$1\"\n")
-	buf.WriteString("echo \"Installing OpenClaw runtime\"\n")
+	buf.WriteString("echo \"Installing AgentHub runtime\"\n")
 	buf.WriteString("echo \"config: $CONFIG_PATH\"\n")
 	buf.WriteString("if [ ! -f \"$CONFIG_PATH\" ]; then\n")
 	buf.WriteString("  echo \"missing runtime config\" >&2\n")
@@ -73,7 +73,7 @@ func (ShellBackend) ScriptContents(renderedConfigPath string) []byte {
 	buf.WriteString("if command -v docker >/dev/null 2>&1; then\n")
 	buf.WriteString("  echo \"docker: available\"\n")
 	buf.WriteString("fi\n")
-	buf.WriteString("echo \"OpenClaw runtime installation complete\"\n")
+	buf.WriteString("echo \"AgentHub runtime installation complete\"\n")
 	return buf.Bytes()
 }
 
@@ -104,7 +104,7 @@ func (i Installer) Install(ctx context.Context, req Request) (Result, error) {
 	}
 	workingDir := strings.TrimSpace(req.WorkingDir)
 	if workingDir == "" {
-		workingDir = "/opt/openclaw"
+		workingDir = "/opt/agenthub"
 	}
 
 	report, err := PrereqChecker{
@@ -126,7 +126,7 @@ func (i Installer) Install(ctx context.Context, req Request) (Result, error) {
 		return Result{}, err
 	}
 
-	tmpDir, err := os.MkdirTemp("", "openclaw-install-*")
+	tmpDir, err := os.MkdirTemp("", "agenthub-install-*")
 	if err != nil {
 		return Result{}, fmt.Errorf("create temporary install workspace: %w", err)
 	}
@@ -209,9 +209,9 @@ func (i Installer) installService(ctx context.Context, req Request, workingDir s
 	}
 
 	remoteBinaryPath := pathJoin(workingDir, "bin", "agenthub")
-	remoteServicePath := "/etc/systemd/system/openclaw.service"
+	remoteServicePath := "/etc/systemd/system/agenthub.service"
 	stagedBinaryPath := pathJoin(workingDir, "agenthub.upload")
-	stagedServicePath := pathJoin(workingDir, "openclaw.service")
+	stagedServicePath := pathJoin(workingDir, "agenthub.service")
 	remoteEnvPath := pathJoin(workingDir, "agenthub.env")
 	stagedEnvPath := pathJoin(workingDir, "agenthub.env.upload")
 
@@ -241,13 +241,13 @@ func (i Installer) installService(ctx context.Context, req Request, workingDir s
 		return serviceInstallResult{}, fmt.Errorf("prepare runtime binary: %w", err)
 	}
 	if envFilePath != "" {
-		tmpDir, err := os.MkdirTemp("", "openclaw-env-*")
+		tmpDir, err := os.MkdirTemp("", "agenthub-env-*")
 		if err != nil {
 			return serviceInstallResult{}, fmt.Errorf("create temporary auth workspace: %w", err)
 		}
 		defer os.RemoveAll(tmpDir)
 
-		localEnvPath := filepath.Join(tmpDir, "openclaw.env")
+		localEnvPath := filepath.Join(tmpDir, "agenthub.env")
 		envContents := ""
 		switch providerName {
 		case "codex":
@@ -285,13 +285,13 @@ func (i Installer) installService(ctx context.Context, req Request, workingDir s
 		envFilePath,
 	)
 
-	tmpDir, err := os.MkdirTemp("", "openclaw-systemd-*")
+	tmpDir, err := os.MkdirTemp("", "agenthub-systemd-*")
 	if err != nil {
 		return serviceInstallResult{}, fmt.Errorf("create temporary service workspace: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
-	localUnitPath := filepath.Join(tmpDir, "openclaw.service")
+	localUnitPath := filepath.Join(tmpDir, "agenthub.service")
 	if err := os.WriteFile(localUnitPath, []byte(unitContents), 0o600); err != nil {
 		return serviceInstallResult{}, fmt.Errorf("write systemd unit: %w", err)
 	}
@@ -305,8 +305,8 @@ func (i Installer) installService(ctx context.Context, req Request, workingDir s
 	if _, err := i.Host.Run(ctx, "sudo", "systemctl", "daemon-reload"); err != nil {
 		return serviceInstallResult{}, fmt.Errorf("reload systemd: %w", err)
 	}
-	if _, err := i.Host.Run(ctx, "sudo", "systemctl", "enable", "--now", "openclaw.service"); err != nil {
-		return serviceInstallResult{}, fmt.Errorf("enable openclaw service: %w", err)
+	if _, err := i.Host.Run(ctx, "sudo", "systemctl", "enable", "--now", "agenthub.service"); err != nil {
+		return serviceInstallResult{}, fmt.Errorf("enable agenthub service: %w", err)
 	}
 
 	return serviceInstallResult{
@@ -374,13 +374,13 @@ func renderSystemdUnit(binaryPath, runtimeConfigPath string, listenPort int, idl
 		envLine = fmt.Sprintf("EnvironmentFile=-%s\n", strings.TrimSpace(envFilePath))
 	}
 	return fmt.Sprintf(`[Unit]
-Description=OpenClaw runtime
+Description=AgentHub runtime
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/openclaw
+WorkingDirectory=/opt/agenthub
 %sExecStart=%s serve --runtime-config %s --listen 0.0.0.0:%d%s
 Restart=always
 RestartSec=5

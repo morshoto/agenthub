@@ -12,13 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"openclaw/internal/codexauth"
-	"openclaw/internal/config"
-	"openclaw/internal/host"
-	infratf "openclaw/internal/infra/terraform"
-	"openclaw/internal/provider"
-	"openclaw/internal/runtimeinstall"
-	"openclaw/internal/verify"
+	"agenthub/internal/codexauth"
+	"agenthub/internal/config"
+	"agenthub/internal/host"
+	infratf "agenthub/internal/infra/terraform"
+	"agenthub/internal/provider"
+	"agenthub/internal/runtimeinstall"
+	"agenthub/internal/verify"
 )
 
 var newLocalExecutor = func() host.Executor {
@@ -157,7 +157,7 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 		GitHubPrivateKey: inputs.GitHubPrivateKey,
 		SSHCIDR:          inputs.SSHCIDR,
 		SSHUser:          inputs.SSHUser,
-		NamePrefix:       "openclaw",
+		NamePrefix:       "agenthub",
 		UseNemoClaw:      cfg.Sandbox.UseNemoClaw,
 		NIMEndpoint:      cfg.Runtime.Endpoint,
 		Model:            cfg.Runtime.Model,
@@ -308,7 +308,7 @@ func buildTerraformInputs(ctx context.Context, profile string, cfg *config.Confi
 func runVerifyWorkflow(ctx context.Context, profile string, cfg *config.Config, opts verifyOptions) (verify.Report, string, error) {
 	runtimeConfigPath := strings.TrimSpace(opts.RuntimeConfigPath)
 	if runtimeConfigPath == "" {
-		runtimeConfigPath = "/opt/openclaw/runtime.yaml"
+		runtimeConfigPath = "/opt/agenthub/runtime.yaml"
 	}
 
 	if strings.TrimSpace(opts.Target) == "" {
@@ -374,8 +374,8 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 
 	target := instanceTarget(instance)
 	installResult := runtimeinstall.Result{
-		WorkingDir: "/opt/openclaw",
-		ConfigPath: "/opt/openclaw/runtime.yaml",
+		WorkingDir: "/opt/agenthub",
+		ConfigPath: "/opt/agenthub/runtime.yaml",
 	}
 	if err = progress.Run(ctx, "waiting for bootstrap", func(runCtx context.Context) error {
 		return waitForBootstrapReady(runCtx, cfg, target, opts.SSHUser, opts.SSHKey, opts.SSHPort, os.Stdout)
@@ -472,7 +472,7 @@ func waitForBootstrapReady(ctx context.Context, cfg *config.Config, target, sshU
 	attempt := 0
 	for {
 		attempt++
-		result, err := exec.Run(waitCtx, "test", "-f", "/opt/openclaw/bootstrap.done")
+		result, err := exec.Run(waitCtx, "test", "-f", "/opt/agenthub/bootstrap.done")
 		if err == nil {
 			break
 		}
@@ -523,7 +523,7 @@ func probeBootstrapStatus(ctx context.Context, exec host.Executor) (string, erro
 printf 'cloud-init status:\n'
 cloud-init status --long 2>&1 || cloud-init status 2>&1 || true
 printf '\nbootstrap log tail:\n'
-tail -n 20 /var/log/openclaw-bootstrap.log 2>&1 || true
+tail -n 20 /var/log/agenthub-bootstrap.log 2>&1 || true
 `)
 	if statusErr != nil {
 		return "", statusErr
@@ -780,7 +780,7 @@ func isTransientSSHError(err error) bool {
 }
 
 func prepareTerraformWorkdir() (string, error) {
-	workdir, err := os.MkdirTemp("", "openclaw-terraform-*")
+	workdir, err := os.MkdirTemp("", "agenthub-terraform-*")
 	if err != nil {
 		return "", fmt.Errorf("create terraform workspace: %w", err)
 	}
@@ -810,7 +810,7 @@ func writeTerraformVars(workdir string, vars terraformVars) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("marshal terraform vars: %w", err)
 	}
-	path := filepath.Join(workdir, "openclaw.auto.tfvars.json")
+	path := filepath.Join(workdir, "agenthub.auto.tfvars.json")
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return "", fmt.Errorf("write terraform vars: %w", err)
 	}

@@ -3,7 +3,7 @@ package app
 import (
 	"strings"
 
-	"openclaw/internal/config"
+	"agenthub/internal/config"
 )
 
 func resolveRuntimeCIDR(cfg *config.Config) string {

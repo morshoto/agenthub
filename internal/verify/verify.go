@@ -9,12 +9,12 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"openclaw/internal/config"
-	"openclaw/internal/host"
-	"openclaw/internal/runtimeinstall"
+	"agenthub/internal/config"
+	"agenthub/internal/host"
+	"agenthub/internal/runtimeinstall"
 )
 
-const defaultRuntimeConfigPath = "/opt/openclaw/runtime.yaml"
+const defaultRuntimeConfigPath = "/opt/agenthub/runtime.yaml"
 
 // Check reports a single verification result.
 type Check struct {
@@ -74,7 +74,7 @@ func (v Verifier) Verify(ctx context.Context, req Request) (Report, error) {
 
 	report := Report{RuntimeConfigPath: runtimeConfigPath}
 	report.Checks = append(report.Checks,
-		runOpenClawProcessCheck(ctx, v.Host),
+		runAgentHubProcessCheck(ctx, v.Host),
 		runRuntimeConfigCheck(ctx, v.Host, runtimeConfigPath, req.Config),
 	)
 	if req.Config == nil || config.EffectiveComputeClass(req.Config.Compute.Class) == config.ComputeClassGPU {
@@ -98,13 +98,13 @@ func (v Verifier) Verify(ctx context.Context, req Request) (Report, error) {
 	port, err := resolveRuntimePort(ctx, v.Host, runtimeConfigPath, req.Config)
 	if err != nil {
 		report.Checks = append(report.Checks, Check{
-			Name:        "openclaw health",
+			Name:        "agenthub health",
 			Passed:      false,
 			Message:     err.Error(),
-			Remediation: "Ensure the runtime config defines a valid port and the OpenClaw service is listening on that port.",
+			Remediation: "Ensure the runtime config defines a valid port and the AgentHub service is listening on that port.",
 		})
 	} else {
-		report.Checks = append(report.Checks, runOpenClawHealthCheck(ctx, v.Host, port))
+		report.Checks = append(report.Checks, runAgentHubHealthCheck(ctx, v.Host, port))
 	}
 	if isBedrockProvider(req.Config) {
 		report.Checks = append(report.Checks, runBedrockGenerateCheck(ctx, v.Host, port))
@@ -275,22 +275,22 @@ exit 127
 	return Check{Name: "nim endpoint connectivity", Passed: true, Message: msg}
 }
 
-func runOpenClawProcessCheck(ctx context.Context, exec host.Executor) Check {
+func runAgentHubProcessCheck(ctx context.Context, exec host.Executor) Check {
 	script := `
 if command -v docker >/dev/null 2>&1; then
-  if docker ps --filter name='^/openclaw$' --format '{{.Names}} {{.Status}}' | grep -q '^openclaw '; then
-    docker ps --filter name='^/openclaw$' --format '{{.Names}} {{.Status}}'
+  if docker ps --filter name='^/agenthub$' --format '{{.Names}} {{.Status}}' | grep -q '^agenthub '; then
+    docker ps --filter name='^/agenthub$' --format '{{.Names}} {{.Status}}'
     exit 0
   fi
 fi
 if command -v systemctl >/dev/null 2>&1; then
-  if systemctl is-active --quiet openclaw; then
-    echo "openclaw systemd service is active"
+  if systemctl is-active --quiet agenthub; then
+    echo "agenthub systemd service is active"
     exit 0
   fi
 fi
-if command -v pgrep >/dev/null 2>&1 && pgrep -af openclaw >/dev/null 2>&1; then
-  echo "openclaw process is running"
+if command -v pgrep >/dev/null 2>&1 && pgrep -af agenthub >/dev/null 2>&1; then
+  echo "agenthub process is running"
   exit 0
 fi
 exit 1
@@ -299,20 +299,20 @@ exit 1
 	if err != nil {
 		msg := strings.TrimSpace(result.Stderr)
 		if msg == "" {
-			msg = "openclaw process or service was not found"
+			msg = "agenthub process or service was not found"
 		}
 		return Check{
-			Name:        "openclaw service/process",
+			Name:        "agenthub service/process",
 			Passed:      false,
 			Message:     msg,
-			Remediation: "Start the OpenClaw service or process on the target host before verifying.",
+			Remediation: "Start the AgentHub service or process on the target host before verifying.",
 		}
 	}
 	msg := strings.TrimSpace(result.Stdout)
 	if msg == "" {
-		msg = "openclaw service or process is running"
+		msg = "agenthub service or process is running"
 	}
-	return Check{Name: "openclaw service/process", Passed: true, Message: msg}
+	return Check{Name: "agenthub service/process", Passed: true, Message: msg}
 }
 
 func resolveRuntimePort(ctx context.Context, exec host.Executor, runtimeConfigPath string, cfg *config.Config) (int, error) {
@@ -339,7 +339,7 @@ func resolveRuntimePort(ctx context.Context, exec host.Executor, runtimeConfigPa
 	return runtimeCfg.Port, nil
 }
 
-func runOpenClawHealthCheck(ctx context.Context, exec host.Executor, port int) Check {
+func runAgentHubHealthCheck(ctx context.Context, exec host.Executor, port int) Check {
 	if port <= 0 {
 		port = 8080
 	}
@@ -375,17 +375,17 @@ exit 127
 			msg = err.Error()
 		}
 		return Check{
-			Name:        "openclaw health",
+			Name:        "agenthub health",
 			Passed:      false,
 			Message:     msg,
-			Remediation: "Ensure the OpenClaw service is listening on localhost and responding to /healthz.",
+			Remediation: "Ensure the AgentHub service is listening on localhost and responding to /healthz.",
 		}
 	}
 	msg := strings.TrimSpace(result.Stdout)
 	if msg == "" {
 		msg = fmt.Sprintf("reachable: %s", endpoint)
 	}
-	return Check{Name: "openclaw health", Passed: true, Message: msg}
+	return Check{Name: "agenthub health", Passed: true, Message: msg}
 }
 
 func runBedrockGenerateCheck(ctx context.Context, exec host.Executor, port int) Check {

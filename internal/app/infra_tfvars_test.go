@@ -12,13 +12,13 @@ import (
 func TestInfraTFVarsCommandWritesTerraformVars(t *testing.T) {
 	originalResolveSourceArchiveURL := resolveSourceArchiveURLFunc
 	resolveSourceArchiveURLFunc = func(ctx context.Context, profile, region string) (string, string, error) {
-		return "https://example.com/openclaw-bootstrap.tar.gz", "test-sha", nil
+		return "https://example.com/agenthub-bootstrap.tar.gz", "test-sha", nil
 	}
 	defer func() { resolveSourceArchiveURLFunc = originalResolveSourceArchiveURL }()
 
 	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
 	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
-		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITfvarsTestKey openclaw", nil
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITfvarsTestKey agenthub", nil
 	}
 	defer func() { deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey }()
 
@@ -34,7 +34,7 @@ func TestInfraTFVarsCommandWritesTerraformVars(t *testing.T) {
 	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
 		t.Fatalf("WriteFile(keyPath) error = %v", err)
 	}
-	configPath := filepath.Join(dir, "openclaw.yaml")
+	configPath := filepath.Join(dir, "agenthub.yaml")
 	writeConfig(t, configPath, `
 platform:
   name: aws
@@ -92,15 +92,15 @@ ssh:
 	mustContainTerraformAssignment(t, body, "runtime_cidr", `"0.0.0.0/0"`)
 	mustContainTerraformAssignment(t, body, "runtime_provider", `""`)
 	mustContainTerraformAssignment(t, body, "ssh_key_name", `"demo-key"`)
-	mustContainTerraformAssignment(t, body, "ssh_public_key", `"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITfvarsTestKey openclaw"`)
+	mustContainTerraformAssignment(t, body, "ssh_public_key", `"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITfvarsTestKey agenthub"`)
 	mustContainTerraformAssignment(t, body, "github_private_key", `"-----BEGIN OPENSSH PRIVATE KEY-----\nTEST-GITHUB-KEY\n-----END OPENSSH PRIVATE KEY-----"`)
 	mustContainTerraformAssignment(t, body, "ssh_cidr", `"203.0.113.0/24"`)
 	mustContainTerraformAssignment(t, body, "ssh_user", `"ubuntu"`)
-	mustContainTerraformAssignment(t, body, "name_prefix", `"openclaw"`)
+	mustContainTerraformAssignment(t, body, "name_prefix", `"agenthub"`)
 	mustContainTerraformAssignment(t, body, "use_nemoclaw", `true`)
 	mustContainTerraformAssignment(t, body, "nim_endpoint", `"http://localhost:11434"`)
 	mustContainTerraformAssignment(t, body, "model", `"llama3.2"`)
-	mustContainTerraformAssignment(t, body, "source_archive_url", `"https://example.com/openclaw-bootstrap.tar.gz"`)
+	mustContainTerraformAssignment(t, body, "source_archive_url", `"https://example.com/agenthub-bootstrap.tar.gz"`)
 	mustContainTerraformAssignment(t, body, "aws_profile", `"sso-dev"`)
 	if !strings.Contains(stdout.String(), "terraform variables written to") {
 		t.Fatalf("stdout = %q, want success message", stdout.String())
@@ -110,13 +110,13 @@ ssh:
 func TestInfraTFVarsCommandWritesAWSProfile(t *testing.T) {
 	originalResolveSourceArchiveURL := resolveSourceArchiveURLFunc
 	resolveSourceArchiveURLFunc = func(ctx context.Context, profile, region string) (string, string, error) {
-		return "https://example.com/openclaw-bootstrap.tar.gz", "test-sha", nil
+		return "https://example.com/agenthub-bootstrap.tar.gz", "test-sha", nil
 	}
 	defer func() { resolveSourceArchiveURLFunc = originalResolveSourceArchiveURL }()
 
 	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
 	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
-		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITfvarsTestKey openclaw", nil
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITfvarsTestKey agenthub", nil
 	}
 	defer func() { deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey }()
 
@@ -132,7 +132,7 @@ func TestInfraTFVarsCommandWritesAWSProfile(t *testing.T) {
 	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
 		t.Fatalf("WriteFile(keyPath) error = %v", err)
 	}
-	configPath := filepath.Join(dir, "openclaw.yaml")
+	configPath := filepath.Join(dir, "agenthub.yaml")
 	writeConfig(t, configPath, `
 platform:
   name: aws

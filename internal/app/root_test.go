@@ -10,17 +10,17 @@ import (
 	"testing"
 	"time"
 
-	"openclaw/internal/config"
-	"openclaw/internal/host"
-	infratf "openclaw/internal/infra/terraform"
-	"openclaw/internal/provider"
-	awsprovider "openclaw/internal/provider/aws"
-	"openclaw/internal/runtimeinstall"
+	"agenthub/internal/config"
+	"agenthub/internal/host"
+	infratf "agenthub/internal/infra/terraform"
+	"agenthub/internal/provider"
+	awsprovider "agenthub/internal/provider/aws"
+	"agenthub/internal/runtimeinstall"
 )
 
 func TestConfigValidateCommandAcceptsConfigFlagAfterSubcommand(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "openclaw.yaml")
+	path := filepath.Join(dir, "agenthub.yaml")
 	writeConfig(t, path, `
 platform:
   name: aws
@@ -58,7 +58,7 @@ sandbox:
 
 func TestConfigValidateCommandReturnsErrorOnInvalidConfig(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "openclaw.yaml")
+	path := filepath.Join(dir, "agenthub.yaml")
 	writeConfig(t, path, `
 platform:
   name: gcp
@@ -211,7 +211,7 @@ func TestInfraCreateCommandReportsCreatedInstance(t *testing.T) {
 		return privateKeyPath, nil
 	}
 	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
-		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey openclaw", nil
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub", nil
 	}
 	readGitHubPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
 		return "-----BEGIN OPENSSH PRIVATE KEY-----\nTEST-GITHUB-KEY\n-----END OPENSSH PRIVATE KEY-----", nil
@@ -236,7 +236,7 @@ func TestInfraCreateCommandReportsCreatedInstance(t *testing.T) {
 	defer func() { ensureSSHPrivateKeyFunc = originalEnsureSSHPrivateKey }()
 
 	dir := t.TempDir()
-	path := filepath.Join(dir, "openclaw.yaml")
+	path := filepath.Join(dir, "agenthub.yaml")
 	writeConfig(t, path, `
 platform:
   name: aws
@@ -292,7 +292,7 @@ func TestCreateCommandRequiresSSHAccessConfiguration(t *testing.T) {
 	defer restore()
 
 	dir := t.TempDir()
-	path := filepath.Join(dir, "openclaw.yaml")
+	path := filepath.Join(dir, "agenthub.yaml")
 	writeConfig(t, path, `
 platform:
   name: aws
@@ -374,7 +374,7 @@ func TestInstallCommandRunsWorkflowAgainstResolvedInstance(t *testing.T) {
 	originalBuildRuntimeBinary := runtimeinstall.BuildRuntimeBinaryFunc
 	runtimeinstall.BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
 		dir := t.TempDir()
-		path := filepath.Join(dir, "openclaw")
+		path := filepath.Join(dir, "agenthub")
 		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
 			return "", err
 		}
@@ -391,16 +391,16 @@ func TestInstallCommandRunsWorkflowAgainstResolvedInstance(t *testing.T) {
 				"docker info":   {Stdout: "Docker Engine"},
 				"docker info --format {{json .Runtimes}}":                                                {Stdout: `{"nvidia":{}}`},
 				"docker run --rm --gpus all --pull=never nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi": {Stdout: "NVIDIA-SMI"},
-				"sudo mkdir -p /opt/openclaw":                                                            {},
-				"chmod +x /opt/openclaw/install.sh":                                                      {},
-				"sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml":                                 {Stdout: "OpenClaw runtime installation complete"},
-				"sudo mkdir -p /opt/openclaw/bin":                                                        {},
-				"sudo chown -R ubuntu:ubuntu /opt/openclaw":                                              {},
-				"sudo mv /opt/openclaw/agenthub.upload /opt/openclaw/bin/agenthub":                       {},
-				"chmod +x /opt/openclaw/bin/agenthub":                                                    {},
-				"sudo mv /opt/openclaw/openclaw.service /etc/systemd/system/openclaw.service":            {},
+				"sudo mkdir -p /opt/agenthub":                                                            {},
+				"chmod +x /opt/agenthub/install.sh":                                                      {},
+				"sh /opt/agenthub/install.sh /opt/agenthub/runtime.yaml":                                 {Stdout: "AgentHub runtime installation complete"},
+				"sudo mkdir -p /opt/agenthub/bin":                                                        {},
+				"sudo chown -R ubuntu:ubuntu /opt/agenthub":                                              {},
+				"sudo mv /opt/agenthub/agenthub.upload /opt/agenthub/bin/agenthub":                       {},
+				"chmod +x /opt/agenthub/bin/agenthub":                                                    {},
+				"sudo mv /opt/agenthub/agenthub.service /etc/systemd/system/agenthub.service":            {},
 				"sudo systemctl daemon-reload":                                                           {},
-				"sudo systemctl enable --now openclaw.service":                                           {},
+				"sudo systemctl enable --now agenthub.service":                                           {},
 			},
 		}
 	}
@@ -411,7 +411,7 @@ func TestInstallCommandRunsWorkflowAgainstResolvedInstance(t *testing.T) {
 	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
 		t.Fatalf("WriteFile(key) error = %v", err)
 	}
-	path := filepath.Join(dir, "openclaw.yaml")
+	path := filepath.Join(dir, "agenthub.yaml")
 	writeConfig(t, path, `
 platform:
   name: aws
@@ -439,7 +439,7 @@ sandbox:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"agenthub", "--config", path, "install", "--target", "i-0123456789abcdef0", "--working-dir", "/opt/openclaw", "--ssh-user", "ubuntu", "--ssh-key", keyPath}
+	os.Args = []string{"agenthub", "--config", path, "install", "--target", "i-0123456789abcdef0", "--working-dir", "/opt/agenthub", "--ssh-user", "ubuntu", "--ssh-key", keyPath}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -470,9 +470,9 @@ func TestVerifyCommandReportsSuccess(t *testing.T) {
 					return host.CommandResult{Stdout: "GPU 0: demo"}, nil
 				case command == "docker" && strings.Join(args, " ") == "info":
 					return host.CommandResult{Stdout: "Docker Engine"}, nil
-				case command == "test" && strings.Join(args, " ") == "-s /opt/openclaw/runtime.yaml":
+				case command == "test" && strings.Join(args, " ") == "-s /opt/agenthub/runtime.yaml":
 					return host.CommandResult{}, nil
-				case command == "cat" && strings.Join(args, " ") == "/opt/openclaw/runtime.yaml":
+				case command == "cat" && strings.Join(args, " ") == "/opt/agenthub/runtime.yaml":
 					return host.CommandResult{Stdout: "use_nemoclaw: true\nnim_endpoint: http://localhost:11434\nmodel: llama3.2\n"}, nil
 				case command == "sh" && len(args) >= 2 && args[0] == "-lc":
 					return host.CommandResult{Stdout: "ok"}, nil
@@ -485,7 +485,7 @@ func TestVerifyCommandReportsSuccess(t *testing.T) {
 	defer func() { newLocalExecutor = originalLocalExecutor }()
 
 	dir := t.TempDir()
-	path := filepath.Join(dir, "openclaw.yaml")
+	path := filepath.Join(dir, "agenthub.yaml")
 	writeConfig(t, path, `
 platform:
   name: aws
@@ -570,7 +570,7 @@ func TestWaitForBootstrapReadyRetriesTransientSSHErrors(t *testing.T) {
 				switch {
 				case strings.TrimSpace(key) == "true":
 					return host.CommandResult{}, nil
-				case key == "test -f /opt/openclaw/bootstrap.done":
+				case key == "test -f /opt/agenthub/bootstrap.done":
 					attempts++
 					if attempts == 1 {
 						return host.CommandResult{}, errors.New("ssh connection timed out: verify the host address, network path, and security groups: exit status 255")
@@ -625,7 +625,7 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 	originalBuildRuntimeBinary := runtimeinstall.BuildRuntimeBinaryFunc
 	runtimeinstall.BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
 		dir := t.TempDir()
-		path := filepath.Join(dir, "openclaw")
+		path := filepath.Join(dir, "agenthub")
 		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
 			return "", err
 		}
@@ -640,7 +640,7 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 		return privateKeyPath, nil
 	}
 	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
-		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey openclaw", nil
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub", nil
 	}
 	newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {
 		return fakeTerraformBackend{
@@ -668,7 +668,7 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 				switch {
 				case strings.TrimSpace(key) == "true":
 					return host.CommandResult{}, nil
-				case command == "test" && strings.Join(args, " ") == "-f /opt/openclaw/bootstrap.done":
+				case command == "test" && strings.Join(args, " ") == "-f /opt/agenthub/bootstrap.done":
 					return host.CommandResult{}, nil
 				case key == "nvidia-smi -L":
 					return host.CommandResult{Stdout: "GPU 0: demo"}, nil
@@ -678,14 +678,14 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 					return host.CommandResult{Stdout: `{"nvidia":{}}`}, nil
 				case key == "docker run --rm --gpus all --pull=never nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi":
 					return host.CommandResult{Stdout: "NVIDIA-SMI"}, nil
-				case command == "test" && strings.Join(args, " ") == "-s /opt/openclaw/runtime.yaml":
+				case command == "test" && strings.Join(args, " ") == "-s /opt/agenthub/runtime.yaml":
 					return host.CommandResult{}, nil
-				case command == "cat" && strings.Join(args, " ") == "/opt/openclaw/runtime.yaml":
+				case command == "cat" && strings.Join(args, " ") == "/opt/agenthub/runtime.yaml":
 					return host.CommandResult{Stdout: "use_nemoclaw: true\nnim_endpoint: http://localhost:11434\nmodel: llama3.2\nport: 8080\n"}, nil
 				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], "curl --max-time 5 -fsS"):
 					return host.CommandResult{Stdout: "ok"}, nil
-				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], "docker ps --filter name='^/openclaw$'"):
-					return host.CommandResult{Stdout: "openclaw Up 10 seconds"}, nil
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], "docker ps --filter name='^/agenthub$'"):
+					return host.CommandResult{Stdout: "agenthub Up 10 seconds"}, nil
 				case command == "sh" && len(args) >= 2 && args[0] == "-lc":
 					return host.CommandResult{Stdout: "ok"}, nil
 				default:
@@ -701,7 +701,7 @@ func TestCreateCommandRunsEndToEndWorkflow(t *testing.T) {
 	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
 		t.Fatalf("WriteFile(key) error = %v", err)
 	}
-	path := filepath.Join(dir, "openclaw.yaml")
+	path := filepath.Join(dir, "agenthub.yaml")
 	writeConfig(t, path, `
 platform:
   name: aws
@@ -763,7 +763,7 @@ func TestCreateCommandPromptsForConfigFileWhenConfigPathMissing(t *testing.T) {
 	originalBuildRuntimeBinary := runtimeinstall.BuildRuntimeBinaryFunc
 	runtimeinstall.BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
 		dir := t.TempDir()
-		path := filepath.Join(dir, "openclaw")
+		path := filepath.Join(dir, "agenthub")
 		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
 			return "", err
 		}
@@ -779,7 +779,7 @@ func TestCreateCommandPromptsForConfigFileWhenConfigPathMissing(t *testing.T) {
 		return privateKeyPath, nil
 	}
 	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
-		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey openclaw", nil
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub", nil
 	}
 	newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {
 		generatedProfile = profile
@@ -808,7 +808,7 @@ func TestCreateCommandPromptsForConfigFileWhenConfigPathMissing(t *testing.T) {
 				switch {
 				case strings.TrimSpace(key) == "true":
 					return host.CommandResult{}, nil
-				case command == "test" && strings.Join(args, " ") == "-f /opt/openclaw/bootstrap.done":
+				case command == "test" && strings.Join(args, " ") == "-f /opt/agenthub/bootstrap.done":
 					return host.CommandResult{}, nil
 				case key == "nvidia-smi -L":
 					return host.CommandResult{Stdout: "GPU 0: demo"}, nil
@@ -818,14 +818,14 @@ func TestCreateCommandPromptsForConfigFileWhenConfigPathMissing(t *testing.T) {
 					return host.CommandResult{Stdout: `{"nvidia":{}}`}, nil
 				case key == "docker run --rm --gpus all --pull=never nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi":
 					return host.CommandResult{Stdout: "NVIDIA-SMI"}, nil
-				case command == "test" && strings.Join(args, " ") == "-s /opt/openclaw/runtime.yaml":
+				case command == "test" && strings.Join(args, " ") == "-s /opt/agenthub/runtime.yaml":
 					return host.CommandResult{}, nil
-				case command == "cat" && strings.Join(args, " ") == "/opt/openclaw/runtime.yaml":
+				case command == "cat" && strings.Join(args, " ") == "/opt/agenthub/runtime.yaml":
 					return host.CommandResult{Stdout: "use_nemoclaw: true\nnim_endpoint: http://localhost:11434\nmodel: llama3.2\nport: 9090\n"}, nil
 				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], "curl --max-time 5 -fsS"):
 					return host.CommandResult{Stdout: "ok"}, nil
-				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], "docker ps --filter name='^/openclaw$'"):
-					return host.CommandResult{Stdout: "openclaw Up 10 seconds"}, nil
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], "docker ps --filter name='^/agenthub$'"):
+					return host.CommandResult{Stdout: "agenthub Up 10 seconds"}, nil
 				case command == "sh" && len(args) >= 2 && args[0] == "-lc":
 					return host.CommandResult{Stdout: "ok"}, nil
 				default:
@@ -950,7 +950,7 @@ func TestCreateCommandRefreshesSSHCIDRBeforeProvisioning(t *testing.T) {
 	originalBuildRuntimeBinary := runtimeinstall.BuildRuntimeBinaryFunc
 	runtimeinstall.BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
 		dir := t.TempDir()
-		path := filepath.Join(dir, "openclaw")
+		path := filepath.Join(dir, "agenthub")
 		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
 			return "", err
 		}
@@ -966,7 +966,7 @@ func TestCreateCommandRefreshesSSHCIDRBeforeProvisioning(t *testing.T) {
 		return privateKeyPath, nil
 	}
 	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
-		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey openclaw", nil
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub", nil
 	}
 	newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {
 		capturedCIDR = cfg.SSH.CIDR
@@ -995,7 +995,7 @@ func TestCreateCommandRefreshesSSHCIDRBeforeProvisioning(t *testing.T) {
 				switch {
 				case strings.TrimSpace(key) == "true":
 					return host.CommandResult{}, nil
-				case command == "test" && strings.Join(args, " ") == "-f /opt/openclaw/bootstrap.done":
+				case command == "test" && strings.Join(args, " ") == "-f /opt/agenthub/bootstrap.done":
 					return host.CommandResult{}, nil
 				case key == "nvidia-smi -L":
 					return host.CommandResult{Stdout: "GPU 0: demo"}, nil
@@ -1005,14 +1005,14 @@ func TestCreateCommandRefreshesSSHCIDRBeforeProvisioning(t *testing.T) {
 					return host.CommandResult{Stdout: `{"nvidia":{}}`}, nil
 				case key == "docker run --rm --gpus all --pull=never nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi":
 					return host.CommandResult{Stdout: "NVIDIA-SMI"}, nil
-				case command == "test" && strings.Join(args, " ") == "-s /opt/openclaw/runtime.yaml":
+				case command == "test" && strings.Join(args, " ") == "-s /opt/agenthub/runtime.yaml":
 					return host.CommandResult{}, nil
-				case command == "cat" && strings.Join(args, " ") == "/opt/openclaw/runtime.yaml":
+				case command == "cat" && strings.Join(args, " ") == "/opt/agenthub/runtime.yaml":
 					return host.CommandResult{Stdout: "use_nemoclaw: true\nnim_endpoint: http://localhost:11434\nmodel: llama3.2\nport: 8080\n"}, nil
 				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], "curl --max-time 5 -fsS"):
 					return host.CommandResult{Stdout: "ok"}, nil
-				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], "docker ps --filter name='^/openclaw$'"):
-					return host.CommandResult{Stdout: "openclaw Up 10 seconds"}, nil
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], "docker ps --filter name='^/agenthub$'"):
+					return host.CommandResult{Stdout: "agenthub Up 10 seconds"}, nil
 				case command == "sh" && len(args) >= 2 && args[0] == "-lc":
 					return host.CommandResult{Stdout: "ok"}, nil
 				default:
@@ -1128,7 +1128,7 @@ func TestCreateCommandCleansUpInstanceOnInstallFailure(t *testing.T) {
 	originalBuildRuntimeBinary := runtimeinstall.BuildRuntimeBinaryFunc
 	runtimeinstall.BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
 		dir := t.TempDir()
-		path := filepath.Join(dir, "openclaw")
+		path := filepath.Join(dir, "agenthub")
 		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
 			return "", err
 		}
@@ -1139,7 +1139,7 @@ func TestCreateCommandCleansUpInstanceOnInstallFailure(t *testing.T) {
 	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
 	originalEnsureSSHPrivateKey := ensureSSHPrivateKeyFunc
 	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
-		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey openclaw", nil
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub", nil
 	}
 	ensureSSHPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
 		return privateKeyPath, nil
@@ -1236,7 +1236,7 @@ func TestCreateCommandPromptsForAWSProfileWhenNotStored(t *testing.T) {
 	originalBuildRuntimeBinary := runtimeinstall.BuildRuntimeBinaryFunc
 	runtimeinstall.BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
 		dir := t.TempDir()
-		path := filepath.Join(dir, "openclaw")
+		path := filepath.Join(dir, "agenthub")
 		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
 			return "", err
 		}
@@ -1252,7 +1252,7 @@ func TestCreateCommandPromptsForAWSProfileWhenNotStored(t *testing.T) {
 		return privateKeyPath, nil
 	}
 	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
-		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey openclaw", nil
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub", nil
 	}
 	newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {
 		generatedProfile = profile
@@ -1281,7 +1281,7 @@ func TestCreateCommandPromptsForAWSProfileWhenNotStored(t *testing.T) {
 				switch {
 				case strings.TrimSpace(key) == "true":
 					return host.CommandResult{}, nil
-				case command == "test" && strings.Join(args, " ") == "-f /opt/openclaw/bootstrap.done":
+				case command == "test" && strings.Join(args, " ") == "-f /opt/agenthub/bootstrap.done":
 					return host.CommandResult{}, nil
 				case key == "nvidia-smi -L":
 					return host.CommandResult{Stdout: "GPU 0: demo"}, nil
@@ -1291,14 +1291,14 @@ func TestCreateCommandPromptsForAWSProfileWhenNotStored(t *testing.T) {
 					return host.CommandResult{Stdout: `{"nvidia":{}}`}, nil
 				case key == "docker run --rm --gpus all --pull=never nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi":
 					return host.CommandResult{Stdout: "NVIDIA-SMI"}, nil
-				case command == "test" && strings.Join(args, " ") == "-s /opt/openclaw/runtime.yaml":
+				case command == "test" && strings.Join(args, " ") == "-s /opt/agenthub/runtime.yaml":
 					return host.CommandResult{}, nil
-				case command == "cat" && strings.Join(args, " ") == "/opt/openclaw/runtime.yaml":
+				case command == "cat" && strings.Join(args, " ") == "/opt/agenthub/runtime.yaml":
 					return host.CommandResult{Stdout: "use_nemoclaw: true\nnim_endpoint: http://localhost:11434\nmodel: llama3.2\nport: 9090\n"}, nil
 				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], "curl --max-time 5 -fsS"):
 					return host.CommandResult{Stdout: "ok"}, nil
-				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], "docker ps --filter name='^/openclaw$'"):
-					return host.CommandResult{Stdout: "openclaw Up 10 seconds"}, nil
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], "docker ps --filter name='^/agenthub$'"):
+					return host.CommandResult{Stdout: "agenthub Up 10 seconds"}, nil
 				case command == "sh" && len(args) >= 2 && args[0] == "-lc":
 					return host.CommandResult{Stdout: "ok"}, nil
 				default:
@@ -1377,7 +1377,7 @@ func stubSourceArchiveURL(t *testing.T) func() {
 	t.Helper()
 	original := resolveSourceArchiveURLFunc
 	resolveSourceArchiveURLFunc = func(ctx context.Context, profile, region string) (string, string, error) {
-		return "https://example.com/openclaw-bootstrap.tar.gz", "test-sha", nil
+		return "https://example.com/agenthub-bootstrap.tar.gz", "test-sha", nil
 	}
 	return func() {
 		resolveSourceArchiveURLFunc = original
@@ -1627,15 +1627,15 @@ func defaultFlexibleCommand(command string, args ...string) (host.CommandResult,
 		switch {
 		case strings.Contains(script, "curl --max-time 5 -fsS"):
 			return host.CommandResult{Stdout: "ok"}, true
-		case strings.Contains(script, "systemctl is-active --quiet openclaw"):
-			return host.CommandResult{Stdout: "openclaw systemd service is active"}, true
-		case strings.Contains(script, "docker ps --filter name='^/openclaw$'"):
-			return host.CommandResult{Stdout: "openclaw Up 10 seconds"}, true
+		case strings.Contains(script, "systemctl is-active --quiet agenthub"):
+			return host.CommandResult{Stdout: "agenthub systemd service is active"}, true
+		case strings.Contains(script, "docker ps --filter name='^/agenthub$'"):
+			return host.CommandResult{Stdout: "agenthub Up 10 seconds"}, true
 		case strings.Contains(script, "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io"):
 			return host.CommandResult{Stdout: "docker installed"}, true
 		}
-	case command == "sh" && len(args) >= 2 && strings.Contains(strings.Join(args, " "), "/opt/openclaw/install.sh /opt/openclaw/runtime.yaml"):
-		return host.CommandResult{Stdout: "OpenClaw runtime installation complete"}, true
+	case command == "sh" && len(args) >= 2 && strings.Contains(strings.Join(args, " "), "/opt/agenthub/install.sh /opt/agenthub/runtime.yaml"):
+		return host.CommandResult{Stdout: "AgentHub runtime installation complete"}, true
 	}
 	return host.CommandResult{}, false
 }

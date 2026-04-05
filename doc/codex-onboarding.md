@@ -7,7 +7,7 @@ If you want the full command sequence for AWS, Terraform, Docker, and Codex setu
 
 ## Goal
 
-Set up Codex authentication on your local machine first, then move on to the CLI workflow that provisions or configures OpenClaw.
+Set up Codex authentication on your local machine first, then move on to the CLI workflow that provisions or configures AgentHub.
 This flow uses the browser-based Codex login and does not require an OpenAI API key.
 
 ## Prerequisites
@@ -62,4 +62,4 @@ If you are using `agenthub init`, selecting `codex` now tells you to use this br
 ## References
 
 - https://note.com/akira_papa_ai/n/ne3a82fe5205f
-- https://zenn.dev/aria3/articles/openclaw-oauth-troubleshooting
+- https://zenn.dev/aria3/articles/agenthub-oauth-troubleshooting

@@ -10,8 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"openclaw/internal/config"
-	"openclaw/internal/prompt"
+	"agenthub/internal/config"
+	"agenthub/internal/prompt"
 )
 
 func newCreateCommand(app *App) *cobra.Command {
@@ -105,7 +105,7 @@ func newCreateCommand(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&sshUser, "ssh-user", "", "SSH username for the target host")
 	cmd.Flags().StringVar(&sshKey, "ssh-key", "", "path to the SSH private key")
 	cmd.Flags().IntVar(&sshPort, "ssh-port", 22, "SSH port")
-	cmd.Flags().StringVar(&workingDir, "working-dir", "/opt/openclaw", "remote working directory")
+	cmd.Flags().StringVar(&workingDir, "working-dir", "/opt/agenthub", "remote working directory")
 	cmd.Flags().IntVar(&port, "port", 0, "runtime port override")
 	cmd.Flags().BoolVar(&useNemoClaw, "use-nemoclaw", false, "enable NemoClaw settings for the generated runtime config")
 	cmd.Flags().BoolVar(&disableNemoClaw, "disable-nemoclaw", false, "disable NemoClaw settings for the generated runtime config")

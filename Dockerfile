@@ -12,7 +12,7 @@ FROM alpine:3.21
 
 RUN apk add --no-cache ca-certificates curl tar
 
-WORKDIR /opt/openclaw
+WORKDIR /opt/agenthub
 
 # Keep the Codex CLI available in the image so Slack/Codex workflows can run
 # without depending on a separate host-side install.

@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/github/license/morshoto/agent-manager" alt="License" />
 </p>
 
-`agenthub` is a Go CLI for provisioning and operating OpenClaw agent environments on AWS, installing the runtime on a host, and wiring Slack integrations.
+`agenthub` is a Go CLI for provisioning and operating AgentHub agent environments on AWS, installing the runtime on a host, and wiring Slack integrations.
 
 ### Common Workflow
 

@@ -69,7 +69,7 @@ jobs:
                   commit_sha="$(git rev-parse HEAD)"
                   GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 \
                     go build -trimpath \
-                      -ldflags "-s -w -X openclaw/internal/app.Version=${VERSION} -X openclaw/internal/app.CommitSHA=${commit_sha} -X openclaw/internal/app.BuildDate=${build_date}" \
+                      -ldflags "-s -w -X agenthub/internal/app.Version=${VERSION} -X agenthub/internal/app.CommitSHA=${commit_sha} -X agenthub/internal/app.BuildDate=${build_date}" \
                       -o "dist/${artifact}" ./cmd/agenthub
                   chmod +x "dist/${artifact}"
 

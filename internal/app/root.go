@@ -11,12 +11,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"openclaw/internal/config"
-	"openclaw/internal/prompt"
-	"openclaw/internal/provider"
-	awsprovider "openclaw/internal/provider/aws"
-	"openclaw/internal/runtime"
-	"openclaw/internal/setup"
+	"agenthub/internal/config"
+	"agenthub/internal/prompt"
+	"agenthub/internal/provider"
+	awsprovider "agenthub/internal/provider/aws"
+	"agenthub/internal/runtime"
+	"agenthub/internal/setup"
 )
 
 func newRootCommand(app *App) *cobra.Command {

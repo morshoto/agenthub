@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"openclaw/internal/config"
-	"openclaw/internal/provider"
+	"agenthub/internal/config"
+	"agenthub/internal/provider"
 )
 
 func newInfraCommand(app *App) *cobra.Command {

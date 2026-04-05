@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"openclaw/internal/config"
-	"openclaw/internal/host"
+	"agenthub/internal/config"
+	"agenthub/internal/host"
 )
 
 func TestRenderRuntimeConfigIncludesOptionalFields(t *testing.T) {
@@ -47,7 +47,7 @@ func TestRenderRuntimeConfigIncludesOptionalFields(t *testing.T) {
 }
 
 func TestRenderSystemdUnitUsesRequestedPort(t *testing.T) {
-	got := renderSystemdUnit("/opt/openclaw/bin/agenthub", "/opt/openclaw/runtime.yaml", 9090, 0, "", "")
+	got := renderSystemdUnit("/opt/agenthub/bin/agenthub", "/opt/agenthub/runtime.yaml", 9090, 0, "", "")
 	if !strings.Contains(got, "0.0.0.0:9090") {
 		t.Fatalf("rendered unit %q does not use requested port", got)
 	}
@@ -98,7 +98,7 @@ func TestInstallerUploadsConfigAndRunsScript(t *testing.T) {
 	originalBuildRuntimeBinary := BuildRuntimeBinaryFunc
 	BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
 		dir := t.TempDir()
-		path := filepath.Join(dir, "openclaw")
+		path := filepath.Join(dir, "agenthub")
 		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
 			return "", err
 		}
@@ -112,18 +112,18 @@ func TestInstallerUploadsConfigAndRunsScript(t *testing.T) {
 			"docker info":   {Stdout: "Docker Engine"},
 			"docker info --format {{json .Runtimes}}":                                                {Stdout: `{"nvidia":{}}`},
 			"docker run --rm --gpus all --pull=never nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi": {Stdout: "NVIDIA-SMI"},
-			"sudo mkdir -p /opt/openclaw":                                                            {},
-			"chmod +x /opt/openclaw/install.sh":                                                      {},
-			"sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml":                                 {Stdout: "OpenClaw runtime installation complete"},
-			"sudo mkdir -p /opt/openclaw/bin":                                                        {},
-			"sudo chown -R ubuntu:ubuntu /opt/openclaw":                                              {},
-			"sudo mv /opt/openclaw/agenthub.upload /opt/openclaw/bin/agenthub":                       {},
-			"chmod +x /opt/openclaw/bin/agenthub":                                                    {},
-			"sudo mv /opt/openclaw/agenthub.env.upload /opt/openclaw/agenthub.env":                   {},
-			"sudo chmod 600 /opt/openclaw/agenthub.env":                                              {},
-			"sudo mv /opt/openclaw/openclaw.service /etc/systemd/system/openclaw.service":            {},
+			"sudo mkdir -p /opt/agenthub":                                                            {},
+			"chmod +x /opt/agenthub/install.sh":                                                      {},
+			"sh /opt/agenthub/install.sh /opt/agenthub/runtime.yaml":                                 {Stdout: "AgentHub runtime installation complete"},
+			"sudo mkdir -p /opt/agenthub/bin":                                                        {},
+			"sudo chown -R ubuntu:ubuntu /opt/agenthub":                                              {},
+			"sudo mv /opt/agenthub/agenthub.upload /opt/agenthub/bin/agenthub":                       {},
+			"chmod +x /opt/agenthub/bin/agenthub":                                                    {},
+			"sudo mv /opt/agenthub/agenthub.env.upload /opt/agenthub/agenthub.env":                   {},
+			"sudo chmod 600 /opt/agenthub/agenthub.env":                                              {},
+			"sudo mv /opt/agenthub/agenthub.service /etc/systemd/system/agenthub.service":            {},
 			"sudo systemctl daemon-reload":                                                           {},
-			"sudo systemctl enable --now openclaw.service":                                           {},
+			"sudo systemctl enable --now agenthub.service":                                           {},
 		},
 	}
 
@@ -134,11 +134,11 @@ func TestInstallerUploadsConfigAndRunsScript(t *testing.T) {
 				Endpoint: "http://localhost:11434",
 				Model:    "llama3.2",
 				Provider: "codex",
-				Codex:    config.CodexConfig{SecretID: "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:openclaw/codex-api-key"},
+				Codex:    config.CodexConfig{SecretID: "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/codex-api-key"},
 			},
 			Sandbox: config.SandboxConfig{Enabled: true, NetworkMode: "private", UseNemoClaw: true},
 		},
-		WorkingDir:  "/opt/openclaw",
+		WorkingDir:  "/opt/agenthub",
 		CodexAPIKey: "sk-test",
 	})
 	if err != nil {
@@ -153,7 +153,7 @@ func TestInstallerSkipsCodexEnvWhenSecretIsUnavailable(t *testing.T) {
 	originalBuildRuntimeBinary := BuildRuntimeBinaryFunc
 	BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
 		dir := t.TempDir()
-		path := filepath.Join(dir, "openclaw")
+		path := filepath.Join(dir, "agenthub")
 		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
 			return "", err
 		}
@@ -167,16 +167,16 @@ func TestInstallerSkipsCodexEnvWhenSecretIsUnavailable(t *testing.T) {
 			"nvidia-smi -L": {Stdout: "GPU 0: demo"},
 			"docker info --format {{json .Runtimes}}":                                                {Stdout: `{"nvidia":{}}`},
 			"docker run --rm --gpus all --pull=never nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi": {Stdout: "NVIDIA-SMI"},
-			"sudo mkdir -p /opt/openclaw":                                                            {},
-			"chmod +x /opt/openclaw/install.sh":                                                      {},
-			"sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml":                                 {Stdout: "OpenClaw runtime installation complete"},
-			"sudo mkdir -p /opt/openclaw/bin":                                                        {},
-			"sudo chown -R ubuntu:ubuntu /opt/openclaw":                                              {},
-			"sudo mv /opt/openclaw/agenthub.upload /opt/openclaw/bin/agenthub":                       {},
-			"chmod +x /opt/openclaw/bin/agenthub":                                                    {},
-			"sudo mv /opt/openclaw/openclaw.service /etc/systemd/system/openclaw.service":            {},
+			"sudo mkdir -p /opt/agenthub":                                                            {},
+			"chmod +x /opt/agenthub/install.sh":                                                      {},
+			"sh /opt/agenthub/install.sh /opt/agenthub/runtime.yaml":                                 {Stdout: "AgentHub runtime installation complete"},
+			"sudo mkdir -p /opt/agenthub/bin":                                                        {},
+			"sudo chown -R ubuntu:ubuntu /opt/agenthub":                                              {},
+			"sudo mv /opt/agenthub/agenthub.upload /opt/agenthub/bin/agenthub":                       {},
+			"chmod +x /opt/agenthub/bin/agenthub":                                                    {},
+			"sudo mv /opt/agenthub/agenthub.service /etc/systemd/system/agenthub.service":            {},
 			"sudo systemctl daemon-reload":                                                           {},
-			"sudo systemctl enable --now openclaw.service":                                           {},
+			"sudo systemctl enable --now agenthub.service":                                           {},
 		},
 	}
 
@@ -190,7 +190,7 @@ func TestInstallerSkipsCodexEnvWhenSecretIsUnavailable(t *testing.T) {
 			},
 			Sandbox: config.SandboxConfig{Enabled: true, NetworkMode: "private", UseNemoClaw: true},
 		},
-		WorkingDir: "/opt/openclaw",
+		WorkingDir: "/opt/agenthub",
 	})
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
@@ -209,7 +209,7 @@ func TestInstallerSkipsGPUChecksForCPUComputeClass(t *testing.T) {
 	originalBuildRuntimeBinary := BuildRuntimeBinaryFunc
 	BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
 		dir := t.TempDir()
-		path := filepath.Join(dir, "openclaw")
+		path := filepath.Join(dir, "agenthub")
 		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
 			return "", err
 		}
@@ -220,16 +220,16 @@ func TestInstallerSkipsGPUChecksForCPUComputeClass(t *testing.T) {
 	exec := &fakeExecutor{
 		results: map[string]host.CommandResult{
 			"docker info":                                                                 {Stdout: "Docker Engine"},
-			"sudo mkdir -p /opt/openclaw":                                                 {},
-			"chmod +x /opt/openclaw/install.sh":                                           {},
-			"sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml":                      {Stdout: "OpenClaw runtime installation complete"},
-			"sudo mkdir -p /opt/openclaw/bin":                                             {},
-			"sudo chown -R ubuntu:ubuntu /opt/openclaw":                                   {},
-			"sudo mv /opt/openclaw/agenthub.upload /opt/openclaw/bin/agenthub":            {},
-			"chmod +x /opt/openclaw/bin/agenthub":                                         {},
-			"sudo mv /opt/openclaw/openclaw.service /etc/systemd/system/openclaw.service": {},
+			"sudo mkdir -p /opt/agenthub":                                                 {},
+			"chmod +x /opt/agenthub/install.sh":                                           {},
+			"sh /opt/agenthub/install.sh /opt/agenthub/runtime.yaml":                      {Stdout: "AgentHub runtime installation complete"},
+			"sudo mkdir -p /opt/agenthub/bin":                                             {},
+			"sudo chown -R ubuntu:ubuntu /opt/agenthub":                                   {},
+			"sudo mv /opt/agenthub/agenthub.upload /opt/agenthub/bin/agenthub":            {},
+			"chmod +x /opt/agenthub/bin/agenthub":                                         {},
+			"sudo mv /opt/agenthub/agenthub.service /etc/systemd/system/agenthub.service": {},
 			"sudo systemctl daemon-reload":                                                {},
-			"sudo systemctl enable --now openclaw.service":                                {},
+			"sudo systemctl enable --now agenthub.service":                                {},
 		},
 	}
 
@@ -240,7 +240,7 @@ func TestInstallerSkipsGPUChecksForCPUComputeClass(t *testing.T) {
 			Runtime: config.RuntimeConfig{Endpoint: "https://nim.example.com", Model: "llama3.2"},
 			Sandbox: config.SandboxConfig{Enabled: true, NetworkMode: "public", UseNemoClaw: true},
 		},
-		WorkingDir:   "/opt/openclaw",
+		WorkingDir:   "/opt/agenthub",
 		ComputeClass: config.ComputeClassCPU,
 	})
 	if err != nil {

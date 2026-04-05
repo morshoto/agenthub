@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	"openclaw/internal/config"
-	"openclaw/internal/host"
+	"agenthub/internal/config"
+	"agenthub/internal/host"
 )
 
 // Check reports a single prerequisite result.

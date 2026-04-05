@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"openclaw/internal/slackbot"
+	"agenthub/internal/slackbot"
 )
 
 func TestSlackServeLoadsAgentEnvFile(t *testing.T) {
@@ -45,7 +45,7 @@ func TestSlackServeLoadsAgentEnvFile(t *testing.T) {
 
 	t.Setenv("SLACK_BOT_TOKEN", "xoxb-global-token")
 	t.Setenv("SLACK_APP_TOKEN", "xapp-global-token")
-	t.Setenv("OPENCLAW_RUNTIME_URL", "http://global-runtime.example.com")
+	t.Setenv("AGENTHUB_RUNTIME_URL", "http://global-runtime.example.com")
 	t.Setenv("SLACK_BOT_USER_ID", "UGLOBAL")
 	t.Setenv("SLACK_ALLOWED_CHANNELS", "C999")
 

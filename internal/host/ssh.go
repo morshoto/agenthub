@@ -178,7 +178,7 @@ func defaultKnownHostsFile(cfg SSHConfig) string {
 		host = "unknown-host"
 	}
 	host = strings.NewReplacer("/", "_", ":", "_", "@", "_", " ", "_").Replace(host)
-	return filepath.Join(os.TempDir(), fmt.Sprintf("openclaw-known-hosts-%s-%d", host, cfg.Port))
+	return filepath.Join(os.TempDir(), fmt.Sprintf("agenthub-known-hosts-%s-%d", host, cfg.Port))
 }
 
 // RemoteCommandError reports a remote command failure with the captured stderr.

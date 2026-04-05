@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"openclaw/internal/codexauth"
-	"openclaw/internal/config"
-	"openclaw/internal/host"
+	"agenthub/internal/codexauth"
+	"agenthub/internal/config"
+	"agenthub/internal/host"
 )
 
 type slackDeployExecutor struct {
@@ -59,7 +59,7 @@ func TestRunSlackDeployWorkflowInstallsAgentService(t *testing.T) {
 		"  endpoint: https://nim.example.com",
 		"  model: codex-pro",
 		"  codex:",
-		"    secret_id: arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:openclaw/codex-api-key",
+		"    secret_id: arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/codex-api-key",
 		"infra:",
 		"  instance_id: i-0123456789abcdef0",
 		"slack:",
@@ -85,7 +85,7 @@ func TestRunSlackDeployWorkflowInstallsAgentService(t *testing.T) {
 
 	originalLoadAPIKey := codexauth.LoadAPIKeyFunc
 	codexauth.LoadAPIKeyFunc = func(ctx context.Context, profile, region, secretID string) (string, error) {
-		if secretID != "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:openclaw/codex-api-key" {
+		if secretID != "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/codex-api-key" {
 			t.Fatalf("secretID = %q, want configured secret", secretID)
 		}
 		return "sk-secret", nil
@@ -95,14 +95,14 @@ func TestRunSlackDeployWorkflowInstallsAgentService(t *testing.T) {
 	exec := &slackDeployExecutor{
 		results: map[string]host.CommandResult{
 			"true":                               {},
-			"test -x /opt/openclaw/bin/agenthub": {},
+			"test -x /opt/agenthub/bin/agenthub": {},
 			"command -v codex":                   {},
-			"sudo mkdir -p /opt/openclaw/agents/alpha":                                                                   {},
-			"sudo chown -R ubuntu:ubuntu /opt/openclaw/agents/alpha":                                                     {},
-			"sudo mv /opt/openclaw/agents/alpha/openclaw-slack.service /etc/systemd/system/openclaw-slack-alpha.service": {},
-			"sudo chmod 600 /opt/openclaw/agents/alpha/.env":                                                             {},
+			"sudo mkdir -p /opt/agenthub/agents/alpha":                                                                   {},
+			"sudo chown -R ubuntu:ubuntu /opt/agenthub/agents/alpha":                                                     {},
+			"sudo mv /opt/agenthub/agents/alpha/agenthub-slack.service /etc/systemd/system/agenthub-slack-alpha.service": {},
+			"sudo chmod 600 /opt/agenthub/agents/alpha/.env":                                                             {},
 			"sudo systemctl daemon-reload":                                                                               {},
-			"sudo systemctl enable --now openclaw-slack-alpha.service":                                                   {},
+			"sudo systemctl enable --now agenthub-slack-alpha.service":                                                   {},
 		},
 	}
 
@@ -126,7 +126,7 @@ func TestRunSlackDeployWorkflowInstallsAgentService(t *testing.T) {
 		SSHUser:    "ubuntu",
 		SSHKey:     keyPath,
 		SSHPort:    22,
-		WorkingDir: "/opt/openclaw",
+		WorkingDir: "/opt/agenthub",
 	}, newProgressRenderer(io.Discard))
 	if err != nil {
 		t.Fatalf("runSlackDeployWorkflow() error = %v", err)
@@ -137,26 +137,26 @@ func TestRunSlackDeployWorkflowInstallsAgentService(t *testing.T) {
 	if len(exec.uploads) != 3 {
 		t.Fatalf("uploads = %#v, want 3", exec.uploads)
 	}
-	if exec.uploads[0].remote != "/opt/openclaw/agents/alpha/config.yaml" {
+	if exec.uploads[0].remote != "/opt/agenthub/agents/alpha/config.yaml" {
 		t.Fatalf("config upload remote = %q, want agent config path", exec.uploads[0].remote)
 	}
-	if exec.uploads[1].remote != "/opt/openclaw/agents/alpha/.env" {
+	if exec.uploads[1].remote != "/opt/agenthub/agents/alpha/.env" {
 		t.Fatalf("env upload remote = %q, want agent env path", exec.uploads[1].remote)
 	}
-	if !strings.Contains(exec.contents["/opt/openclaw/agents/alpha/.env"], "OPENAI_API_KEY=sk-secret") {
-		t.Fatalf("env upload contents = %q, want OPENAI_API_KEY from secret", exec.contents["/opt/openclaw/agents/alpha/.env"])
+	if !strings.Contains(exec.contents["/opt/agenthub/agents/alpha/.env"], "OPENAI_API_KEY=sk-secret") {
+		t.Fatalf("env upload contents = %q, want OPENAI_API_KEY from secret", exec.contents["/opt/agenthub/agents/alpha/.env"])
 	}
-	if exec.uploads[2].remote != "/opt/openclaw/agents/alpha/openclaw-slack.service" {
+	if exec.uploads[2].remote != "/opt/agenthub/agents/alpha/agenthub-slack.service" {
 		t.Fatalf("unit upload remote = %q, want staged service path", exec.uploads[2].remote)
 	}
-	unitContents := exec.contents["/opt/openclaw/agents/alpha/openclaw-slack.service"]
-	if !strings.Contains(unitContents, "ExecStart=/opt/openclaw/bin/agenthub slack serve --config /opt/openclaw/agents/alpha/config.yaml") {
+	unitContents := exec.contents["/opt/agenthub/agents/alpha/agenthub-slack.service"]
+	if !strings.Contains(unitContents, "ExecStart=/opt/agenthub/bin/agenthub slack serve --config /opt/agenthub/agents/alpha/config.yaml") {
 		t.Fatalf("unit upload contents = %q, want host-based slack serve command", unitContents)
 	}
 	if !strings.Contains(unitContents, "User=ubuntu") {
 		t.Fatalf("unit upload contents = %q, want unit to run as ubuntu", unitContents)
 	}
-	if _, ok := exec.results["sudo systemctl enable --now openclaw-slack-alpha.service"]; !ok {
+	if _, ok := exec.results["sudo systemctl enable --now agenthub-slack-alpha.service"]; !ok {
 		t.Fatal("expected slack service enable command to be executed")
 	}
 }
@@ -197,14 +197,14 @@ func TestRunSlackDeployWorkflowInstallsHostService(t *testing.T) {
 	exec := &slackDeployExecutor{
 		results: map[string]host.CommandResult{
 			"true":                               {},
-			"test -x /opt/openclaw/bin/agenthub": {},
+			"test -x /opt/agenthub/bin/agenthub": {},
 			"command -v codex":                   {},
-			"sudo mkdir -p /opt/openclaw/agents/alpha":                                                                   {},
-			"sudo chown -R ubuntu:ubuntu /opt/openclaw/agents/alpha":                                                     {},
-			"sudo mv /opt/openclaw/agents/alpha/openclaw-slack.service /etc/systemd/system/openclaw-slack-alpha.service": {},
-			"sudo chmod 600 /opt/openclaw/agents/alpha/.env":                                                             {},
+			"sudo mkdir -p /opt/agenthub/agents/alpha":                                                                   {},
+			"sudo chown -R ubuntu:ubuntu /opt/agenthub/agents/alpha":                                                     {},
+			"sudo mv /opt/agenthub/agents/alpha/agenthub-slack.service /etc/systemd/system/agenthub-slack-alpha.service": {},
+			"sudo chmod 600 /opt/agenthub/agents/alpha/.env":                                                             {},
 			"sudo systemctl daemon-reload":                                                                               {},
-			"sudo systemctl enable --now openclaw-slack-alpha.service":                                                   {},
+			"sudo systemctl enable --now agenthub-slack-alpha.service":                                                   {},
 		},
 	}
 
@@ -225,7 +225,7 @@ func TestRunSlackDeployWorkflowInstallsHostService(t *testing.T) {
 		SSHUser:    "ubuntu",
 		SSHKey:     keyPath,
 		SSHPort:    22,
-		WorkingDir: "/opt/openclaw",
+		WorkingDir: "/opt/agenthub",
 	}, newProgressRenderer(io.Discard))
 	if err != nil {
 		t.Fatalf("runSlackDeployWorkflow() error = %v", err)
@@ -236,11 +236,11 @@ func TestRunSlackDeployWorkflowInstallsHostService(t *testing.T) {
 	if len(exec.uploads) != 3 {
 		t.Fatalf("uploads = %#v, want 3", exec.uploads)
 	}
-	if exec.uploads[2].remote != "/opt/openclaw/agents/alpha/openclaw-slack.service" {
+	if exec.uploads[2].remote != "/opt/agenthub/agents/alpha/agenthub-slack.service" {
 		t.Fatalf("unit upload remote = %q, want staged service path", exec.uploads[2].remote)
 	}
-	unitContents := exec.contents["/opt/openclaw/agents/alpha/openclaw-slack.service"]
-	if !strings.Contains(unitContents, "ExecStart=/opt/openclaw/bin/agenthub slack serve --config /opt/openclaw/agents/alpha/config.yaml") {
+	unitContents := exec.contents["/opt/agenthub/agents/alpha/agenthub-slack.service"]
+	if !strings.Contains(unitContents, "ExecStart=/opt/agenthub/bin/agenthub slack serve --config /opt/agenthub/agents/alpha/config.yaml") {
 		t.Fatalf("unit upload contents = %q, want host-based slack serve command", unitContents)
 	}
 	if !strings.Contains(unitContents, "User=ubuntu") {

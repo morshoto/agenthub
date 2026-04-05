@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
-	"openclaw/internal/config"
+	"agenthub/internal/config"
 )
 
 type agentStatusReport struct {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"openclaw/internal/runtime"
+	"agenthub/internal/runtime"
 )
 
 // version information is injected at build time.
