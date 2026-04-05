@@ -6,23 +6,101 @@ on:
             - 'v*'
     workflow_dispatch:
         inputs:
-            version:
-                description: 'Version tag to publish, for example v0.1.0'
+            bump:
+                description: 'Version bump to apply to the latest release tag'
                 required: true
-                type: string
-            ref:
-                description: 'Git ref to build from'
-                required: false
-                default: ''
-                type: string
+                type: choice
+                default: patch
+                options:
+                    - patch
+                    - minor
+                    - major
 
 permissions:
     contents: write
 
 jobs:
+    prepare:
+        name: Resolve release version
+        runs-on: ubuntu-latest
+        outputs:
+            version: ${{ steps.resolve.outputs.version }}
+            previous_tag: ${{ steps.resolve.outputs.previous_tag }}
+            target_ref: ${{ steps.resolve.outputs.target_ref }}
+            mode: ${{ steps.resolve.outputs.mode }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - name: Resolve version
+              id: resolve
+              shell: bash
+              env:
+                  BUMP: ${{ inputs.bump }}
+              run: |
+                  set -euo pipefail
+
+                  latest_tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1 || true)"
+                  target_ref="${GITHUB_SHA}"
+
+                  bump_version() {
+                    local base_tag="$1"
+                    local bump="$2"
+                    local version="${base_tag#v}"
+                    local major minor patch
+                    IFS='.' read -r major minor patch <<< "${version}"
+
+                    case "${bump}" in
+                      patch)
+                        patch=$((patch + 1))
+                        ;;
+                      minor)
+                        minor=$((minor + 1))
+                        patch=0
+                        ;;
+                      major)
+                        major=$((major + 1))
+                        minor=0
+                        patch=0
+                        ;;
+                      *)
+                        echo "unsupported bump type: ${bump}" >&2
+                        exit 1
+                        ;;
+                    esac
+
+                    printf 'v%s.%s.%s\n' "${major}" "${minor}" "${patch}"
+                  }
+
+                  if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+                    version="${GITHUB_REF_NAME}"
+                    if ! [[ "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                      echo "push tag must match vX.Y.Z, got ${version}" >&2
+                      exit 1
+                    fi
+                    previous_tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -Fxv "${version}" | head -n 1 || true)"
+                    mode="existing-tag"
+                  else
+                    if [[ -z "${latest_tag}" ]]; then
+                      echo "no prior semver tag found; create the first release tag manually before using workflow_dispatch" >&2
+                      exit 1
+                    fi
+                    version="$(bump_version "${latest_tag}" "${BUMP}")"
+                    previous_tag="${latest_tag}"
+                    mode="bumped-tag"
+                  fi
+
+                  echo "version=${version}" >> "${GITHUB_OUTPUT}"
+                  echo "previous_tag=${previous_tag}" >> "${GITHUB_OUTPUT}"
+                  echo "target_ref=${target_ref}" >> "${GITHUB_OUTPUT}"
+                  echo "mode=${mode}" >> "${GITHUB_OUTPUT}"
+
     build:
         name: Build release artifacts
         runs-on: ubuntu-latest
+        needs: prepare
         strategy:
             fail-fast: false
             matrix:
@@ -32,8 +110,8 @@ jobs:
                     - goos: linux
                       goarch: amd64
         env:
-            VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
-            BUILD_REF: ${{ github.event_name == 'workflow_dispatch' && (inputs.ref || inputs.version) || github.ref_name }}
+            VERSION: ${{ needs.prepare.outputs.version }}
+            BUILD_REF: ${{ needs.prepare.outputs.target_ref }}
         steps:
             - name: Checkout
               uses: actions/checkout@v4
@@ -64,7 +142,7 @@ jobs:
               run: |
                   set -euo pipefail
                   mkdir -p dist
-                    artifact="agenthub_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}"
+                  artifact="agenthub_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}"
                   build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                   commit_sha="$(git rev-parse HEAD)"
                   GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 \
@@ -81,17 +159,21 @@ jobs:
                   if-no-files-found: error
 
     release:
-        name: Create draft release
+        name: Create, test, and publish release
         runs-on: ubuntu-latest
-        needs: build
+        needs:
+            - prepare
+            - build
         env:
-            VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+            VERSION: ${{ needs.prepare.outputs.version }}
+            PREVIOUS_TAG: ${{ needs.prepare.outputs.previous_tag }}
+            TARGET_REF: ${{ needs.prepare.outputs.target_ref }}
         steps:
             - name: Checkout
               uses: actions/checkout@v4
               with:
                   fetch-depth: 0
-                  ref: ${{ github.event_name == 'workflow_dispatch' && (inputs.ref || inputs.version) || github.ref_name }}
+                  ref: ${{ needs.prepare.outputs.target_ref }}
 
             - name: Download build artifacts
               uses: actions/download-artifact@v4
@@ -105,25 +187,23 @@ jobs:
 
                   commit_sha="$(git rev-parse HEAD)"
                   build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-                  previous_tag="$(git tag --sort=-creatordate | grep -Fxv "${VERSION}" | head -n 1 || true)"
 
-                  if [[ -n "${previous_tag}" ]]; then
-                    changelog_range="${previous_tag}..${VERSION}"
+                  if [[ -n "${PREVIOUS_TAG}" ]]; then
+                    changelog_range="${PREVIOUS_TAG}..${TARGET_REF}"
                   else
-                    changelog_range="${VERSION}"
+                    changelog_range="${TARGET_REF}"
                   fi
+
+                  find artifacts -type f -maxdepth 2 -name 'agenthub_*' -print0 | sort -z | xargs -0 sha256sum > checksums.txt
 
                   {
                     echo "# ${VERSION}"
                     echo
                     echo "## Changelog"
-                    if git rev-parse "${VERSION}" >/dev/null 2>&1; then
-                      git log --no-merges --pretty=format:'- %s (%h)' "${changelog_range}" || true
-                    fi
+                    git log --no-merges --pretty=format:'- %s (%h)' "${changelog_range}" || true
                     echo
                     echo
                     echo "## Checksums"
-                    find artifacts -type f -maxdepth 2 -name 'agenthub_*' -print0 | sort -z | xargs -0 sha256sum > checksums.txt
                     cat checksums.txt
                     echo
                   } > release-notes.md
@@ -158,18 +238,101 @@ jobs:
 
                   gh release create "${VERSION}" \
                     --draft \
-                    --verify-tag \
+                    --target "${TARGET_REF}" \
                     --title "${VERSION}" \
                     --notes-file release-notes.md \
                     "${assets[@]}"
+
+            - name: Run smoke tests
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+
+                  mkdir -p release-assets
+                  gh release download "${VERSION}" -D release-assets
+
+                  binary="$(find release-assets -type f -name "agenthub_*_linux_amd64" -print -quit)"
+                  if [[ -z "${binary}" ]]; then
+                    echo "linux_amd64 release asset was not found"
+                    exit 1
+                  fi
+                  chmod +x "${binary}"
+
+                  smoke_config="$(mktemp)"
+                  cat > "${smoke_config}" <<'EOF'
+                  platform:
+                    name: aws
+                  region:
+                    name: us-east-1
+                  instance:
+                    type: t3.medium
+                    disk_size_gb: 20
+                  image:
+                    name: ubuntu-24.04
+                  runtime:
+                    endpoint: http://localhost:11434
+                    model: llama3.2
+                  sandbox:
+                    enabled: false
+                  EOF
+
+                  "${binary}" version
+                  "${binary}" config validate --config "${smoke_config}"
+
+                  if [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
+                    "${binary}" quota check --platform aws --region us-east-1 --instance-family g5
+                  else
+                    echo "AWS credentials are not configured; skipping quota smoke test"
+                  fi
+
+            - name: Publish release
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+
+                  release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${VERSION}" --jq '.id')"
+                  gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+                    -f draft=false \
+                    -f make_latest=true
+
+            - name: Update release metadata
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+
+                  release_url="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${VERSION}"
+                  release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${VERSION}" --jq '.id')"
+                  published_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+                  jq -n \
+                    --arg version "${VERSION}" \
+                    --arg release_id "${release_id}" \
+                    --arg release_url "${release_url}" \
+                    --arg published_at "${published_at}" \
+                    '{
+                      version: $version,
+                      release_id: $release_id,
+                      release_url: $release_url,
+                      published_at: $published_at,
+                      status: "published"
+                    }' > release-metadata.json
+
+                  gh release upload "${VERSION}" release-metadata.json --clobber
 
             - name: Publish summary
               shell: bash
               run: |
                   {
-                    echo "## Publish"
+                    echo "## Release"
                     echo
                     echo "- version: ${VERSION}"
-                    echo "- draft release created"
-                    echo "- assets: agenthub_${VERSION}_darwin_arm64, agenthub_${VERSION}_linux_amd64, checksums.txt, release-metadata.json"
+                    echo "- release published"
+                    echo "- smoke tests: version, config validate"
+                    echo "- quota smoke test: conditional on AWS credentials"
                   } >> "${GITHUB_STEP_SUMMARY}"

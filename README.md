@@ -35,6 +35,6 @@ go test ./... -v
 ### Release Flow
 
 - `publish` is handled by `.github/workflows/publish.yml`
-- `release` is handled by `.github/workflows/release.yml`
-- pushing a `v*` tag creates a draft release with `agenthub_<version>_darwin_arm64` and `agenthub_<version>_linux_amd64`
-- the release workflow promotes the draft after running smoke tests
+- the workflow has a `patch`, `minor`, `major` dropdown for manual dispatches
+- manual dispatches compute the next version from the latest `vX.Y.Z` tag
+- pushing a `v*` tag or dispatching `publish` builds artifacts, creates the release, runs smoke tests, and publishes the release in the same workflow run
