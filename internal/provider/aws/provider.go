@@ -592,10 +592,18 @@ func (p *Provider) GetInstance(ctx context.Context, region, instanceID string) (
 	} else if privateIP != "" {
 		connectionInfo = fmt.Sprintf("private IP: %s", privateIP)
 	}
+	instanceName := tagValue(ec2Instance.Tags, "Name")
+	if instanceName == "" {
+		instanceName = instanceID
+	}
 
 	return &provider.Instance{
 		ID:             instanceID,
-		Name:           instanceID,
+		Name:           instanceName,
+		Owner:          tagValue(ec2Instance.Tags, "Owner"),
+		AgentName:      tagValue(ec2Instance.Tags, "AgentName"),
+		Environment:    tagValue(ec2Instance.Tags, "Environment"),
+		TrackingID:     tagValue(ec2Instance.Tags, "TrackingID"),
 		Region:         region,
 		PublicIP:       publicIP,
 		PrivateIP:      privateIP,
@@ -738,4 +746,17 @@ func awsString(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+func tagValue(tags []ec2types.Tag, key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+	for _, tag := range tags {
+		if tag.Key != nil && strings.EqualFold(strings.TrimSpace(*tag.Key), key) {
+			return strings.TrimSpace(awsString(tag.Value))
+		}
+	}
+	return ""
 }

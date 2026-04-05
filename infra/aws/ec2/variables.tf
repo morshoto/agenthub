@@ -11,6 +11,19 @@ variable "compute_class" {
   type = string
 }
 
+variable "owner" {
+  type = string
+}
+
+variable "agent_name" {
+  type = string
+}
+
+variable "environment" {
+  type    = string
+  default = "default"
+}
+
 variable "instance_type" {
   type = string
 }

@@ -52,9 +52,14 @@ func newInfraCreateCommand(app *App) *cobra.Command {
 			logger := loggerFromContext(cmd.Context())
 			logger.Info("starting infra create")
 			fmt.Fprintln(cmd.OutOrStdout(), "creating infrastructure with Terraform...")
+			agentName := agentNameFromConfigPath(app.opts.ConfigPath)
+			if agentName == "" {
+				agentName = "default"
+			}
 			instance, err := runInfraCreate(cmd.Context(), app.opts.Profile, cfg, createOptions{
 				SSHKeyName: effectiveSSHKeyName,
 				SSHCIDR:    effectiveSSHCIDR,
+				AgentName:  agentName,
 			}, nil)
 			printCreatedInstance(cmd.OutOrStdout(), instance)
 			if instance != nil {
@@ -170,7 +175,22 @@ func printCreatedInstance(out io.Writer, instance *provider.Instance) {
 		fmt.Fprintln(out, "instance created")
 		return
 	}
+	if strings.TrimSpace(instance.Name) != "" {
+		fmt.Fprintf(out, "instance name: %s\n", instance.Name)
+	}
 	fmt.Fprintf(out, "instance id: %s\n", instance.ID)
+	if strings.TrimSpace(instance.Owner) != "" {
+		fmt.Fprintf(out, "owner: %s\n", instance.Owner)
+	}
+	if strings.TrimSpace(instance.AgentName) != "" {
+		fmt.Fprintf(out, "agent: %s\n", instance.AgentName)
+	}
+	if strings.TrimSpace(instance.Environment) != "" {
+		fmt.Fprintf(out, "environment: %s\n", instance.Environment)
+	}
+	if strings.TrimSpace(instance.TrackingID) != "" {
+		fmt.Fprintf(out, "tracking id: %s\n", instance.TrackingID)
+	}
 	if strings.TrimSpace(instance.Region) != "" {
 		fmt.Fprintf(out, "region: %s\n", instance.Region)
 	}
