@@ -16,8 +16,8 @@ const (
 )
 
 type wizardProgressItem struct {
-	Label string
-	Value string
+	Label  string
+	Value  string
 	Status wizardProgressStatus
 }
 
