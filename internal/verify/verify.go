@@ -153,7 +153,7 @@ func runRuntimeConfigCheck(ctx context.Context, exec host.Executor, runtimeConfi
 			Name:        "runtime config presence",
 			Passed:      false,
 			Message:     msg,
-			Remediation: "Run `openclaw install` to generate the runtime config on the target host.",
+			Remediation: "Run `agenthub install` to generate the runtime config on the target host.",
 		}
 	}
 
@@ -167,7 +167,7 @@ func runRuntimeConfigCheck(ctx context.Context, exec host.Executor, runtimeConfi
 			Name:        "runtime config presence",
 			Passed:      false,
 			Message:     msg,
-			Remediation: "Run `openclaw install` to generate the runtime config on the target host.",
+			Remediation: "Run `agenthub install` to generate the runtime config on the target host.",
 		}
 	}
 
@@ -188,7 +188,7 @@ func runRuntimeConfigCheck(ctx context.Context, exec host.Executor, runtimeConfi
 				Name:        "runtime config presence",
 				Passed:      false,
 				Message:     fmt.Sprintf("runtime config endpoint %q does not match config endpoint %q", runtimeCfg.NIMEndpoint, cfg.Runtime.Endpoint),
-				Remediation: "Re-run `openclaw install` with the desired configuration.",
+				Remediation: "Re-run `agenthub install` with the desired configuration.",
 			}
 		}
 		if strings.TrimSpace(cfg.Runtime.Model) != "" && strings.TrimSpace(runtimeCfg.Model) != "" && strings.TrimSpace(cfg.Runtime.Model) != strings.TrimSpace(runtimeCfg.Model) {
@@ -196,7 +196,7 @@ func runRuntimeConfigCheck(ctx context.Context, exec host.Executor, runtimeConfi
 				Name:        "runtime config presence",
 				Passed:      false,
 				Message:     fmt.Sprintf("runtime config model %q does not match config model %q", runtimeCfg.Model, cfg.Runtime.Model),
-				Remediation: "Re-run `openclaw install` with the desired configuration.",
+				Remediation: "Re-run `agenthub install` with the desired configuration.",
 			}
 		}
 		msg = fmt.Sprintf("runtime config matches %s", runtimeConfigPath)

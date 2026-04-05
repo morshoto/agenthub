@@ -21,7 +21,7 @@ The Terraform module lives in `infra/aws/ec2`.
 Generate a `terraform.tfvars` file from your OpenClaw config:
 
 ```bash
-openclaw infra tfvars --config openclaw.yaml --output infra/aws/ec2/terraform.tfvars
+agenthub infra tfvars --config openclaw.yaml --output infra/aws/ec2/terraform.tfvars
 ```
 
 If you want to pin the AWS profile explicitly, pass `--profile sso-dev`.
@@ -78,7 +78,7 @@ test -f /opt/openclaw/bootstrap.done
 If you want to use the Codex CLI on your workstation, run:
 
 ```bash
-openclaw onboard --auth-choice openai-codex
+agenthub onboard --auth-choice openai-codex
 ```
 
 This opens the browser-based sign-in flow and stores the local Codex credential cache.

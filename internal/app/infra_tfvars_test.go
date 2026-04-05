@@ -65,7 +65,7 @@ ssh:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "--config", configPath, "infra", "tfvars", "--output", output}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "--config", configPath, "infra", "tfvars", "--output", output}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -159,7 +159,7 @@ ssh:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "--config", configPath, "infra", "tfvars", "--output", output}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "--config", configPath, "infra", "tfvars", "--output", output}
 
 	app := New()
 	cmd := newRootCommand(app)

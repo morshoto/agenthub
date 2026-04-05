@@ -126,7 +126,7 @@ func selectAgentConfigPath(session *prompt.Session, agentsDir string) (string, e
 		if root == "" {
 			root = "agents"
 		}
-		return "", fmt.Errorf("no agent config files found under %q; run openclaw init first", root)
+		return "", fmt.Errorf("no agent config files found under %q; run agenthub init first", root)
 	}
 
 	options := make([]string, len(files))

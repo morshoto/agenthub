@@ -208,12 +208,12 @@ func (i Installer) installService(ctx context.Context, req Request, workingDir s
 		return serviceInstallResult{}, err
 	}
 
-	remoteBinaryPath := pathJoin(workingDir, "bin", "openclaw")
+	remoteBinaryPath := pathJoin(workingDir, "bin", "agenthub")
 	remoteServicePath := "/etc/systemd/system/openclaw.service"
-	stagedBinaryPath := pathJoin(workingDir, "openclaw.upload")
+	stagedBinaryPath := pathJoin(workingDir, "agenthub.upload")
 	stagedServicePath := pathJoin(workingDir, "openclaw.service")
-	remoteEnvPath := pathJoin(workingDir, "openclaw.env")
-	stagedEnvPath := pathJoin(workingDir, "openclaw.env.upload")
+	remoteEnvPath := pathJoin(workingDir, "agenthub.env")
+	stagedEnvPath := pathJoin(workingDir, "agenthub.env.upload")
 
 	providerName := strings.ToLower(strings.TrimSpace(req.Config.Runtime.Provider))
 	codexAPIKey := strings.TrimSpace(req.CodexAPIKey)
@@ -232,7 +232,7 @@ func (i Installer) installService(ctx context.Context, req Request, workingDir s
 	}
 
 	if err := i.Host.Upload(ctx, localBinaryPath, stagedBinaryPath); err != nil {
-		return serviceInstallResult{}, fmt.Errorf("upload openclaw runtime binary: %w", err)
+		return serviceInstallResult{}, fmt.Errorf("upload agenthub runtime binary: %w", err)
 	}
 	if _, err := i.Host.Run(ctx, "sudo", "mv", stagedBinaryPath, remoteBinaryPath); err != nil {
 		return serviceInstallResult{}, fmt.Errorf("install runtime binary: %w", err)
@@ -316,13 +316,13 @@ func (i Installer) installService(ctx context.Context, req Request, workingDir s
 }
 
 func buildRuntimeBinary(ctx context.Context) (string, error) {
-	tmpDir, err := os.MkdirTemp("", "openclaw-runtime-bin-*")
+	tmpDir, err := os.MkdirTemp("", "agenthub-runtime-bin-*")
 	if err != nil {
 		return "", fmt.Errorf("create temporary binary workspace: %w", err)
 	}
 
-	outputPath := filepath.Join(tmpDir, "openclaw")
-	cmd := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", outputPath, "./cmd/openclaw")
+	outputPath := filepath.Join(tmpDir, "agenthub")
+	cmd := exec.CommandContext(ctx, "go", "build", "-trimpath", "-o", outputPath, "./cmd/agenthub")
 	cmd.Env = append(os.Environ(),
 		"GOOS=linux",
 		"GOARCH=amd64",

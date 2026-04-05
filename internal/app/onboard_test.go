@@ -21,7 +21,7 @@ func TestOnboardCommandRunsCodexOAuthLogin(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "onboard", "--auth-choice", "openai-codex"}
+	os.Args = []string{"agenthub", "onboard", "--auth-choice", "openai-codex"}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -43,7 +43,7 @@ func TestOnboardCommandRunsCodexOAuthLogin(t *testing.T) {
 func TestOnboardCommandRejectsUnsupportedAuthChoice(t *testing.T) {
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "onboard", "--auth-choice", "invalid"}
+	os.Args = []string{"agenthub", "onboard", "--auth-choice", "invalid"}
 
 	app := New()
 	cmd := newRootCommand(app)

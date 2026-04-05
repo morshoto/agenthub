@@ -169,7 +169,7 @@ func runStatusCommand(t *testing.T, agentsDir string) (string, error) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "status", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "status", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)

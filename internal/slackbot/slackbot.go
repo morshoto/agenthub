@@ -707,7 +707,7 @@ func codexAuthError(output string, err error) error {
 		strings.Contains(lower, "missing bearer or basic authentication"),
 		strings.Contains(lower, "not authenticated"),
 		strings.Contains(lower, "unauthenticated"):
-		return errors.New("codex authentication is missing or expired on the EC2 host; run `sudo -u ubuntu openclaw onboard --auth-choice openai-codex` or refresh the OPENAI_API_KEY for the host user")
+		return errors.New("codex authentication is missing or expired on the EC2 host; run `sudo -u ubuntu agenthub onboard --auth-choice openai-codex` or refresh the OPENAI_API_KEY for the host user")
 	default:
 		return nil
 	}

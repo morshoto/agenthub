@@ -19,12 +19,12 @@ This flow uses the browser-based Codex login and does not require an OpenAI API 
 ## Command
 
 ```bash
-openclaw onboard --auth-choice openai-codex
+agenthub onboard --auth-choice openai-codex
 ```
 
 ## What Happens
 
-1. `openclaw` starts the Codex onboarding flow.
+1. `agenthub` starts the Codex onboarding flow.
 2. The CLI launches the Codex login flow.
 3. Your browser opens and you sign in with ChatGPT.
 4. After the browser callback completes, the CLI records that Codex authentication is configured.
@@ -52,7 +52,7 @@ Those steps are handled separately by the AWS provisioning commands.
 
 After Codex authentication is ready, run the AWS provisioning workflow you need for your environment.
 For example, you can continue with the interactive setup flow or the non-interactive create flow depending on your config.
-If you are using `openclaw init`, selecting `codex` now tells you to use this browser login path instead of prompting for an API key.
+If you are using `agenthub init`, selecting `codex` now tells you to use this browser login path instead of prompting for an API key.
 
 ## Notes
 

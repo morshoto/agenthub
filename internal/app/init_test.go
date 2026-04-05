@@ -78,7 +78,7 @@ func TestInitWritesConfigFile(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -168,7 +168,7 @@ func TestInitUsesDefaultAgentNameWhenBlank(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -224,7 +224,7 @@ func TestInitSupportsCPUComputeMode(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -268,7 +268,7 @@ func TestInitRejectsNonAWSPlatform(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", filepath.Join(t.TempDir(), "agents")}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", filepath.Join(t.TempDir(), "agents")}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -302,7 +302,7 @@ func TestInitDoesNotCreateAWSProviderBeforePlatformSelection(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", filepath.Join(t.TempDir(), "agents")}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", filepath.Join(t.TempDir(), "agents")}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -372,7 +372,7 @@ sandbox:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "--config", existing, "init", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "--config", existing, "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -433,7 +433,7 @@ func TestInitContinuesWhenAWSAuthCheckIsPermissionDenied(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -490,7 +490,7 @@ func TestInitContinuesWhenAWSAuthCheckFailsAtSTS(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -547,7 +547,7 @@ func TestInitFallsBackWhenAWSImageLookupIsPermissionDenied(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)

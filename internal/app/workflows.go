@@ -670,7 +670,7 @@ func resolveProvisioningSSH(ctx context.Context, cfg *config.Config, opts create
 		sshCIDR = strings.TrimSpace(cfg.SSH.CIDR)
 	}
 	if sshCIDR == "" {
-		return "", "", "", "", errors.New("ssh cidr is required for public networking; run `openclaw init` or pass --ssh-cidr")
+		return "", "", "", "", errors.New("ssh cidr is required for public networking; run `agenthub init` or pass --ssh-cidr")
 	}
 	sshUser := strings.TrimSpace(opts.SSHUser)
 	if sshUser == "" {
@@ -891,16 +891,16 @@ func printWorkflowSuccess(out io.Writer, instance *provider.Instance, installRes
 		printVerificationReport(out, verifyReport)
 	}
 	if strings.TrimSpace(cfgPath) != "" && strings.TrimSpace(target) != "" {
-		fmt.Fprintf(out, "verify command example: %s\n", commandRef(out, "openclaw", "verify", "--config", cfgPath, "--target", target))
+		fmt.Fprintf(out, "verify command example: %s\n", commandRef(out, "agenthub", "verify", "--config", cfgPath, "--target", target))
 	}
 	if createMode && strings.TrimSpace(cfgPath) != "" && strings.TrimSpace(target) != "" && strings.TrimSpace(installResult.ServicePath) != "" {
-		fmt.Fprintf(out, "install command example: %s\n", commandRef(out, "openclaw", "install", "--config", cfgPath, "--target", target))
+		fmt.Fprintf(out, "install command example: %s\n", commandRef(out, "agenthub", "install", "--config", cfgPath, "--target", target))
 	}
 	if createMode && cfg != nil && strings.EqualFold(strings.TrimSpace(cfg.Runtime.Provider), "codex") && strings.TrimSpace(cfgPath) != "" {
 		if strings.TrimSpace(cfg.Infra.InstanceID) != "" {
-			fmt.Fprintf(out, "slack deploy example: %s\n", commandRef(out, "openclaw", "slack", "deploy", "--config", cfgPath))
+			fmt.Fprintf(out, "slack deploy example: %s\n", commandRef(out, "agenthub", "slack", "deploy", "--config", cfgPath))
 		} else if strings.TrimSpace(target) != "" {
-			fmt.Fprintf(out, "slack deploy example: %s\n", commandRef(out, "openclaw", "slack", "deploy", "--config", cfgPath, "--target", target))
+			fmt.Fprintf(out, "slack deploy example: %s\n", commandRef(out, "agenthub", "slack", "deploy", "--config", cfgPath, "--target", target))
 		}
 	}
 	fmt.Fprintln(out, "next step: keep the runtime config and SSH target handy for future verify runs")
@@ -982,10 +982,10 @@ func printVerificationReport(out io.Writer, report verify.Report) {
 func printSuccessNextSteps(out io.Writer, cfgPath, target string, includeInstall bool) {
 	fmt.Fprintln(out, "next steps")
 	if strings.TrimSpace(target) != "" && strings.TrimSpace(cfgPath) != "" {
-		fmt.Fprintf(out, "- verify: %s\n", commandRef(out, "openclaw", "verify", "--config", cfgPath, "--target", target))
+		fmt.Fprintf(out, "- verify: %s\n", commandRef(out, "agenthub", "verify", "--config", cfgPath, "--target", target))
 	}
 	if includeInstall && strings.TrimSpace(target) != "" && strings.TrimSpace(cfgPath) != "" {
-		fmt.Fprintf(out, "- install: %s\n", commandRef(out, "openclaw", "install", "--config", cfgPath, "--target", target))
+		fmt.Fprintf(out, "- install: %s\n", commandRef(out, "agenthub", "install", "--config", cfgPath, "--target", target))
 	}
 	fmt.Fprintln(out, "- destroy: not implemented yet")
 }

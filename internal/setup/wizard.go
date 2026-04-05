@@ -213,7 +213,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 
 	if runtimeProvider == "codex" {
 		fmt.Fprintln(w.Out, "Codex auth uses the local browser login flow or existing signed-in state.")
-		fmt.Fprintln(w.Out, "If you are not already authenticated, run `openclaw onboard --auth-choice openai-codex` before provisioning.")
+		fmt.Fprintln(w.Out, "If you are not already authenticated, run `agenthub onboard --auth-choice openai-codex` before provisioning.")
 	}
 
 	runtimePublicCIDR := "0.0.0.0/0"

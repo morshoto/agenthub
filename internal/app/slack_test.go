@@ -60,7 +60,7 @@ func TestSlackServeLoadsAgentEnvFile(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--config", configPath, "slack", "serve"}
+	os.Args = []string{"agenthub", "--config", configPath, "slack", "serve"}
 
 	app := New()
 	cmd := newRootCommand(app)

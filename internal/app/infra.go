@@ -66,7 +66,7 @@ func newInfraCreateCommand(app *App) *cobra.Command {
 					err,
 					"the AWS provider rejected the request or the selected region lacks capacity",
 					"check the AWS error above",
-					"run "+commandRef(cmd.OutOrStdout(), "openclaw", "quota", "check", "--platform", "aws", "--region", cfg.Region.Name, "--instance-family", cfg.Instance.Type)+" before retrying",
+					"run "+commandRef(cmd.OutOrStdout(), "agenthub", "quota", "check", "--platform", "aws", "--region", cfg.Region.Name, "--instance-family", cfg.Instance.Type)+" before retrying",
 				)
 			}
 			return nil

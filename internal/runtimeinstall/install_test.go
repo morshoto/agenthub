@@ -47,7 +47,7 @@ func TestRenderRuntimeConfigIncludesOptionalFields(t *testing.T) {
 }
 
 func TestRenderSystemdUnitUsesRequestedPort(t *testing.T) {
-	got := renderSystemdUnit("/opt/openclaw/bin/openclaw", "/opt/openclaw/runtime.yaml", 9090, 0, "", "")
+	got := renderSystemdUnit("/opt/openclaw/bin/agenthub", "/opt/openclaw/runtime.yaml", 9090, 0, "", "")
 	if !strings.Contains(got, "0.0.0.0:9090") {
 		t.Fatalf("rendered unit %q does not use requested port", got)
 	}
@@ -117,10 +117,10 @@ func TestInstallerUploadsConfigAndRunsScript(t *testing.T) {
 			"sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml":                                 {Stdout: "OpenClaw runtime installation complete"},
 			"sudo mkdir -p /opt/openclaw/bin":                                                        {},
 			"sudo chown -R ubuntu:ubuntu /opt/openclaw":                                              {},
-			"sudo mv /opt/openclaw/openclaw.upload /opt/openclaw/bin/openclaw":                       {},
-			"chmod +x /opt/openclaw/bin/openclaw":                                                    {},
-			"sudo mv /opt/openclaw/openclaw.env.upload /opt/openclaw/openclaw.env":                   {},
-			"sudo chmod 600 /opt/openclaw/openclaw.env":                                              {},
+			"sudo mv /opt/openclaw/agenthub.upload /opt/openclaw/bin/agenthub":                       {},
+			"chmod +x /opt/openclaw/bin/agenthub":                                                    {},
+			"sudo mv /opt/openclaw/agenthub.env.upload /opt/openclaw/agenthub.env":                   {},
+			"sudo chmod 600 /opt/openclaw/agenthub.env":                                              {},
 			"sudo mv /opt/openclaw/openclaw.service /etc/systemd/system/openclaw.service":            {},
 			"sudo systemctl daemon-reload":                                                           {},
 			"sudo systemctl enable --now openclaw.service":                                           {},
@@ -172,8 +172,8 @@ func TestInstallerSkipsCodexEnvWhenSecretIsUnavailable(t *testing.T) {
 			"sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml":                                 {Stdout: "OpenClaw runtime installation complete"},
 			"sudo mkdir -p /opt/openclaw/bin":                                                        {},
 			"sudo chown -R ubuntu:ubuntu /opt/openclaw":                                              {},
-			"sudo mv /opt/openclaw/openclaw.upload /opt/openclaw/bin/openclaw":                       {},
-			"chmod +x /opt/openclaw/bin/openclaw":                                                    {},
+			"sudo mv /opt/openclaw/agenthub.upload /opt/openclaw/bin/agenthub":                       {},
+			"chmod +x /opt/openclaw/bin/agenthub":                                                    {},
 			"sudo mv /opt/openclaw/openclaw.service /etc/systemd/system/openclaw.service":            {},
 			"sudo systemctl daemon-reload":                                                           {},
 			"sudo systemctl enable --now openclaw.service":                                           {},
@@ -199,7 +199,7 @@ func TestInstallerSkipsCodexEnvWhenSecretIsUnavailable(t *testing.T) {
 		t.Fatalf("uploads = %#v, want 4 uploads", exec.uploads)
 	}
 	for _, upload := range exec.uploads {
-		if strings.Contains(upload.remote, "openclaw.env") {
+		if strings.Contains(upload.remote, "agenthub.env") {
 			t.Fatalf("unexpected codex env upload: %#v", upload)
 		}
 	}
@@ -225,8 +225,8 @@ func TestInstallerSkipsGPUChecksForCPUComputeClass(t *testing.T) {
 			"sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml":                      {Stdout: "OpenClaw runtime installation complete"},
 			"sudo mkdir -p /opt/openclaw/bin":                                             {},
 			"sudo chown -R ubuntu:ubuntu /opt/openclaw":                                   {},
-			"sudo mv /opt/openclaw/openclaw.upload /opt/openclaw/bin/openclaw":            {},
-			"chmod +x /opt/openclaw/bin/openclaw":                                         {},
+			"sudo mv /opt/openclaw/agenthub.upload /opt/openclaw/bin/agenthub":            {},
+			"chmod +x /opt/openclaw/bin/agenthub":                                         {},
 			"sudo mv /opt/openclaw/openclaw.service /etc/systemd/system/openclaw.service": {},
 			"sudo systemctl daemon-reload":                                                {},
 			"sudo systemctl enable --now openclaw.service":                                {},

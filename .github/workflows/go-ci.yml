@@ -37,7 +37,7 @@ jobs:
                       go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-
 
             - name: Build
-              run: go build ./cmd/openclaw
+              run: go build ./cmd/agenthub
 
     lint:
         name: Lint

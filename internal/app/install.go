@@ -61,7 +61,7 @@ func newInstallCommand(app *App) *cobra.Command {
 					"install failed",
 					err,
 					"the SSH target is unreachable or the host prerequisites are missing",
-					"run "+commandRef(cmd.OutOrStdout(), "openclaw", "verify", "--config", app.opts.ConfigPath, "--target", resolvedTarget)+" after fixing the host",
+					"run "+commandRef(cmd.OutOrStdout(), "agenthub", "verify", "--config", app.opts.ConfigPath, "--target", resolvedTarget)+" after fixing the host",
 					"check Docker, GPU drivers, and SSH access on the target host",
 				)
 			}

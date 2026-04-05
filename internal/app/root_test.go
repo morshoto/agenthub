@@ -40,7 +40,7 @@ sandbox:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "config", "validate", "--config", path}
+	os.Args = []string{"agenthub", "config", "validate", "--config", path}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -76,7 +76,7 @@ runtime:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "config", "validate", "--config", path}
+	os.Args = []string{"agenthub", "config", "validate", "--config", path}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -102,7 +102,7 @@ func TestQuotaCheckCommandReportsLiveQuotaStatus(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "quota", "check", "--platform", "aws", "--region", "ap-northeast-1", "--instance-family", "g5"}
+	os.Args = []string{"agenthub", "quota", "check", "--platform", "aws", "--region", "ap-northeast-1", "--instance-family", "g5"}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -133,7 +133,7 @@ func TestAuthCheckCommandReportsSuccess(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "test-profile", "auth", "check"}
+	os.Args = []string{"agenthub", "--profile", "test-profile", "auth", "check"}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -162,7 +162,7 @@ func TestRootHelpGroupsCommands(t *testing.T) {
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--help"}
+	os.Args = []string{"agenthub", "--help"}
 
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
@@ -260,7 +260,7 @@ sandbox:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--config", path, "infra", "create", "--ssh-key-name", "demo-key", "--ssh-cidr", "203.0.113.0/24"}
+	os.Args = []string{"agenthub", "--config", path, "infra", "create", "--ssh-key-name", "demo-key", "--ssh-cidr", "203.0.113.0/24"}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -314,7 +314,7 @@ sandbox:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--config", path, "create"}
+	os.Args = []string{"agenthub", "--config", path, "create"}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -396,8 +396,8 @@ func TestInstallCommandRunsWorkflowAgainstResolvedInstance(t *testing.T) {
 				"sh /opt/openclaw/install.sh /opt/openclaw/runtime.yaml":                                 {Stdout: "OpenClaw runtime installation complete"},
 				"sudo mkdir -p /opt/openclaw/bin":                                                        {},
 				"sudo chown -R ubuntu:ubuntu /opt/openclaw":                                              {},
-				"sudo mv /opt/openclaw/openclaw.upload /opt/openclaw/bin/openclaw":                       {},
-				"chmod +x /opt/openclaw/bin/openclaw":                                                    {},
+				"sudo mv /opt/openclaw/agenthub.upload /opt/openclaw/bin/agenthub":                       {},
+				"chmod +x /opt/openclaw/bin/agenthub":                                                    {},
 				"sudo mv /opt/openclaw/openclaw.service /etc/systemd/system/openclaw.service":            {},
 				"sudo systemctl daemon-reload":                                                           {},
 				"sudo systemctl enable --now openclaw.service":                                           {},
@@ -439,7 +439,7 @@ sandbox:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--config", path, "install", "--target", "i-0123456789abcdef0", "--working-dir", "/opt/openclaw", "--ssh-user", "ubuntu", "--ssh-key", keyPath}
+	os.Args = []string{"agenthub", "--config", path, "install", "--target", "i-0123456789abcdef0", "--working-dir", "/opt/openclaw", "--ssh-user", "ubuntu", "--ssh-key", keyPath}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -503,7 +503,7 @@ runtime:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--config", path, "verify"}
+	os.Args = []string{"agenthub", "--config", path, "verify"}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -729,7 +729,7 @@ sandbox:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--config", path, "create"}
+	os.Args = []string{"agenthub", "--config", path, "create"}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -905,7 +905,7 @@ sandbox:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "--profile", "sso-dev", "create", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "create", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -1062,7 +1062,7 @@ sandbox:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "create", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "create", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -1201,7 +1201,7 @@ sandbox:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "create", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "create", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -1346,7 +1346,7 @@ sandbox:
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"openclaw", "create", "--agents-dir", agentsDir}
+	os.Args = []string{"agenthub", "create", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)

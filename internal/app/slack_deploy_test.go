@@ -95,7 +95,7 @@ func TestRunSlackDeployWorkflowInstallsAgentService(t *testing.T) {
 	exec := &slackDeployExecutor{
 		results: map[string]host.CommandResult{
 			"true":                               {},
-			"test -x /opt/openclaw/bin/openclaw": {},
+			"test -x /opt/openclaw/bin/agenthub": {},
 			"command -v codex":                   {},
 			"sudo mkdir -p /opt/openclaw/agents/alpha":                                                                   {},
 			"sudo chown -R ubuntu:ubuntu /opt/openclaw/agents/alpha":                                                     {},
@@ -150,7 +150,7 @@ func TestRunSlackDeployWorkflowInstallsAgentService(t *testing.T) {
 		t.Fatalf("unit upload remote = %q, want staged service path", exec.uploads[2].remote)
 	}
 	unitContents := exec.contents["/opt/openclaw/agents/alpha/openclaw-slack.service"]
-	if !strings.Contains(unitContents, "ExecStart=/opt/openclaw/bin/openclaw slack serve --config /opt/openclaw/agents/alpha/config.yaml") {
+	if !strings.Contains(unitContents, "ExecStart=/opt/openclaw/bin/agenthub slack serve --config /opt/openclaw/agents/alpha/config.yaml") {
 		t.Fatalf("unit upload contents = %q, want host-based slack serve command", unitContents)
 	}
 	if !strings.Contains(unitContents, "User=ubuntu") {
@@ -197,7 +197,7 @@ func TestRunSlackDeployWorkflowInstallsHostService(t *testing.T) {
 	exec := &slackDeployExecutor{
 		results: map[string]host.CommandResult{
 			"true":                               {},
-			"test -x /opt/openclaw/bin/openclaw": {},
+			"test -x /opt/openclaw/bin/agenthub": {},
 			"command -v codex":                   {},
 			"sudo mkdir -p /opt/openclaw/agents/alpha":                                                                   {},
 			"sudo chown -R ubuntu:ubuntu /opt/openclaw/agents/alpha":                                                     {},
@@ -240,7 +240,7 @@ func TestRunSlackDeployWorkflowInstallsHostService(t *testing.T) {
 		t.Fatalf("unit upload remote = %q, want staged service path", exec.uploads[2].remote)
 	}
 	unitContents := exec.contents["/opt/openclaw/agents/alpha/openclaw-slack.service"]
-	if !strings.Contains(unitContents, "ExecStart=/opt/openclaw/bin/openclaw slack serve --config /opt/openclaw/agents/alpha/config.yaml") {
+	if !strings.Contains(unitContents, "ExecStart=/opt/openclaw/bin/agenthub slack serve --config /opt/openclaw/agents/alpha/config.yaml") {
 		t.Fatalf("unit upload contents = %q, want host-based slack serve command", unitContents)
 	}
 	if !strings.Contains(unitContents, "User=ubuntu") {

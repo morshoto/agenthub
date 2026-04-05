@@ -21,8 +21,8 @@ import (
 
 func newRootCommand(app *App) *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:   "openclaw",
-		Short: "OpenClaw CLI",
+		Use:   "agenthub",
+		Short: "AgentHub CLI",
 	}
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
@@ -65,7 +65,7 @@ func newDoctorCommand() *cobra.Command {
 			logger := loggerFromContext(cmd.Context())
 			logger.Debug("starting doctor check")
 			logger.Info("running doctor check")
-			fmt.Fprintln(cmd.OutOrStdout(), "openclaw runtime is configured")
+			fmt.Fprintln(cmd.OutOrStdout(), "agenthub runtime is configured")
 			return nil
 		},
 	}
@@ -189,7 +189,7 @@ func newInitCommand(app *App) *cobra.Command {
 			}
 			if !provisionNow {
 				fmt.Fprintln(cmd.OutOrStdout(), "provisioning skipped")
-				fmt.Fprintf(cmd.OutOrStdout(), "next step: run %s when you are ready\n", commandRef(cmd.OutOrStdout(), "openclaw", "create", "--config", configPath))
+				fmt.Fprintf(cmd.OutOrStdout(), "next step: run %s when you are ready\n", commandRef(cmd.OutOrStdout(), "agenthub", "create", "--config", configPath))
 				return nil
 			}
 
@@ -203,7 +203,7 @@ func newInitCommand(app *App) *cobra.Command {
 					err,
 					"the create workflow failed after the configuration was written",
 					"inspect the summary above",
-					"run "+commandRef(cmd.OutOrStdout(), "openclaw", "create", "--config", configPath)+" once the host is ready",
+					"run "+commandRef(cmd.OutOrStdout(), "agenthub", "create", "--config", configPath)+" once the host is ready",
 				)
 			}
 			cfg.Infra.InstanceID = strings.TrimSpace(instance.ID)

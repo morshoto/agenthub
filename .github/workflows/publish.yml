@@ -64,20 +64,20 @@ jobs:
               run: |
                   set -euo pipefail
                   mkdir -p dist
-                  artifact="openclaw_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}"
+                    artifact="agenthub_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}"
                   build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                   commit_sha="$(git rev-parse HEAD)"
                   GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 \
                     go build -trimpath \
-                    -ldflags "-s -w -X openclaw/internal/app.Version=${VERSION} -X openclaw/internal/app.CommitSHA=${commit_sha} -X openclaw/internal/app.BuildDate=${build_date}" \
-                    -o "dist/${artifact}" ./cmd/openclaw
+                      -ldflags "-s -w -X openclaw/internal/app.Version=${VERSION} -X openclaw/internal/app.CommitSHA=${commit_sha} -X openclaw/internal/app.BuildDate=${build_date}" \
+                      -o "dist/${artifact}" ./cmd/agenthub
                   chmod +x "dist/${artifact}"
 
             - name: Upload build artifact
               uses: actions/upload-artifact@v4
               with:
-                  name: openclaw-${{ matrix.goos }}-${{ matrix.goarch }}
-                  path: dist/openclaw_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}
+                  name: agenthub-${{ matrix.goos }}-${{ matrix.goarch }}
+                  path: dist/agenthub_${{ env.VERSION }}_${{ matrix.goos }}_${{ matrix.goarch }}
                   if-no-files-found: error
 
     release:
@@ -123,7 +123,7 @@ jobs:
                     echo
                     echo
                     echo "## Checksums"
-                    find artifacts -type f -maxdepth 2 -name 'openclaw_*' -print0 | sort -z | xargs -0 sha256sum > checksums.txt
+                    find artifacts -type f -maxdepth 2 -name 'agenthub_*' -print0 | sort -z | xargs -0 sha256sum > checksums.txt
                     cat checksums.txt
                     echo
                   } > release-notes.md
@@ -171,5 +171,5 @@ jobs:
                     echo
                     echo "- version: ${VERSION}"
                     echo "- draft release created"
-                    echo "- assets: openclaw_${VERSION}_darwin_arm64, openclaw_${VERSION}_linux_amd64, checksums.txt, release-metadata.json"
+                    echo "- assets: agenthub_${VERSION}_darwin_arm64, agenthub_${VERSION}_linux_amd64, checksums.txt, release-metadata.json"
                   } >> "${GITHUB_STEP_SUMMARY}"
