@@ -75,6 +75,10 @@ type CreateInstanceRequest struct {
 type Instance struct {
 	ID                 string
 	Name               string
+	Owner              string
+	AgentName          string
+	Environment        string
+	TrackingID         string
 	Region             string
 	PublicIP           string
 	PrivateIP          string

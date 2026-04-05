@@ -22,6 +22,11 @@ type InfraBackend interface {
 
 type InfraOutput struct {
 	InstanceID         string   `json:"instance_id"`
+	InstanceName       string   `json:"instance_name"`
+	Owner              string   `json:"owner"`
+	AgentName          string   `json:"agent_name"`
+	Environment        string   `json:"environment"`
+	TrackingID         string   `json:"tracking_id"`
 	PublicIP           string   `json:"public_ip"`
 	PrivateIP          string   `json:"private_ip"`
 	ConnectionInfo     string   `json:"connection_info"`

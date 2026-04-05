@@ -119,7 +119,9 @@ func selectAWSProfile(ctx context.Context, in io.Reader, out io.Writer, existing
 }
 
 func buildTerraformVars(ctx context.Context, profile string, cfg *config.Config) (terraformVars, error) {
-	inputs, err := buildTerraformInputs(ctx, profile, cfg, createOptions{})
+	inputs, err := buildTerraformInputs(ctx, profile, cfg, createOptions{
+		AgentName: agentNameFromConfigPath(app.opts.ConfigPath),
+	})
 	if err != nil {
 		return terraformVars{}, err
 	}
@@ -128,6 +130,9 @@ func buildTerraformVars(ctx context.Context, profile string, cfg *config.Config)
 		AWSProfile:       strings.TrimSpace(profile),
 		Region:           cfg.Region.Name,
 		ComputeClass:     config.EffectiveComputeClass(cfg.Compute.Class),
+		Owner:            inputs.Owner,
+		AgentName:        inputs.AgentName,
+		Environment:      inputs.Environment,
 		InstanceType:     strings.TrimSpace(cfg.Instance.Type),
 		DiskSizeGB:       cfg.Instance.DiskSizeGB,
 		NetworkMode:      inputs.NetworkMode,
@@ -170,6 +175,9 @@ func renderTerraformVars(vars terraformVars) string {
 		"aws_profile",
 		"region",
 		"compute_class",
+		"owner",
+		"agent_name",
+		"environment",
 		"instance_type",
 		"disk_size_gb",
 		"network_mode",
@@ -199,6 +207,9 @@ func renderTerraformVars(vars terraformVars) string {
 		fmt.Sprintf("%-*s = %s", maxWidth, "aws_profile", terraformQuoted(vars.AWSProfile)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "region", terraformQuoted(vars.Region)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "compute_class", terraformQuoted(vars.ComputeClass)),
+		fmt.Sprintf("%-*s = %s", maxWidth, "owner", terraformQuoted(vars.Owner)),
+		fmt.Sprintf("%-*s = %s", maxWidth, "agent_name", terraformQuoted(vars.AgentName)),
+		fmt.Sprintf("%-*s = %s", maxWidth, "environment", terraformQuoted(vars.Environment)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "instance_type", terraformQuoted(vars.InstanceType)),
 		fmt.Sprintf("%-*s = %d", maxWidth, "disk_size_gb", vars.DiskSizeGB),
 		fmt.Sprintf("%-*s = %s", maxWidth, "network_mode", terraformQuoted(vars.NetworkMode)),

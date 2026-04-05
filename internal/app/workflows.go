@@ -59,12 +59,16 @@ type createOptions struct {
 	Port            int
 	UseNemoClaw     bool
 	DisableNemoClaw bool
+	AgentName       string
 }
 
 type terraformVars struct {
 	AWSProfile       string `json:"aws_profile"`
 	Region           string `json:"region"`
 	ComputeClass     string `json:"compute_class"`
+	Owner            string `json:"owner"`
+	AgentName        string `json:"agent_name"`
+	Environment      string `json:"environment"`
 	InstanceType     string `json:"instance_type"`
 	DiskSizeGB       int    `json:"disk_size_gb"`
 	NetworkMode      string `json:"network_mode"`
@@ -96,6 +100,9 @@ type terraformInputs struct {
 	SSHCIDR          string
 	SSHUser          string
 	SourceURL        string
+	Owner            string
+	AgentName        string
+	Environment      string
 }
 
 type verifyOptions struct {
@@ -173,6 +180,9 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 		varsPath, err = writeTerraformVars(workdir, terraformVars{
 			Region:           cfg.Region.Name,
 			ComputeClass:     config.EffectiveComputeClass(cfg.Compute.Class),
+			Owner:            inputs.Owner,
+			AgentName:        inputs.AgentName,
+			Environment:      inputs.Environment,
 			InstanceType:     instanceType,
 			DiskSizeGB:       cfg.Instance.DiskSizeGB,
 			NetworkMode:      inputs.NetworkMode,
@@ -333,6 +343,21 @@ func buildTerraformInputs(ctx context.Context, profile string, cfg *config.Confi
 	if runtimePort <= 0 {
 		runtimePort = 8080
 	}
+	owner := strings.TrimSpace(profile)
+	if cfg != nil && strings.TrimSpace(cfg.Infra.AWSProfile) != "" {
+		owner = strings.TrimSpace(cfg.Infra.AWSProfile)
+	}
+	if owner == "" {
+		owner = "unknown"
+	}
+	agentName := strings.TrimSpace(opts.AgentName)
+	if agentName == "" {
+		agentName = "default"
+	}
+	environment := strings.TrimSpace(cfg.Infra.Environment)
+	if environment == "" {
+		environment = "default"
+	}
 
 	return terraformInputs{
 		NetworkMode:      networkMode,
@@ -345,6 +370,9 @@ func buildTerraformInputs(ctx context.Context, profile string, cfg *config.Confi
 		SSHCIDR:          sshCIDR,
 		SSHUser:          sshUser,
 		SourceURL:        sourceURL,
+		Owner:            owner,
+		AgentName:        agentName,
+		Environment:      environment,
 	}, nil
 }
 
@@ -876,7 +904,11 @@ func infraOutputToInstance(output *infratf.InfraOutput, networkMode, sshUser str
 	}
 	instance := &provider.Instance{
 		ID:                 strings.TrimSpace(output.InstanceID),
-		Name:               strings.TrimSpace(output.InstanceID),
+		Name:               strings.TrimSpace(output.InstanceName),
+		Owner:              strings.TrimSpace(output.Owner),
+		AgentName:          strings.TrimSpace(output.AgentName),
+		Environment:        strings.TrimSpace(output.Environment),
+		TrackingID:         strings.TrimSpace(output.TrackingID),
 		Region:             strings.TrimSpace(output.Region),
 		PublicIP:           strings.TrimSpace(output.PublicIP),
 		PrivateIP:          strings.TrimSpace(output.PrivateIP),
@@ -893,6 +925,12 @@ func infraOutputToInstance(output *infratf.InfraOutput, networkMode, sshUser str
 	}
 	if instance.ConnectionInfo == "" && image.ID != "" {
 		instance.ConnectionInfo = fmt.Sprintf("instance ready for %s", image.Name)
+	}
+	if instance.Name == "" {
+		instance.Name = instanceIdentityName(instance.Owner, instance.AgentName, instance.Environment, instance.TrackingID)
+	}
+	if instance.Name == "" {
+		instance.Name = instance.ID
 	}
 	return instance
 }
@@ -957,6 +995,54 @@ func printWorkflowSuccess(out io.Writer, instance *provider.Instance, installRes
 		fmt.Fprintln(out, "- destroy: terraform -chdir=infra/aws/ec2 destroy -var-file=terraform.tfvars")
 	}
 	fmt.Fprintln(out, "- keep the runtime config and SSH target handy for future verify runs")
+}
+
+func instanceIdentityName(owner, agentName, environment, trackingID string) string {
+	parts := []string{
+		normalizeIdentitySegment("agenthub"),
+		normalizeIdentitySegment(owner),
+		normalizeIdentitySegment(agentName),
+		normalizeIdentitySegment(environment),
+		normalizeIdentitySegment(trackingID),
+	}
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if strings.TrimSpace(part) != "" {
+			filtered = append(filtered, part)
+		}
+	}
+	return strings.Join(filtered, "-")
+}
+
+func normalizeIdentitySegment(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return ""
+	}
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastDash = false
+		case r == '-' || r == '_':
+			if !lastDash && b.Len() > 0 {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		default:
+			if !lastDash && b.Len() > 0 {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	for strings.Contains(out, "--") {
+		out = strings.ReplaceAll(out, "--", "-")
+	}
+	return out
 }
 
 func runtimeBaseURL(instance *provider.Instance, cfg *config.Config) string {

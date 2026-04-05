@@ -198,7 +198,13 @@ func newInitCommand(app *App) *cobra.Command {
 			logger.Info("starting init provision flow")
 			progress := newCreateProgressRenderer(cmd.OutOrStdout())
 			startedAt := time.Now()
-			instance, installResult, verifyReport, err := runCreateWorkflow(cmd.Context(), app.opts.Profile, cfg, createOptions{}, progress)
+			agentName := strings.TrimSpace(wizard.AgentName)
+			if agentName == "" {
+				agentName = "default"
+			}
+			instance, installResult, verifyReport, err := runCreateWorkflow(cmd.Context(), app.opts.Profile, cfg, createOptions{
+				AgentName: agentName,
+			}, progress)
 			if err != nil {
 				return wrapUserFacingError(
 					"init provisioning failed",

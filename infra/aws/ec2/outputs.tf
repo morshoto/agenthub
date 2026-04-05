@@ -2,6 +2,26 @@ output "instance_id" {
   value = aws_instance.this.id
 }
 
+output "instance_name" {
+  value = aws_instance.this.tags["Name"]
+}
+
+output "owner" {
+  value = aws_instance.this.tags["Owner"]
+}
+
+output "agent_name" {
+  value = aws_instance.this.tags["AgentName"]
+}
+
+output "environment" {
+  value = aws_instance.this.tags["Environment"]
+}
+
+output "tracking_id" {
+  value = aws_instance.this.tags["TrackingID"]
+}
+
 output "public_ip" {
   value = aws_instance.this.public_ip
 }

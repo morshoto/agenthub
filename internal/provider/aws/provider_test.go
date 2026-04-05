@@ -227,6 +227,40 @@ func TestAuthCheckReturnsCallerIdentity(t *testing.T) {
 	}
 }
 
+func TestGetInstanceUsesEC2Tags(t *testing.T) {
+	p := &Provider{
+		Config: Config{Profile: "test-profile"},
+		loadDefaultConfig: func(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (awsbase.Config, error) {
+			return awsbase.Config{Region: "us-east-1"}, nil
+		},
+		newEC2Client: func(cfg awsbase.Config) ec2Client {
+			if cfg.Region != "us-west-2" {
+				t.Fatalf("cfg.Region = %q, want us-west-2", cfg.Region)
+			}
+			return &fakeEC2Client{
+				instanceTags: []ec2types.Tag{
+					{Key: awsbase.String("Name"), Value: awsbase.String("agenthub-test-bravo-prod-cafebabe")},
+					{Key: awsbase.String("Owner"), Value: awsbase.String("test-owner")},
+					{Key: awsbase.String("AgentName"), Value: awsbase.String("bravo")},
+					{Key: awsbase.String("Environment"), Value: awsbase.String("prod")},
+					{Key: awsbase.String("TrackingID"), Value: awsbase.String("cafebabe")},
+				},
+			}
+		},
+	}
+
+	instance, err := p.GetInstance(context.Background(), "us-west-2", "i-0123456789abcdef0")
+	if err != nil {
+		t.Fatalf("GetInstance() error = %v", err)
+	}
+	if instance.Name != "agenthub-test-bravo-prod-cafebabe" {
+		t.Fatalf("instance.Name = %q, want human-readable tag", instance.Name)
+	}
+	if instance.Owner != "test-owner" || instance.AgentName != "bravo" || instance.Environment != "prod" || instance.TrackingID != "cafebabe" {
+		t.Fatalf("instance metadata = %#v", instance)
+	}
+}
+
 func TestListBaseImagesResolvesRegionSpecificAMI(t *testing.T) {
 	p := &Provider{
 		Config: Config{Profile: "test-profile"},
@@ -452,6 +486,7 @@ type fakeEC2Client struct {
 	associatePublicIP        bool
 	describeRegionsOut       *ec2.DescribeRegionsOutput
 	describeInstanceTypesOut *ec2.DescribeInstanceTypesOutput
+	instanceTags             []ec2types.Tag
 }
 
 func (f *fakeEC2Client) DescribeRegions(ctx context.Context, params *ec2.DescribeRegionsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeRegionsOutput, error) {
@@ -526,12 +561,23 @@ func (f *fakeEC2Client) DescribeInstances(ctx context.Context, params *ec2.Descr
 	if f.associatePublicIP {
 		publicIP = awsbase.String("203.0.113.10")
 	}
+	tags := f.instanceTags
+	if len(tags) == 0 {
+		tags = []ec2types.Tag{
+			{Key: awsbase.String("Name"), Value: awsbase.String("agenthub-test-alpha-default-deadbeef")},
+			{Key: awsbase.String("Owner"), Value: awsbase.String("test-profile")},
+			{Key: awsbase.String("AgentName"), Value: awsbase.String("alpha")},
+			{Key: awsbase.String("Environment"), Value: awsbase.String("default")},
+			{Key: awsbase.String("TrackingID"), Value: awsbase.String("deadbeef")},
+		}
+	}
 	return &ec2.DescribeInstancesOutput{
 		Reservations: []ec2types.Reservation{{
 			Instances: []ec2types.Instance{{
 				InstanceId:       awsbase.String("i-0123456789abcdef0"),
 				PublicIpAddress:  publicIP,
 				PrivateIpAddress: awsbase.String("10.0.0.10"),
+				Tags:             tags,
 				State:            &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
 			}},
 		}},

@@ -48,6 +48,11 @@ locals {
   vpc_id           = length(data.aws_vpcs.default.ids) > 0 ? data.aws_vpcs.default.ids[0] : ""
   subnet_ids       = length(data.aws_subnets.default_for_az.ids) > 0 ? data.aws_subnets.default_for_az.ids : data.aws_subnets.any.ids
   subnet_id        = length(local.subnet_ids) > 0 ? local.subnet_ids[0] : ""
+  owner            = trimspace(var.owner)
+  agent_name       = trimspace(var.agent_name)
+  environment      = trimspace(var.environment) != "" ? trimspace(var.environment) : "default"
+  tracking_id      = random_id.suffix.hex
+  instance_name    = "${trimspace(var.name_prefix)}-${local.owner}-${local.agent_name}-${local.environment}-${local.tracking_id}"
   image_name       = trimspace(var.image_name)
   image_id         = trimspace(var.image_id)
   listen_port      = var.runtime_port > 0 ? var.runtime_port : 8080
@@ -202,6 +207,11 @@ resource "aws_instance" "this" {
   }
 
   tags = {
-    Name = "${var.name_prefix}-${random_id.suffix.hex}"
+    Name        = local.instance_name
+    Owner       = local.owner
+    AgentName   = local.agent_name
+    Environment = local.environment
+    TrackingID  = local.tracking_id
+    ManagedBy   = "agenthub"
   }
 }
