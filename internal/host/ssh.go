@@ -88,14 +88,10 @@ func (e *SSHExecutor) Upload(ctx context.Context, localPath, remotePath string) 
 		}
 	}
 
-	args := []string{"-P", strconv.Itoa(e.cfg.Port), "-o", "BatchMode=yes", "-o", "ConnectTimeout=" + strconv.Itoa(int(e.cfg.ConnectTimeout.Seconds())), localPath, e.target() + ":" + remotePath}
+	args := append(e.transportArgs(), "-P", strconv.Itoa(e.cfg.Port), localPath, e.target()+":"+remotePath)
 	if strings.TrimSpace(e.cfg.IdentityFile) != "" {
 		args = append([]string{"-i", e.cfg.IdentityFile}, args...)
 	}
-	args = append([]string{
-		"-o", "UserKnownHostsFile=" + e.knownHostsFile,
-		"-o", "StrictHostKeyChecking=accept-new",
-	}, args...)
 	cmd := exec.CommandContext(ctx, "scp", args...)
 
 	var stderr bytes.Buffer
@@ -118,18 +114,25 @@ func (e *SSHExecutor) Upload(ctx context.Context, localPath, remotePath string) 
 }
 
 func (e *SSHExecutor) sshArgs(remoteCommand string) []string {
-	args := []string{
-		"-p", strconv.Itoa(e.cfg.Port),
-		"-o", "BatchMode=yes",
-		"-o", "ConnectTimeout=" + strconv.Itoa(int(e.cfg.ConnectTimeout.Seconds())),
-		"-o", "UserKnownHostsFile=" + e.knownHostsFile,
-		"-o", "StrictHostKeyChecking=accept-new",
-	}
+	args := e.transportArgs()
+	args = append(args, "-p", strconv.Itoa(e.cfg.Port))
 	if strings.TrimSpace(e.cfg.IdentityFile) != "" {
 		args = append(args, "-i", e.cfg.IdentityFile)
 	}
 	args = append(args, e.target(), remoteCommand)
 	return args
+}
+
+func (e *SSHExecutor) transportArgs() []string {
+	return []string{
+		"-o", "BatchMode=yes",
+		"-o", "ConnectTimeout=" + strconv.Itoa(int(e.cfg.ConnectTimeout.Seconds())),
+		"-o", "GSSAPIAuthentication=no",
+		"-o", "KbdInteractiveAuthentication=no",
+		"-o", "PreferredAuthentications=publickey",
+		"-o", "UserKnownHostsFile=" + e.knownHostsFile,
+		"-o", "StrictHostKeyChecking=accept-new",
+	}
 }
 
 func (e *SSHExecutor) target() string {

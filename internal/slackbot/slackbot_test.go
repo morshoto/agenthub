@@ -3,8 +3,8 @@ package slackbot
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -51,37 +51,56 @@ func (f *fakePoster) PostMessage(ctx context.Context, channelID, text, threadTS 
 func TestRuntimeClientGenerate(t *testing.T) {
 	var gotPrompt string
 	failCh := make(chan string, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			failCh <- "method"
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		if r.URL.Path != "/v1/generate" {
-			failCh <- "path"
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		var req struct {
-			Prompt string `json:"prompt"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			failCh <- err.Error()
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-		gotPrompt = req.Prompt
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"status": "ok",
-			"output": "hello from runtime",
-		})
-	}))
-	defer server.Close()
-
-	client, err := NewRuntimeClient(server.URL, time.Second)
+	client, err := NewRuntimeClient("http://127.0.0.1:8080", time.Second)
 	if err != nil {
 		t.Fatalf("NewRuntimeClient() error = %v", err)
 	}
+	client.client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodPost {
+			failCh <- "method"
+			return &http.Response{
+				StatusCode: http.StatusMethodNotAllowed,
+				Body:       http.NoBody,
+				Header:     make(http.Header),
+				Request:    req,
+			}, nil
+		}
+		if req.URL.Path != "/v1/generate" {
+			failCh <- "path"
+			return &http.Response{
+				StatusCode: http.StatusNotFound,
+				Body:       http.NoBody,
+				Header:     make(http.Header),
+				Request:    req,
+			}, nil
+		}
+		var payload struct {
+			Prompt string `json:"prompt"`
+		}
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			failCh <- err.Error()
+			return &http.Response{
+				StatusCode: http.StatusBadRequest,
+				Body:       io.NopCloser(strings.NewReader("")),
+				Header:     make(http.Header),
+				Request:    req,
+			}, nil
+		}
+		gotPrompt = payload.Prompt
+		body, err := json.Marshal(map[string]string{
+			"status": "ok",
+			"output": "hello from runtime",
+		})
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(string(body))),
+			Header:     make(http.Header),
+			Request:    req,
+		}, nil
+	})
 	out, err := client.Generate(context.Background(), "say hello")
 	if err != nil {
 		t.Fatalf("Generate() error = %v", err)
@@ -97,6 +116,12 @@ func TestRuntimeClientGenerate(t *testing.T) {
 		t.Fatalf("handler assertion failed: %s", reason)
 	default:
 	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func TestCodexAuthErrorClassifies401Unauthorized(t *testing.T) {

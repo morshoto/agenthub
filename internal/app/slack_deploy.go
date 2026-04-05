@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"openclaw/internal/codexauth"
 	"openclaw/internal/config"
 	"openclaw/internal/host"
 	"openclaw/internal/prompt"
@@ -26,6 +29,13 @@ type slackDeployOptions struct {
 }
 
 var resolveSlackDeployTarget = resolveHostTarget
+var downloadCodexBinaryArchiveFunc = downloadCodexBinaryArchive
+var extractCodexBinaryFunc = extractCodexBinary
+
+const (
+	codexBinaryArchiveURL = "https://github.com/openai/codex/releases/latest/download/codex-x86_64-unknown-linux-musl.tar.gz"
+	codexBinaryName       = "codex-x86_64-unknown-linux-musl"
+)
 
 func newSlackDeployCommand(app *App) *cobra.Command {
 	var target string
@@ -71,10 +81,12 @@ func newSlackDeployCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			hasCodexSecret := strings.TrimSpace(agentCfg.Runtime.Codex.SecretID) != ""
 
 			logger := loggerFromContext(cmd.Context())
 			logger.Info("starting slack deploy workflow")
 			fmt.Fprintln(cmd.OutOrStdout(), "running slack deploy workflow...")
+			progress := newProgressRenderer(cmd.OutOrStdout())
 			resolvedTarget, err := runSlackDeployWorkflow(cmd.Context(), app.opts.Profile, agentCfg, agentEnv, slackDeployOptions{
 				ConfigPath: configPath,
 				Target:     targetValue,
@@ -82,13 +94,19 @@ func newSlackDeployCommand(app *App) *cobra.Command {
 				SSHKey:     sshKey,
 				SSHPort:    sshPort,
 				WorkingDir: workingDir,
-			})
+			}, progress)
 			if err != nil {
+				details := "the SSH target is unreachable, the host OpenClaw binary is missing, or Slack tokens are missing"
+				nextStep := "confirm the EC2 host was prepared with openclaw create, then rerun " + commandRef(cmd.OutOrStdout(), "openclaw", "slack", "deploy")
+				if hasCodexSecret {
+					details = "the SSH target is unreachable, the host OpenClaw binary is missing, or Slack tokens are missing"
+					nextStep = "confirm runtime.codex.secret_id points to a readable AWS secret, then rerun " + commandRef(cmd.OutOrStdout(), "openclaw", "slack", "deploy")
+				}
 				return wrapUserFacingError(
 					"slack deploy failed",
 					err,
-					"the SSH target is unreachable, Codex is not installed on the host, or Slack tokens are missing",
-					"SSH into the EC2 host and run "+commandRef(cmd.OutOrStdout(), "openclaw", "onboard", "--auth-choice", "openai-codex")+" once to authenticate Codex",
+					details,
+					nextStep,
 					"verify the agent .env contains SLACK_BOT_TOKEN and SLACK_APP_TOKEN",
 				)
 			}
@@ -109,15 +127,22 @@ func newSlackDeployCommand(app *App) *cobra.Command {
 	return cmd
 }
 
-func runSlackDeployWorkflow(ctx context.Context, profile string, cfg *config.Config, agentEnv map[string]string, opts slackDeployOptions) (string, error) {
+func runSlackDeployWorkflow(ctx context.Context, profile string, cfg *config.Config, agentEnv map[string]string, opts slackDeployOptions, progress stageRunner) (string, error) {
 	if cfg == nil {
 		return "", errors.New("config is required")
+	}
+	if progress == nil {
+		progress = newProgressRenderer(os.Stdout)
 	}
 
 	botToken := strings.TrimSpace(agentEnv["SLACK_BOT_TOKEN"])
 	appToken := strings.TrimSpace(agentEnv["SLACK_APP_TOKEN"])
 	if botToken == "" || appToken == "" {
 		return "", errors.New("agent env must contain SLACK_BOT_TOKEN and SLACK_APP_TOKEN")
+	}
+	codexAPIKey, err := resolveSlackDeployCodexAPIKey(ctx, profile, cfg, agentEnv)
+	if err != nil {
+		return "", err
 	}
 	targetValue := strings.TrimSpace(opts.Target)
 	if targetValue == "" {
@@ -140,8 +165,12 @@ func runSlackDeployWorkflow(ctx context.Context, profile string, cfg *config.Con
 		return "", errors.New("failed to build slack service unit path")
 	}
 
-	resolvedTarget, err := resolveSlackDeployTarget(ctx, profile, cfg, targetValue)
-	if err != nil {
+	var resolvedTarget string
+	if err := progress.Run(ctx, "resolving slack deploy target", func(runCtx context.Context) error {
+		var err error
+		resolvedTarget, err = resolveSlackDeployTarget(runCtx, profile, cfg, targetValue)
+		return err
+	}); err != nil {
 		return "", err
 	}
 	user, keyPath, err := resolveInstallSSH(cfg, opts.SSHUser, opts.SSHKey)
@@ -155,19 +184,46 @@ func runSlackDeployWorkflow(ctx context.Context, profile string, cfg *config.Con
 		IdentityFile:   keyPath,
 		ConnectTimeout: 15 * time.Second,
 	})
-	if err := waitForSSHReady(ctx, exec, resolvedTarget); err != nil {
+	if err := progress.Run(ctx, "waiting for slack host ssh", func(runCtx context.Context) error {
+		return waitForSSHReady(runCtx, exec, resolvedTarget)
+	}); err != nil {
 		return "", err
 	}
 
-	if err := ensureCodexCLI(ctx, exec); err != nil {
+	remoteBinaryPath := pathJoin(opts.WorkingDir, "bin", "openclaw")
+	if err := progress.Run(ctx, "checking host openclaw binary", func(runCtx context.Context) error {
+		if _, err := exec.Run(runCtx, "test", "-x", remoteBinaryPath); err != nil {
+			return fmt.Errorf("check host openclaw binary %q: %w", remoteBinaryPath, err)
+		}
+		return nil
+	}); err != nil {
 		return "", err
 	}
 
-	if _, err := exec.Run(ctx, "sudo", "mkdir", "-p", remoteAgentDir); err != nil {
-		return "", fmt.Errorf("prepare slack agent directory: %w", err)
+	if err := progress.Run(ctx, "ensuring codex on host", func(runCtx context.Context) error {
+		return ensureCodexAvailable(runCtx, exec, remoteAgentDir)
+	}); err != nil {
+		return "", err
 	}
-	if _, err := exec.Run(ctx, "sudo", "chown", "-R", "ubuntu:ubuntu", remoteAgentDir); err != nil {
-		return "", fmt.Errorf("prepare slack agent directory ownership: %w", err)
+
+	if strings.TrimSpace(codexAPIKey) == "" {
+		if err := progress.Run(ctx, "syncing codex auth state", func(runCtx context.Context) error {
+			return syncLocalCodexAuthState(runCtx, exec, remoteAgentDir)
+		}); err != nil {
+			return "", err
+		}
+	}
+
+	if err := progress.Run(ctx, "preparing slack workspace", func(runCtx context.Context) error {
+		if _, err := exec.Run(runCtx, "sudo", "mkdir", "-p", remoteAgentDir); err != nil {
+			return fmt.Errorf("prepare slack agent directory: %w", err)
+		}
+		if _, err := exec.Run(runCtx, "sudo", "chown", "-R", "ubuntu:ubuntu", remoteAgentDir); err != nil {
+			return fmt.Errorf("prepare slack agent directory ownership: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return "", err
 	}
 
 	tmpDir, err := os.MkdirTemp("", "openclaw-slack-*")
@@ -180,45 +236,244 @@ func runSlackDeployWorkflow(ctx context.Context, profile string, cfg *config.Con
 	if err := config.Save(localConfigPath, cfg); err != nil {
 		return "", fmt.Errorf("write slack agent config: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(tmpDir, ".env"), []byte(strings.Join([]string{
+	localEnvPath := filepath.Join(tmpDir, ".env")
+	if err := os.WriteFile(localEnvPath, []byte(strings.Join([]string{
 		"SLACK_BOT_TOKEN=" + botToken,
 		"SLACK_APP_TOKEN=" + appToken,
-		"",
-	}, "\n")), 0o600); err != nil {
+	}, "\n")+"\n"), 0o600); err != nil {
 		return "", fmt.Errorf("write slack agent env: %w", err)
 	}
-
-	if err := exec.Upload(ctx, localConfigPath, remoteConfigPath); err != nil {
-		return "", fmt.Errorf("upload slack agent config: %w", err)
+	if strings.TrimSpace(codexAPIKey) != "" {
+		if err := appendEnvFile(localEnvPath, map[string]string{
+			"OPENAI_API_KEY": strings.TrimSpace(codexAPIKey),
+		}); err != nil {
+			return "", fmt.Errorf("write slack agent codex env: %w", err)
+		}
 	}
-	if err := exec.Upload(ctx, filepath.Join(tmpDir, ".env"), remoteEnvPath); err != nil {
-		return "", fmt.Errorf("upload slack agent env: %w", err)
+	if err := progress.Run(ctx, "uploading slack files", func(runCtx context.Context) error {
+		if err := exec.Upload(runCtx, localConfigPath, remoteConfigPath); err != nil {
+			return fmt.Errorf("upload slack agent config: %w", err)
+		}
+		if err := exec.Upload(runCtx, localEnvPath, remoteEnvPath); err != nil {
+			return fmt.Errorf("upload slack agent env: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return "", err
 	}
 
 	localUnitPath := filepath.Join(tmpDir, "openclaw-slack.service")
-	if err := os.WriteFile(localUnitPath, []byte(renderSlackSystemdUnit(pathJoin(opts.WorkingDir, "bin", "openclaw"), remoteConfigPath, remoteEnvPath, remoteAgentDir, agentName)), 0o600); err != nil {
+	if err := os.WriteFile(localUnitPath, []byte(renderSlackSystemdUnit(remoteBinaryPath, remoteConfigPath, remoteEnvPath, remoteAgentDir, agentName)), 0o600); err != nil {
 		return "", fmt.Errorf("write slack systemd unit: %w", err)
 	}
-	if err := exec.Upload(ctx, localUnitPath, stagedServicePath); err != nil {
-		return "", fmt.Errorf("upload slack systemd unit: %w", err)
-	}
-	if _, err := exec.Run(ctx, "sudo", "mv", stagedServicePath, remoteServicePath); err != nil {
-		return "", fmt.Errorf("install slack systemd unit: %w", err)
-	}
-	if _, err := exec.Run(ctx, "sudo", "chmod", "600", remoteEnvPath); err != nil {
-		return "", fmt.Errorf("secure slack env file: %w", err)
-	}
-	if _, err := exec.Run(ctx, "sudo", "systemctl", "daemon-reload"); err != nil {
-		return "", fmt.Errorf("reload systemd after slack deploy: %w", err)
-	}
-	if _, err := exec.Run(ctx, "sudo", "systemctl", "enable", "--now", filepath.Base(remoteServicePath)); err != nil {
-		return "", fmt.Errorf("enable slack service: %w", err)
+	if err := progress.Run(ctx, "installing slack service", func(runCtx context.Context) error {
+		if err := exec.Upload(runCtx, localUnitPath, stagedServicePath); err != nil {
+			return fmt.Errorf("upload slack systemd unit: %w", err)
+		}
+		if _, err := exec.Run(runCtx, "sudo", "mv", stagedServicePath, remoteServicePath); err != nil {
+			return fmt.Errorf("install slack systemd unit: %w", err)
+		}
+		if _, err := exec.Run(runCtx, "sudo", "chmod", "600", remoteEnvPath); err != nil {
+			return fmt.Errorf("secure slack env file: %w", err)
+		}
+		if _, err := exec.Run(runCtx, "sudo", "systemctl", "daemon-reload"); err != nil {
+			return fmt.Errorf("reload systemd after slack deploy: %w", err)
+		}
+		if _, err := exec.Run(runCtx, "sudo", "systemctl", "enable", "--now", filepath.Base(remoteServicePath)); err != nil {
+			return fmt.Errorf("enable slack service: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return "", err
 	}
 
 	return resolvedTarget, nil
 }
 
-func renderSlackSystemdUnit(binaryPath, configPath, envFilePath, workingDir, agentName string) string {
+func resolveSlackDeployCodexAPIKey(ctx context.Context, profile string, cfg *config.Config, agentEnv map[string]string) (string, error) {
+	if cfg == nil {
+		return "", errors.New("config is required")
+	}
+
+	if secretID := strings.TrimSpace(cfg.Runtime.Codex.SecretID); secretID != "" {
+		key, err := codexauth.LoadAPIKeyFunc(ctx, profile, cfg.Region.Name, secretID)
+		if err != nil {
+			return "", fmt.Errorf("load codex api key from secret %q: %w", secretID, err)
+		}
+		if strings.TrimSpace(key) == "" {
+			return "", fmt.Errorf("codex secret %q did not return an api key", secretID)
+		}
+		return strings.TrimSpace(key), nil
+	}
+
+	return strings.TrimSpace(agentEnv["OPENAI_API_KEY"]), nil
+}
+
+func appendEnvFile(path string, values map[string]string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read env file %q: %w", path, err)
+	}
+	lines := []string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimRight(line, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			lines = append(lines, line)
+			continue
+		}
+		key, _, ok := strings.Cut(line, "=")
+		if !ok {
+			lines = append(lines, line)
+			continue
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if _, exists := values[key]; exists {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		lines = append(lines, fmt.Sprintf("%s=%s", key, values[key]))
+	}
+	lines = append(lines, "")
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600)
+}
+
+func ensureCodexAvailable(ctx context.Context, exec host.Executor, remoteAgentDir string) error {
+	if exec == nil {
+		return errors.New("codex check requires a host executor")
+	}
+	if _, err := exec.Run(ctx, "command", "-v", "codex"); err == nil {
+		return nil
+	}
+
+	archivePath, err := downloadCodexBinaryArchiveFunc(ctx)
+	if err != nil {
+		return fmt.Errorf("download codex binary: %w", err)
+	}
+	binaryPath, err := extractCodexBinaryFunc(ctx, archivePath)
+	if err != nil {
+		return fmt.Errorf("extract codex binary: %w", err)
+	}
+
+	stagedBinaryPath := pathJoin(remoteAgentDir, "codex.upload")
+	if err := exec.Upload(ctx, binaryPath, stagedBinaryPath); err != nil {
+		return fmt.Errorf("upload codex binary: %w", err)
+	}
+	if _, err := exec.Run(ctx, "sudo", "mv", stagedBinaryPath, "/usr/local/bin/codex"); err != nil {
+		return fmt.Errorf("install codex on target host: %w", err)
+	}
+	if _, err := exec.Run(ctx, "sudo", "chmod", "755", "/usr/local/bin/codex"); err != nil {
+		return fmt.Errorf("prepare codex on target host: %w", err)
+	}
+	return nil
+}
+
+func syncLocalCodexAuthState(ctx context.Context, exec host.Executor, remoteAgentDir string) error {
+	if exec == nil {
+		return errors.New("codex auth sync requires a host executor")
+	}
+	localHome, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("locate local home directory: %w", err)
+	}
+
+	localCodexDir := filepath.Join(localHome, ".codex")
+	remoteCodexDir := pathJoin(remoteAgentDir, ".codex")
+	remoteCodexTargetDir := "/home/ubuntu/.codex"
+	authFiles := []string{"auth.json", "config.toml"}
+
+	foundAny := false
+	for _, name := range authFiles {
+		localPath := filepath.Join(localCodexDir, name)
+		if _, err := os.Stat(localPath); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("stat local codex auth file %q: %w", localPath, err)
+		}
+		foundAny = true
+		remotePath := pathJoin(remoteCodexDir, name)
+		if err := exec.Upload(ctx, localPath, remotePath); err != nil {
+			return fmt.Errorf("upload codex auth file %q: %w", name, err)
+		}
+	}
+	if !foundAny {
+		return errors.New("codex authentication is missing on the local machine; run `openclaw onboard --auth-choice openai-codex` or set runtime.codex.secret_id")
+	}
+	if _, err := exec.Run(ctx, "sudo", "rm", "-rf", remoteCodexTargetDir); err != nil {
+		return fmt.Errorf("prepare codex auth directory: %w", err)
+	}
+	if _, err := exec.Run(ctx, "sudo", "mv", remoteCodexDir, remoteCodexTargetDir); err != nil {
+		return fmt.Errorf("install codex auth state: %w", err)
+	}
+	if _, err := exec.Run(ctx, "sudo", "chown", "-R", "ubuntu:ubuntu", remoteCodexTargetDir); err != nil {
+		return fmt.Errorf("prepare codex auth ownership: %w", err)
+	}
+	if _, err := exec.Run(ctx, "sudo", "chmod", "700", remoteCodexTargetDir); err != nil {
+		return fmt.Errorf("prepare codex auth directory permissions: %w", err)
+	}
+	for _, name := range authFiles {
+		targetPath := pathJoin(remoteCodexTargetDir, name)
+		if _, err := exec.Run(ctx, "sudo", "chmod", "600", targetPath); err != nil {
+			return fmt.Errorf("secure codex auth file %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func downloadCodexBinaryArchive(ctx context.Context) (string, error) {
+	tmpDir, err := os.MkdirTemp("", "openclaw-codex-archive-*")
+	if err != nil {
+		return "", fmt.Errorf("create temporary codex archive workspace: %w", err)
+	}
+
+	archivePath := filepath.Join(tmpDir, "codex.tgz")
+	cmd := exec.CommandContext(ctx, "curl", "-fsSL", "-o", archivePath, codexBinaryArchiveURL)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return "", fmt.Errorf("download codex archive: %s: %w", msg, err)
+		}
+		return "", fmt.Errorf("download codex archive: %w", err)
+	}
+	return archivePath, nil
+}
+
+func extractCodexBinary(ctx context.Context, archivePath string) (string, error) {
+	archivePath = strings.TrimSpace(archivePath)
+	if archivePath == "" {
+		return "", errors.New("codex archive path is required")
+	}
+	tmpDir, err := os.MkdirTemp("", "openclaw-codex-bin-*")
+	if err != nil {
+		return "", fmt.Errorf("create temporary codex binary workspace: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, "tar", "-xzf", archivePath, "-C", tmpDir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return "", fmt.Errorf("extract codex archive: %s: %w", msg, err)
+		}
+		return "", fmt.Errorf("extract codex archive: %w", err)
+	}
+	return filepath.Join(tmpDir, codexBinaryName), nil
+}
+
+func renderSlackSystemdUnit(binaryPath, configPath, envFilePath, agentDir, agentName string) string {
 	return fmt.Sprintf(`[Unit]
 Description=OpenClaw Slack adapter (%s)
 After=network-online.target
@@ -227,8 +482,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=ubuntu
-Environment=HOME=/home/ubuntu
-Environment=PATH=/home/ubuntu/.nix-profile/bin:/home/ubuntu/.local/bin:/home/ubuntu/.npm-global/bin:/home/ubuntu/.local/share/npm/bin:/usr/local/bin:/usr/bin:/bin
+Group=ubuntu
 WorkingDirectory=%s
 EnvironmentFile=-%s
 ExecStart=%s slack serve --config %s
@@ -237,7 +491,7 @@ RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-`, strings.TrimSpace(agentName), strings.TrimSpace(workingDir), strings.TrimSpace(envFilePath), strings.TrimSpace(binaryPath), strings.TrimSpace(configPath))
+`, strings.TrimSpace(agentName), strings.TrimSpace(agentDir), strings.TrimSpace(envFilePath), strings.TrimSpace(binaryPath), strings.TrimSpace(configPath))
 }
 
 func agentNameFromConfigPath(configPath string) string {
@@ -293,28 +547,4 @@ func slackServiceName(agentName string) string {
 		}
 	}
 	return "openclaw-slack-" + strings.Trim(b.String(), "-")
-}
-
-func ensureCodexCLI(ctx context.Context, exec host.Executor) error {
-	if _, err := exec.Run(ctx, "sh", "-lc", "command -v codex >/dev/null 2>&1"); err == nil {
-		return nil
-	}
-
-	if _, err := exec.Run(ctx, "sh", "-lc", "command -v npm >/dev/null 2>&1"); err == nil {
-		if _, installErr := exec.Run(ctx, "npm", "install", "-g", "@openai/codex"); installErr == nil {
-			if _, err := exec.Run(ctx, "sh", "-lc", "command -v codex >/dev/null 2>&1"); err == nil {
-				return nil
-			}
-		}
-	}
-
-	if _, err := exec.Run(ctx, "sh", "-lc", "command -v brew >/dev/null 2>&1"); err == nil {
-		if _, installErr := exec.Run(ctx, "brew", "install", "--cask", "codex"); installErr == nil {
-			if _, err := exec.Run(ctx, "sh", "-lc", "command -v codex >/dev/null 2>&1"); err == nil {
-				return nil
-			}
-		}
-	}
-
-	return errors.New("codex CLI is required on the EC2 host; install it with `npm install -g @openai/codex` or `brew install --cask codex`, then rerun openclaw slack deploy")
 }

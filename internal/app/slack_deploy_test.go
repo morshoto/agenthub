@@ -3,19 +3,21 @@ package app
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"openclaw/internal/codexauth"
 	"openclaw/internal/config"
 	"openclaw/internal/host"
 )
 
 type slackDeployExecutor struct {
-	results        map[string]host.CommandResult
-	codexAvailable bool
-	uploads        []uploadCall
+	results  map[string]host.CommandResult
+	uploads  []uploadCall
+	contents map[string]string
 }
 
 type uploadCall struct {
@@ -25,16 +27,6 @@ type uploadCall struct {
 
 func (f *slackDeployExecutor) Run(ctx context.Context, command string, args ...string) (host.CommandResult, error) {
 	key := strings.TrimSpace(command + " " + strings.Join(args, " "))
-	if key == "sh -lc command -v codex >/dev/null 2>&1" {
-		if !f.codexAvailable {
-			return host.CommandResult{}, errors.New("codex not found")
-		}
-		return host.CommandResult{}, nil
-	}
-	if key == "npm install -g @openai/codex" {
-		f.codexAvailable = true
-		return host.CommandResult{}, nil
-	}
 	if result, ok := f.results[key]; ok {
 		return result, nil
 	}
@@ -43,6 +35,14 @@ func (f *slackDeployExecutor) Run(ctx context.Context, command string, args ...s
 
 func (f *slackDeployExecutor) Upload(ctx context.Context, localPath, remotePath string) error {
 	f.uploads = append(f.uploads, uploadCall{local: localPath, remote: remotePath})
+	if f.contents == nil {
+		f.contents = make(map[string]string)
+	}
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		return err
+	}
+	f.contents[remotePath] = string(data)
 	return nil
 }
 
@@ -58,6 +58,8 @@ func TestRunSlackDeployWorkflowInstallsAgentService(t *testing.T) {
 		"  provider: codex",
 		"  endpoint: https://nim.example.com",
 		"  model: codex-pro",
+		"  codex:",
+		"    secret_id: arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:openclaw/codex-api-key",
 		"infra:",
 		"  instance_id: i-0123456789abcdef0",
 		"slack:",
@@ -81,11 +83,20 @@ func TestRunSlackDeployWorkflowInstallsAgentService(t *testing.T) {
 		t.Fatalf("WriteFile(key) error = %v", err)
 	}
 
+	originalLoadAPIKey := codexauth.LoadAPIKeyFunc
+	codexauth.LoadAPIKeyFunc = func(ctx context.Context, profile, region, secretID string) (string, error) {
+		if secretID != "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:openclaw/codex-api-key" {
+			t.Fatalf("secretID = %q, want configured secret", secretID)
+		}
+		return "sk-secret", nil
+	}
+	defer func() { codexauth.LoadAPIKeyFunc = originalLoadAPIKey }()
+
 	exec := &slackDeployExecutor{
-		codexAvailable: true,
 		results: map[string]host.CommandResult{
-			"true": {},
-			"sh -lc command -v codex >/dev/null 2>&1":                                                                    {},
+			"true":                               {},
+			"test -x /opt/openclaw/bin/openclaw": {},
+			"command -v codex":                   {},
 			"sudo mkdir -p /opt/openclaw/agents/alpha":                                                                   {},
 			"sudo chown -R ubuntu:ubuntu /opt/openclaw/agents/alpha":                                                     {},
 			"sudo mv /opt/openclaw/agents/alpha/openclaw-slack.service /etc/systemd/system/openclaw-slack-alpha.service": {},
@@ -116,7 +127,7 @@ func TestRunSlackDeployWorkflowInstallsAgentService(t *testing.T) {
 		SSHKey:     keyPath,
 		SSHPort:    22,
 		WorkingDir: "/opt/openclaw",
-	})
+	}, newProgressRenderer(io.Discard))
 	if err != nil {
 		t.Fatalf("runSlackDeployWorkflow() error = %v", err)
 	}
@@ -132,15 +143,25 @@ func TestRunSlackDeployWorkflowInstallsAgentService(t *testing.T) {
 	if exec.uploads[1].remote != "/opt/openclaw/agents/alpha/.env" {
 		t.Fatalf("env upload remote = %q, want agent env path", exec.uploads[1].remote)
 	}
+	if !strings.Contains(exec.contents["/opt/openclaw/agents/alpha/.env"], "OPENAI_API_KEY=sk-secret") {
+		t.Fatalf("env upload contents = %q, want OPENAI_API_KEY from secret", exec.contents["/opt/openclaw/agents/alpha/.env"])
+	}
 	if exec.uploads[2].remote != "/opt/openclaw/agents/alpha/openclaw-slack.service" {
 		t.Fatalf("unit upload remote = %q, want staged service path", exec.uploads[2].remote)
+	}
+	unitContents := exec.contents["/opt/openclaw/agents/alpha/openclaw-slack.service"]
+	if !strings.Contains(unitContents, "ExecStart=/opt/openclaw/bin/openclaw slack serve --config /opt/openclaw/agents/alpha/config.yaml") {
+		t.Fatalf("unit upload contents = %q, want host-based slack serve command", unitContents)
+	}
+	if !strings.Contains(unitContents, "User=ubuntu") {
+		t.Fatalf("unit upload contents = %q, want unit to run as ubuntu", unitContents)
 	}
 	if _, ok := exec.results["sudo systemctl enable --now openclaw-slack-alpha.service"]; !ok {
 		t.Fatal("expected slack service enable command to be executed")
 	}
 }
 
-func TestRunSlackDeployWorkflowInstallsCodexCLIWhenMissing(t *testing.T) {
+func TestRunSlackDeployWorkflowInstallsHostService(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "agents", "alpha", "config.yaml")
 	envPath := filepath.Join(dir, "agents", "alpha", ".env")
@@ -163,6 +184,7 @@ func TestRunSlackDeployWorkflowInstallsCodexCLIWhenMissing(t *testing.T) {
 	if err := os.WriteFile(envPath, []byte(strings.Join([]string{
 		"SLACK_BOT_TOKEN=xoxb-agent-token",
 		"SLACK_APP_TOKEN=xapp-agent-token",
+		"OPENAI_API_KEY=sk-env-key",
 		"",
 	}, "\n")), 0o600); err != nil {
 		t.Fatalf("WriteFile(env) error = %v", err)
@@ -174,8 +196,9 @@ func TestRunSlackDeployWorkflowInstallsCodexCLIWhenMissing(t *testing.T) {
 
 	exec := &slackDeployExecutor{
 		results: map[string]host.CommandResult{
-			"true":                                  {},
-			"sh -lc command -v npm >/dev/null 2>&1": {},
+			"true":                               {},
+			"test -x /opt/openclaw/bin/openclaw": {},
+			"command -v codex":                   {},
 			"sudo mkdir -p /opt/openclaw/agents/alpha":                                                                   {},
 			"sudo chown -R ubuntu:ubuntu /opt/openclaw/agents/alpha":                                                     {},
 			"sudo mv /opt/openclaw/agents/alpha/openclaw-slack.service /etc/systemd/system/openclaw-slack-alpha.service": {},
@@ -183,7 +206,6 @@ func TestRunSlackDeployWorkflowInstallsCodexCLIWhenMissing(t *testing.T) {
 			"sudo systemctl daemon-reload":                                                                               {},
 			"sudo systemctl enable --now openclaw-slack-alpha.service":                                                   {},
 		},
-		codexAvailable: false,
 	}
 
 	originalNewSSHExecutor := newSSHExecutor
@@ -204,15 +226,25 @@ func TestRunSlackDeployWorkflowInstallsCodexCLIWhenMissing(t *testing.T) {
 		SSHKey:     keyPath,
 		SSHPort:    22,
 		WorkingDir: "/opt/openclaw",
-	})
+	}, newProgressRenderer(io.Discard))
 	if err != nil {
 		t.Fatalf("runSlackDeployWorkflow() error = %v", err)
 	}
 	if resolvedTarget != "203.0.113.10" {
 		t.Fatalf("resolvedTarget = %q, want 203.0.113.10", resolvedTarget)
 	}
-	if !exec.codexAvailable {
-		t.Fatal("expected codex to be installed during deploy")
+	if len(exec.uploads) != 3 {
+		t.Fatalf("uploads = %#v, want 3", exec.uploads)
+	}
+	if exec.uploads[2].remote != "/opt/openclaw/agents/alpha/openclaw-slack.service" {
+		t.Fatalf("unit upload remote = %q, want staged service path", exec.uploads[2].remote)
+	}
+	unitContents := exec.contents["/opt/openclaw/agents/alpha/openclaw-slack.service"]
+	if !strings.Contains(unitContents, "ExecStart=/opt/openclaw/bin/openclaw slack serve --config /opt/openclaw/agents/alpha/config.yaml") {
+		t.Fatalf("unit upload contents = %q, want host-based slack serve command", unitContents)
+	}
+	if !strings.Contains(unitContents, "User=ubuntu") {
+		t.Fatalf("unit upload contents = %q, want unit to run as ubuntu", unitContents)
 	}
 }
 
