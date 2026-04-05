@@ -4,12 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/term"
 )
 
 type stageRunner interface {
@@ -87,12 +84,4 @@ func (p *progressRenderer) clearLine() {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 	fmt.Fprint(p.out, "\r\033[2K")
-}
-
-func isTerminalWriter(w io.Writer) bool {
-	file, ok := w.(*os.File)
-	if !ok {
-		return false
-	}
-	return term.IsTerminal(int(file.Fd()))
 }

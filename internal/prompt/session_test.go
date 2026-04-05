@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 )
@@ -122,5 +123,75 @@ func TestRenderMenuClearsPreviousLinesBeforeRedraw(t *testing.T) {
 	}
 	if !strings.Contains(got, "> gcp") {
 		t.Fatalf("rendered output = %q, want selected option marker", got)
+	}
+}
+
+func TestFinishMenuSelectionStartsNextPromptOnFreshLine(t *testing.T) {
+	out := &bytes.Buffer{}
+
+	finishMenuSelection(out)
+
+	if got := out.String(); got != "\r\033[2K\n" {
+		t.Fatalf("finishMenuSelection() output = %q, want carriage-return clear and newline", got)
+	}
+}
+
+func TestCanUseCursorMenuFallsBackWhenSearchHelpWouldWrap(t *testing.T) {
+	oldIsTerminalFile := isTerminalFileFunc
+	oldTerminalSize := terminalSizeFunc
+	isTerminalFileFunc = func(*os.File) bool { return true }
+	terminalSizeFunc = func(*os.File) (int, int, error) { return 40, 24, nil }
+	t.Cleanup(func() {
+		isTerminalFileFunc = oldIsTerminalFile
+		terminalSizeFunc = oldTerminalSize
+	})
+
+	inFile, err := os.CreateTemp(t.TempDir(), "prompt-in-*")
+	if err != nil {
+		t.Fatalf("CreateTemp(in) error = %v", err)
+	}
+	defer inFile.Close()
+	outFile, err := os.CreateTemp(t.TempDir(), "prompt-out-*")
+	if err != nil {
+		t.Fatalf("CreateTemp(out) error = %v", err)
+	}
+	defer outFile.Close()
+
+	session := NewSession(strings.NewReader(""), &bytes.Buffer{})
+	session.inFile = inFile
+	session.outFile = outFile
+
+	if got := session.canUseCursorMenu("Select instance type", []string{"t3.small", "t3.xlarge"}, "t3.xlarge", true); got {
+		t.Fatal("canUseCursorMenu() = true, want false when the search help line would wrap")
+	}
+}
+
+func TestCanUseCursorMenuAllowsWideMenus(t *testing.T) {
+	oldIsTerminalFile := isTerminalFileFunc
+	oldTerminalSize := terminalSizeFunc
+	isTerminalFileFunc = func(*os.File) bool { return true }
+	terminalSizeFunc = func(*os.File) (int, int, error) { return 120, 24, nil }
+	t.Cleanup(func() {
+		isTerminalFileFunc = oldIsTerminalFile
+		terminalSizeFunc = oldTerminalSize
+	})
+
+	inFile, err := os.CreateTemp(t.TempDir(), "prompt-in-*")
+	if err != nil {
+		t.Fatalf("CreateTemp(in) error = %v", err)
+	}
+	defer inFile.Close()
+	outFile, err := os.CreateTemp(t.TempDir(), "prompt-out-*")
+	if err != nil {
+		t.Fatalf("CreateTemp(out) error = %v", err)
+	}
+	defer outFile.Close()
+
+	session := NewSession(strings.NewReader(""), &bytes.Buffer{})
+	session.inFile = inFile
+	session.outFile = outFile
+
+	if got := session.canUseCursorMenu("Select instance type", []string{"t3.small", "t3.xlarge"}, "t3.xlarge", true); !got {
+		t.Fatal("canUseCursorMenu() = false, want true on a wide terminal")
 	}
 }

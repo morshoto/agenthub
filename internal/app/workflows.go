@@ -106,84 +106,127 @@ type verifyOptions struct {
 	RuntimeConfigPath string
 }
 
-func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opts createOptions) (*provider.Instance, error) {
+type createGroupedStageRunner interface {
+	stageRunner
+	RunGroup(ctx context.Context, group, title string, fn func(context.Context) error) error
+}
+
+func runCreateStage(progress stageRunner, ctx context.Context, group, title string, fn func(context.Context) error) error {
+	if progress == nil {
+		return fn(ctx)
+	}
+	if grouped, ok := progress.(createGroupedStageRunner); ok {
+		return grouped.RunGroup(ctx, group, title, fn)
+	}
+	return progress.Run(ctx, title, fn)
+}
+
+func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opts createOptions, progress stageRunner) (*provider.Instance, error) {
 	if cfg == nil {
 		return nil, errors.New("config is required")
 	}
 
-	inputs, err := buildTerraformInputs(ctx, profile, cfg, opts)
-	if err != nil {
+	var inputs terraformInputs
+	var adviser provider.CloudProvider
+	var image provider.BaseImage
+	var instanceType string
+	if err := runCreateStage(progress, ctx, "Infrastructure", "resolve provisioning inputs", func(runCtx context.Context) error {
+		var err error
+		inputs, err = buildTerraformInputs(runCtx, profile, cfg, opts)
+		if err != nil {
+			return err
+		}
+		adviser = newAWSProvider(profile, cfg.Compute.Class)
+		if _, err := adviser.CheckAuth(runCtx); err != nil {
+			return fmt.Errorf("aws auth check failed: %w", err)
+		}
+		image, err = resolveInfraImage(runCtx, adviser, cfg)
+		if err != nil {
+			return err
+		}
+		instanceType = strings.TrimSpace(cfg.Instance.Type)
+		if instanceType == "" {
+			recs, recErr := adviser.RecommendInstanceTypes(runCtx, cfg.Region.Name, cfg.Compute.Class)
+			if recErr != nil {
+				return recErr
+			}
+			if len(recs) == 0 {
+				return errors.New("no recommended instance types available")
+			}
+			instanceType = recs[0].Name
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
-	adviser := newAWSProvider(profile, cfg.Compute.Class)
-	if _, err := adviser.CheckAuth(ctx); err != nil {
-		return nil, fmt.Errorf("aws auth check failed: %w", err)
-	}
-	image, err := resolveInfraImage(ctx, adviser, cfg)
-	if err != nil {
-		return nil, err
-	}
-	instanceType := strings.TrimSpace(cfg.Instance.Type)
-	if instanceType == "" {
-		recs, recErr := adviser.RecommendInstanceTypes(ctx, cfg.Region.Name, cfg.Compute.Class)
-		if recErr != nil {
-			return nil, recErr
+	workdir := ""
+	var varsPath string
+	var backend infratf.InfraBackend
+	var output *infratf.InfraOutput
+	if err := runCreateStage(progress, ctx, "Infrastructure", "prepare terraform", func(runCtx context.Context) error {
+		var err error
+		workdir, err = prepareTerraformWorkdir()
+		if err != nil {
+			return err
 		}
-		if len(recs) == 0 {
-			return nil, errors.New("no recommended instance types available")
+		varsPath, err = writeTerraformVars(workdir, terraformVars{
+			Region:           cfg.Region.Name,
+			ComputeClass:     config.EffectiveComputeClass(cfg.Compute.Class),
+			InstanceType:     instanceType,
+			DiskSizeGB:       cfg.Instance.DiskSizeGB,
+			NetworkMode:      inputs.NetworkMode,
+			ImageID:          image.ID,
+			RuntimePort:      inputs.RuntimePort,
+			RuntimeCIDR:      inputs.RuntimeCIDR,
+			RuntimeProvider:  inputs.RuntimeProvider,
+			SSHKeyName:       inputs.SSHKeyName,
+			SSHPublicKey:     inputs.SSHPublicKey,
+			GitHubPrivateKey: inputs.GitHubPrivateKey,
+			SSHCIDR:          inputs.SSHCIDR,
+			SSHUser:          inputs.SSHUser,
+			NamePrefix:       "agenthub",
+			UseNemoClaw:      cfg.Sandbox.UseNemoClaw,
+			NIMEndpoint:      cfg.Runtime.Endpoint,
+			Model:            cfg.Runtime.Model,
+			SourceURL:        inputs.SourceURL,
+		})
+		if err != nil {
+			return err
 		}
-		instanceType = recs[0].Name
-	}
-
-	workdir, err := prepareTerraformWorkdir()
-	if err != nil {
+		backend, err = newTerraformBackend(profile, cfg)
+		if err != nil {
+			return err
+		}
+		if err := backend.Init(runCtx, workdir); err != nil {
+			return err
+		}
+		if err := backend.Plan(runCtx, workdir, varsPath); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		if workdir != "" {
+			defer os.RemoveAll(workdir)
+		}
 		return nil, err
 	}
 	defer os.RemoveAll(workdir)
 
-	varsPath, err := writeTerraformVars(workdir, terraformVars{
-		Region:           cfg.Region.Name,
-		ComputeClass:     config.EffectiveComputeClass(cfg.Compute.Class),
-		InstanceType:     instanceType,
-		DiskSizeGB:       cfg.Instance.DiskSizeGB,
-		NetworkMode:      inputs.NetworkMode,
-		ImageID:          image.ID,
-		RuntimePort:      inputs.RuntimePort,
-		RuntimeCIDR:      inputs.RuntimeCIDR,
-		RuntimeProvider:  inputs.RuntimeProvider,
-		SSHKeyName:       inputs.SSHKeyName,
-		SSHPublicKey:     inputs.SSHPublicKey,
-		GitHubPrivateKey: inputs.GitHubPrivateKey,
-		SSHCIDR:          inputs.SSHCIDR,
-		SSHUser:          inputs.SSHUser,
-		NamePrefix:       "agenthub",
-		UseNemoClaw:      cfg.Sandbox.UseNemoClaw,
-		NIMEndpoint:      cfg.Runtime.Endpoint,
-		Model:            cfg.Runtime.Model,
-		SourceURL:        inputs.SourceURL,
-	})
-	if err != nil {
+	if err := runCreateStage(progress, ctx, "Infrastructure", "apply terraform", func(runCtx context.Context) error {
+		if err := backend.Apply(runCtx, workdir, varsPath); err != nil {
+			return err
+		}
+		var outErr error
+		output, outErr = backend.Output(runCtx, workdir)
+		if outErr != nil {
+			return outErr
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
-	backend, err := newTerraformBackend(profile, cfg)
-	if err != nil {
-		return nil, err
-	}
-	if err := backend.Init(ctx, workdir); err != nil {
-		return nil, err
-	}
-	if err := backend.Plan(ctx, workdir, varsPath); err != nil {
-		return nil, err
-	}
-	if err := backend.Apply(ctx, workdir, varsPath); err != nil {
-		return nil, err
-	}
-	output, err := backend.Output(ctx, workdir)
-	if err != nil {
-		return nil, err
-	}
 	return infraOutputToInstance(output, inputs.NetworkMode, inputs.SSHUser, image), nil
 }
 
@@ -354,11 +397,7 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 	}
 
 	var instance *provider.Instance
-	if err = progress.Run(ctx, "provisioning infrastructure", func(runCtx context.Context) error {
-		var err error
-		instance, err = runInfraCreate(runCtx, profile, cfg, opts)
-		return err
-	}); err != nil {
+	if instance, err = runInfraCreate(ctx, profile, cfg, opts, progress); err != nil {
 		return instance, runtimeinstall.Result{}, verify.Report{}, err
 	}
 	if instance != nil {
@@ -377,14 +416,14 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 		WorkingDir: "/opt/agenthub",
 		ConfigPath: "/opt/agenthub/runtime.yaml",
 	}
-	if err = progress.Run(ctx, "waiting for bootstrap", func(runCtx context.Context) error {
+	if err = runCreateStage(progress, ctx, "Access", "waiting for bootstrap", func(runCtx context.Context) error {
 		return waitForBootstrapReady(runCtx, cfg, target, opts.SSHUser, opts.SSHKey, opts.SSHPort, os.Stdout)
 	}); err != nil {
 		return instance, installResult, verify.Report{}, err
 	}
 
 	var resolvedTarget string
-	if err = progress.Run(ctx, "installing runtime", func(runCtx context.Context) error {
+	if err = runCreateStage(progress, ctx, "Runtime", "installing runtime", func(runCtx context.Context) error {
 		var err error
 		installResult, resolvedTarget, err = runInstallWorkflow(runCtx, profile, cfg, installOptions{
 			Target:            target,
@@ -406,7 +445,7 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 	}
 
 	var verifyReport verify.Report
-	if err = progress.Run(ctx, "verifying runtime", func(runCtx context.Context) error {
+	if err = runCreateStage(progress, ctx, "Runtime", "verifying runtime", func(runCtx context.Context) error {
 		var err error
 		verifyReport, _, err = runVerifyWorkflow(runCtx, profile, cfg, verifyOptions{
 			Target:            resolvedTarget,
@@ -868,42 +907,56 @@ func instanceTarget(instance *provider.Instance) string {
 	return strings.TrimSpace(instance.PrivateIP)
 }
 
-func printWorkflowSuccess(out io.Writer, instance *provider.Instance, installResult runtimeinstall.Result, verifyReport verify.Report, cfgPath string, cfg *config.Config, target string, createMode bool) {
+func printWorkflowSuccess(out io.Writer, instance *provider.Instance, installResult runtimeinstall.Result, verifyReport verify.Report, cfgPath string, cfg *config.Config, target string, elapsed time.Duration, createMode bool) {
+	if elapsed > 0 {
+		fmt.Fprintf(out, "Provisioning complete in %s\n\n", formatProgressDuration(elapsed))
+	}
+	fmt.Fprintln(out, "Created")
 	if instance != nil {
 		printCreatedInstance(out, instance)
+	} else {
+		fmt.Fprintln(out, "- instance: not available")
 	}
 	if strings.TrimSpace(target) != "" {
-		fmt.Fprintf(out, "connection target: %s\n", target)
+		fmt.Fprintf(out, "- connection target: %s\n", target)
 	}
 	if url := runtimeHealthURL(instance, cfg); strings.TrimSpace(url) != "" {
-		fmt.Fprintf(out, "health url: %s\n", url)
+		fmt.Fprintf(out, "- health url: %s\n", url)
 	}
 	if url := runtimeInvokeURL(instance, cfg); strings.TrimSpace(url) != "" {
-		fmt.Fprintf(out, "invoke url: %s\n", url)
+		fmt.Fprintf(out, "- invoke url: %s\n", url)
 	}
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Configured")
 	if strings.TrimSpace(installResult.WorkingDir) != "" {
-		fmt.Fprintf(out, "working directory: %s\n", installResult.WorkingDir)
+		fmt.Fprintf(out, "- working directory: %s\n", installResult.WorkingDir)
 	}
 	if strings.TrimSpace(installResult.ConfigPath) != "" {
-		fmt.Fprintf(out, "runtime config: %s\n", installResult.ConfigPath)
+		fmt.Fprintf(out, "- runtime config: %s\n", installResult.ConfigPath)
 	}
 	if len(verifyReport.Checks) > 0 {
+		fmt.Fprintln(out, "- verification summary:")
 		printVerificationReport(out, verifyReport)
 	}
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Next")
 	if strings.TrimSpace(cfgPath) != "" && strings.TrimSpace(target) != "" {
-		fmt.Fprintf(out, "verify command example: %s\n", commandRef(out, "agenthub", "verify", "--config", cfgPath, "--target", target))
+		fmt.Fprintf(out, "- verify: %s\n", commandRef(out, "agenthub", "verify", "--config", cfgPath, "--target", target))
 	}
 	if createMode && strings.TrimSpace(cfgPath) != "" && strings.TrimSpace(target) != "" && strings.TrimSpace(installResult.ServicePath) != "" {
-		fmt.Fprintf(out, "install command example: %s\n", commandRef(out, "agenthub", "install", "--config", cfgPath, "--target", target))
+		fmt.Fprintf(out, "- install: %s\n", commandRef(out, "agenthub", "install", "--config", cfgPath, "--target", target))
 	}
 	if createMode && cfg != nil && strings.EqualFold(strings.TrimSpace(cfg.Runtime.Provider), "codex") && strings.TrimSpace(cfgPath) != "" {
 		if strings.TrimSpace(cfg.Infra.InstanceID) != "" {
-			fmt.Fprintf(out, "slack deploy example: %s\n", commandRef(out, "agenthub", "slack", "deploy", "--config", cfgPath))
+			fmt.Fprintf(out, "- slack deploy: %s\n", commandRef(out, "agenthub", "slack", "deploy", "--config", cfgPath))
 		} else if strings.TrimSpace(target) != "" {
-			fmt.Fprintf(out, "slack deploy example: %s\n", commandRef(out, "agenthub", "slack", "deploy", "--config", cfgPath, "--target", target))
+			fmt.Fprintf(out, "- slack deploy: %s\n", commandRef(out, "agenthub", "slack", "deploy", "--config", cfgPath, "--target", target))
 		}
 	}
-	fmt.Fprintln(out, "next step: keep the runtime config and SSH target handy for future verify runs")
+	if createMode {
+		fmt.Fprintln(out, "- destroy: terraform -chdir=infra/aws/ec2 destroy -var-file=terraform.tfvars")
+	}
+	fmt.Fprintln(out, "- keep the runtime config and SSH target handy for future verify runs")
 }
 
 func runtimeBaseURL(instance *provider.Instance, cfg *config.Config) string {

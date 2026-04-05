@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/term"
 )
@@ -31,6 +32,10 @@ type Session struct {
 	inFile      *os.File
 	outFile     *os.File
 	Interactive bool
+}
+
+var terminalSizeFunc = func(f *os.File) (int, int, error) {
+	return term.GetSize(int(f.Fd()))
 }
 
 func NewSession(in io.Reader, out io.Writer) *Session {
@@ -65,7 +70,7 @@ func (s *Session) Select(label string, options []string, defaultValue string) (s
 		return "", fmt.Errorf("%s: no options available", label)
 	}
 
-	if s.canUseCursorMenu() {
+	if s.canUseCursorMenu(label, options, defaultValue, false) {
 		selected, err := s.selectWithCursor(label, options, defaultValue)
 		switch {
 		case err == nil:
@@ -86,7 +91,7 @@ func (s *Session) SelectSearch(label string, options []string, defaultValue stri
 		return "", fmt.Errorf("%s: no options available", label)
 	}
 
-	if s.canUseCursorMenu() {
+	if s.canUseCursorMenu(label, options, defaultValue, true) {
 		selected, err := s.selectWithSearchCursor(label, options, defaultValue)
 		switch {
 		case err == nil:
@@ -248,4 +253,8 @@ func (s *Session) style(code, text string) string {
 		return text
 	}
 	return code + text + ansiReset
+}
+
+func visibleWidth(text string) int {
+	return utf8.RuneCountInString(text)
 }

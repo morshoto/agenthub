@@ -2,7 +2,7 @@
 
 package prompt
 
-func (s *Session) canUseCursorMenu() bool {
+func (s *Session) canUseCursorMenu(label string, options []string, defaultValue string, search bool) bool {
 	return false
 }
 

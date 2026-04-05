@@ -31,8 +31,38 @@ type menuKey struct {
 	ch    rune
 }
 
-func (s *Session) canUseCursorMenu() bool {
-	return s.inFile != nil && s.outFile != nil && isTerminalFile(s.inFile) && isTerminalFile(s.outFile)
+func (s *Session) canUseCursorMenu(label string, options []string, defaultValue string, search bool) bool {
+	if s.inFile == nil || s.outFile == nil || !isTerminalFile(s.inFile) || !isTerminalFile(s.outFile) {
+		return false
+	}
+
+	width, _, err := terminalSizeFunc(s.outFile)
+	if err != nil || width <= 0 {
+		return false
+	}
+	if visibleWidth(label) > width {
+		return false
+	}
+
+	if search {
+		if visibleWidth("Type to filter, Backspace to edit, Enter to select") > width {
+			return false
+		}
+		if visibleWidth("Search: ") > width {
+			return false
+		}
+	}
+
+	for _, option := range options {
+		lineWidth := 2 + visibleWidth(option)
+		if option == defaultValue {
+			lineWidth += visibleWidth(" (default)")
+		}
+		if lineWidth > width {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Session) selectWithCursor(label string, options []string, defaultValue string) (string, error) {
@@ -75,7 +105,7 @@ func (s *Session) selectWithCursor(label string, options []string, defaultValue 
 		case menuKeyBackspace:
 		case menuKeyChar:
 		case menuKeyEnter:
-			fmt.Fprintln(s.out)
+			finishMenuSelection(s.out)
 			return options[selected], nil
 		case menuKeyInterrupt:
 			return "", errors.New("prompt interrupted")
@@ -135,7 +165,7 @@ func (s *Session) selectWithSearchCursor(label string, options []string, default
 			if len(filtered) == 0 {
 				continue
 			}
-			fmt.Fprintln(s.out)
+			finishMenuSelection(s.out)
 			return filtered[selected], nil
 		case menuKeyInterrupt:
 			return "", errors.New("prompt interrupted")
@@ -386,7 +416,15 @@ func writeMenuLine(out io.Writer, text string) {
 	fmt.Fprintf(out, "\r\033[2K%s\n", text)
 }
 
+func finishMenuSelection(out io.Writer) {
+	fmt.Fprint(out, "\r\033[2K\n")
+}
+
 func isTerminalFile(f *os.File) bool {
+	return isTerminalFileFunc(f)
+}
+
+var isTerminalFileFunc = func(f *os.File) bool {
 	info, err := f.Stat()
 	if err != nil {
 		return false

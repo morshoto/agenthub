@@ -39,6 +39,33 @@ func NewWizard(prompter *prompt.Session, out io.Writer, factory func(platform, c
 }
 
 func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
+	compact := func(parts ...string) string {
+		filtered := make([]string, 0, len(parts))
+		for _, part := range parts {
+			if value := strings.TrimSpace(part); value != "" {
+				filtered = append(filtered, value)
+			}
+		}
+		if len(filtered) == 0 {
+			return "-"
+		}
+		return strings.Join(filtered, " / ")
+	}
+	render := func(phase string, step int, current string, agentName, platform, computeClass, region, instanceSummary, accessSummary, runtimeSummary, reviewSummary string, accessPending, runtimePending bool) {
+		items := []wizardProgressItem{
+			{Label: "Agent name", Value: agentName},
+			{Label: "Platform", Value: platform},
+			{Label: "Compute mode", Value: computeClass},
+			{Label: "Region", Value: region},
+			{Label: "Instance", Value: instanceSummary},
+			{Label: "Access", Value: accessSummary},
+			{Label: "Runtime", Value: runtimeSummary},
+			{Label: "Review", Value: reviewSummary},
+		}
+		renderWizardProgress(w.Out, phase, "Agent setup", step, 8, current, items)
+	}
+
+	render("Setup", 1, "Agent name", "", "", "", "", "", "", "", "", false, false)
 	agentName, err := w.Prompter.Text("Agent name", defaultAgentName())
 	if err != nil {
 		return nil, err
@@ -49,6 +76,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	}
 	w.AgentName = agentName
 
+	render("Setup", 2, "Platform", agentName, "", "", "", "", "", "", "", false, false)
 	platform, err := w.Prompter.Select("Select platform", []string{"aws", "gcp", "azure"}, config.PlatformAWS)
 	if err != nil {
 		return nil, err
@@ -58,6 +86,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	}
 
 	computeClass := defaultComputeClass(w.Existing)
+	render("Setup", 3, "Compute mode", agentName, platform, computeClass, "", "", "", "", "", false, false)
 	computeClass, err = w.Prompter.Select("Select compute mode", []string{config.ComputeClassCPU, config.ComputeClassGPU}, computeClass)
 	if err != nil {
 		return nil, err
@@ -71,9 +100,9 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if profile == "" {
 		return nil, errors.New("AWS profile is required")
 	}
-	fmt.Fprintf(w.Out, "Using AWS profile: %s\n", profile)
 	if prompted {
-		fmt.Fprintf(w.Out, "If this profile uses AWS SSO, run `aws sso login --profile %s` now.\n", profile)
+		fmt.Fprintf(w.Out, "! This profile uses AWS SSO\n")
+		fmt.Fprintf(w.Out, "Run `aws sso login --profile %s` if needed\n", profile)
 		ready, err := w.Prompter.Confirm("Continue after AWS SSO login", true)
 		if err != nil {
 			return nil, err
@@ -108,6 +137,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if w.Existing != nil && strings.TrimSpace(w.Existing.Region.Name) != "" && slices.Contains(regions, w.Existing.Region.Name) {
 		regionDefault = w.Existing.Region.Name
 	}
+	render("Environment check", 4, "Region", agentName, platform, computeClass, "", "", "", "", "", false, false)
 	region, err := w.Prompter.Select("Select AWS region", regions, regionDefault)
 	if err != nil {
 		return nil, err
@@ -121,6 +151,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	render("Environment check", 5, "Instance", agentName, platform, computeClass, region, "", "", "", "", false, false)
 	instanceType, err := w.Prompter.SelectSearch("Select instance type", instanceTypes, defaultInstanceType(computeClass))
 	if err != nil {
 		return nil, err
@@ -131,16 +162,19 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		fmt.Fprintln(w.Out, "Warning: AWS image lookup unavailable; using bundled fallback images.")
 		images = fallbackAWSBaseImages(region, computeClass)
 	}
+	render("Environment check", 5, "Instance", agentName, platform, computeClass, region, compact(instanceType), "", "", "", false, false)
 	image, err := selectBaseImage(w.Prompter, images)
 	if err != nil {
 		return nil, err
 	}
 
+	render("Environment check", 5, "Instance", agentName, platform, computeClass, region, compact(instanceType, image.Name), "", "", "", false, false)
 	diskSize, err := w.Prompter.Int("Enter disk size (GB)", 20)
 	if err != nil {
 		return nil, err
 	}
 
+	render("Environment check", 6, "Access", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), "", "", "", false, false)
 	networkMode, err := w.Prompter.Select("Select network mode", []string{"private", "public"}, defaultNetworkMode(computeClass))
 	if err != nil {
 		return nil, err
@@ -161,6 +195,8 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if sshKeyName == "" {
 		sshKeyName = defaultSSHKeyName()
 	}
+	accessSummary := networkMode
+	render("Environment check", 6, "Access", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), accessSummary, "", "", networkMode == "public", false)
 	if networkMode == "public" {
 		sshKeyName, err = w.Prompter.Text("SSH key pair name", sshKeyName)
 		if err != nil {
@@ -187,9 +223,17 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		if err != nil {
 			return nil, err
 		}
+		accessSummary = compact(networkMode, sshKeyName, sshCIDR, sshUser)
+	} else {
+		sshKeyName = ""
+		sshPrivateKeyPath = ""
+		sshCIDR = ""
+		sshUser = ""
+		accessSummary = networkMode
 	}
 
 	if w.GitHubSetup != nil {
+		render("Environment check", 6, "Access", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), compact(networkMode, sshKeyName, sshCIDR, sshUser), "", "", false, false)
 		connectGitHub, err := w.Prompter.Confirm("Authenticate Git with your GitHub credentials?", true)
 		if err != nil {
 			return nil, err
@@ -206,6 +250,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		return nil, err
 	}
 
+	render("Environment check", 7, "Runtime", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), compact(networkMode, sshKeyName, sshCIDR, sshUser), "", "", false, false)
 	runtimeProvider, err := w.Prompter.Select("Select model provider", runtimeProviderOptions(), defaultRuntimeProvider(w.Existing))
 	if err != nil {
 		return nil, err
@@ -228,6 +273,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 
 	nimEndpoint := ""
 	if runtimeProvider != "aws-bedrock" {
+		render("Environment check", 7, "Runtime", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), accessSummary, runtimeProvider, "", false, false)
 		nimEndpoint, err = w.Prompter.Text("NIM endpoint", defaultEndpoint(computeClass))
 		if err != nil {
 			return nil, err
@@ -271,49 +317,51 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		},
 	}
 
-	fmt.Fprintln(w.Out, "")
-	fmt.Fprintln(w.Out, "Summary")
-	fmt.Fprintln(w.Out, "-------")
-	fmt.Fprintf(w.Out, "platform: %s\n", cfg.Platform.Name)
-	fmt.Fprintf(w.Out, "region: %s\n", cfg.Region.Name)
-	fmt.Fprintf(w.Out, "instance: %s\n", cfg.Instance.Type)
-	fmt.Fprintf(w.Out, "image: %s\n", cfg.Image.Name)
-	if cfg.Image.ID != "" {
-		fmt.Fprintf(w.Out, "image id: %s\n", cfg.Image.ID)
-	}
-	fmt.Fprintf(w.Out, "disk size: %d GB\n", cfg.Instance.DiskSizeGB)
-	fmt.Fprintf(w.Out, "network mode: %s\n", cfg.Sandbox.NetworkMode)
+	reviewSummary := compact(
+		cfg.Platform.Name,
+		cfg.Region.Name,
+		cfg.Instance.Type,
+		cfg.Image.Name,
+		fmt.Sprintf("%d GB", cfg.Instance.DiskSizeGB),
+		cfg.Sandbox.NetworkMode,
+		cfg.Runtime.Provider,
+	)
+	render("Review configuration", 8, "Review", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), compact(networkMode, sshKeyName, sshCIDR, sshUser), compact(runtimeProvider, nimEndpoint, model), reviewSummary, false, false)
+
+	renderWizardPhase(w.Out, "Review configuration")
+	fmt.Fprintln(w.Out, "Advanced details")
+	fmt.Fprintf(w.Out, "- image: %s\n", valueOrDash(cfg.Image.Name))
+	fmt.Fprintf(w.Out, "- image id: %s\n", valueOrDash(image.ID))
+	fmt.Fprintf(w.Out, "- disk size: %d GB\n", cfg.Instance.DiskSizeGB)
+	fmt.Fprintf(w.Out, "- infra backend: %s\n", cfg.Infra.Backend)
+	fmt.Fprintf(w.Out, "- terraform module: %s\n", cfg.Infra.ModuleDir)
+	fmt.Fprintf(w.Out, "- use NemoClaw: %t\n", cfg.Sandbox.UseNemoClaw)
 	if strings.TrimSpace(cfg.SSH.KeyName) != "" {
-		fmt.Fprintf(w.Out, "ssh key pair: %s\n", cfg.SSH.KeyName)
+		fmt.Fprintf(w.Out, "- ssh key pair: %s\n", cfg.SSH.KeyName)
 	}
 	if strings.TrimSpace(cfg.SSH.PrivateKeyPath) != "" {
-		fmt.Fprintf(w.Out, "ssh private key: %s\n", cfg.SSH.PrivateKeyPath)
+		fmt.Fprintf(w.Out, "- ssh private key: %s\n", cfg.SSH.PrivateKeyPath)
 	}
 	if strings.TrimSpace(cfg.SSH.CIDR) != "" {
-		fmt.Fprintf(w.Out, "ssh cidr: %s\n", cfg.SSH.CIDR)
-	}
-	if strings.TrimSpace(cfg.Runtime.PublicCIDR) != "" {
-		fmt.Fprintf(w.Out, "runtime cidr: %s\n", cfg.Runtime.PublicCIDR)
+		fmt.Fprintf(w.Out, "- ssh cidr: %s\n", cfg.SSH.CIDR)
 	}
 	if strings.TrimSpace(cfg.SSH.User) != "" {
-		fmt.Fprintf(w.Out, "ssh user: %s\n", cfg.SSH.User)
+		fmt.Fprintf(w.Out, "- ssh user: %s\n", cfg.SSH.User)
 	}
-	fmt.Fprintf(w.Out, "infra backend: %s\n", cfg.Infra.Backend)
-	fmt.Fprintf(w.Out, "terraform module: %s\n", cfg.Infra.ModuleDir)
-	fmt.Fprintf(w.Out, "agent name: %s\n", agentName)
-	fmt.Fprintf(w.Out, "use NemoClaw: %t\n", cfg.Sandbox.UseNemoClaw)
-	fmt.Fprintf(w.Out, "runtime provider: %s\n", cfg.Runtime.Provider)
-	if cfg.Runtime.Provider == "codex" {
-		fmt.Fprintf(w.Out, "codex auth: browser login or existing local auth\n")
-	}
-	if cfg.Runtime.Provider == "aws-bedrock" {
-		fmt.Fprintf(w.Out, "bedrock auth: uses instance role\n")
+	if strings.TrimSpace(cfg.Runtime.PublicCIDR) != "" {
+		fmt.Fprintf(w.Out, "- runtime cidr: %s\n", cfg.Runtime.PublicCIDR)
 	}
 	if strings.TrimSpace(cfg.Runtime.Endpoint) != "" {
-		fmt.Fprintf(w.Out, "NIM endpoint: %s\n", cfg.Runtime.Endpoint)
+		fmt.Fprintf(w.Out, "- NIM endpoint: %s\n", cfg.Runtime.Endpoint)
 	}
 	if strings.TrimSpace(cfg.Runtime.Model) != "" {
-		fmt.Fprintf(w.Out, "model: %s\n", cfg.Runtime.Model)
+		fmt.Fprintf(w.Out, "- model: %s\n", cfg.Runtime.Model)
+	}
+	if cfg.Runtime.Provider == "codex" {
+		fmt.Fprintln(w.Out, "- codex auth: browser login or existing local auth")
+	}
+	if cfg.Runtime.Provider == "aws-bedrock" {
+		fmt.Fprintln(w.Out, "- bedrock auth: uses instance role")
 	}
 
 	confirm, err := w.Prompter.Confirm("Write this configuration", true)
