@@ -664,6 +664,9 @@ func (c *codexRuntime) Generate(ctx context.Context, prompt string) (string, err
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
+		if authErr := codexAuthError(msg, err); authErr != nil {
+			return "", authErr
+		}
 		if msg != "" {
 			return "", fmt.Errorf("codex exec failed: %s: %w", msg, err)
 		}
@@ -695,4 +698,17 @@ func (s *Service) logf(format string, args ...any) {
 		return
 	}
 	fmt.Fprintf(s.out, "%s\n", fmt.Sprintf(format, args...))
+}
+
+func codexAuthError(output string, err error) error {
+	lower := strings.ToLower(strings.TrimSpace(output) + " " + err.Error())
+	switch {
+	case strings.Contains(lower, "401 unauthorized"),
+		strings.Contains(lower, "missing bearer or basic authentication"),
+		strings.Contains(lower, "not authenticated"),
+		strings.Contains(lower, "unauthenticated"):
+		return errors.New("codex authentication is missing or expired on the EC2 host; run `sudo -u ubuntu openclaw onboard --auth-choice openai-codex` or refresh the OPENAI_API_KEY for the host user")
+	default:
+		return nil
+	}
 }

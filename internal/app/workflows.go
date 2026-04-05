@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -611,9 +612,31 @@ func resolveHostTarget(ctx context.Context, profile string, cfg *config.Config, 
 				return instance.PrivateIP, nil
 			}
 		}
+		if fallback := hostFromRuntimeURL(cfg); fallback != "" {
+			return fallback, nil
+		}
 		return "", fmt.Errorf("instance %s does not expose an SSH-reachable address", target)
 	}
 	return target, nil
+}
+
+func hostFromRuntimeURL(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(cfg.Slack.RuntimeURL)
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	host := strings.TrimSpace(parsed.Hostname())
+	if host != "" {
+		return host
+	}
+	return strings.TrimSpace(parsed.Host)
 }
 
 func resolveVerifyTarget(ctx context.Context, profile string, cfg *config.Config, target string) (string, error) {
@@ -872,6 +895,13 @@ func printWorkflowSuccess(out io.Writer, instance *provider.Instance, installRes
 	}
 	if createMode && strings.TrimSpace(cfgPath) != "" && strings.TrimSpace(target) != "" && strings.TrimSpace(installResult.ServicePath) != "" {
 		fmt.Fprintf(out, "install command example: %s\n", commandRef(out, "openclaw", "install", "--config", cfgPath, "--target", target))
+	}
+	if createMode && cfg != nil && strings.EqualFold(strings.TrimSpace(cfg.Runtime.Provider), "codex") && strings.TrimSpace(cfgPath) != "" {
+		if strings.TrimSpace(cfg.Infra.InstanceID) != "" {
+			fmt.Fprintf(out, "slack deploy example: %s\n", commandRef(out, "openclaw", "slack", "deploy", "--config", cfgPath))
+		} else if strings.TrimSpace(target) != "" {
+			fmt.Fprintf(out, "slack deploy example: %s\n", commandRef(out, "openclaw", "slack", "deploy", "--config", cfgPath, "--target", target))
+		}
 	}
 	fmt.Fprintln(out, "next step: keep the runtime config and SSH target handy for future verify runs")
 }

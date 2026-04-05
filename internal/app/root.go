@@ -206,6 +206,7 @@ func newInitCommand(app *App) *cobra.Command {
 					"run "+commandRef(cmd.OutOrStdout(), "openclaw", "create", "--config", configPath)+" once the host is ready",
 				)
 			}
+			cfg.Infra.InstanceID = strings.TrimSpace(instance.ID)
 			cfg.Slack.RuntimeURL = runtimeBaseURL(instance, cfg)
 			if err := config.Save(configPath, cfg); err != nil {
 				return err
@@ -236,6 +237,8 @@ func newSlackCommand(app *App) *cobra.Command {
 		Short:   "Run Slack integration commands",
 		GroupID: "integrations",
 	}
+	cmd.AddGroup(&cobra.Group{ID: "integrations", Title: "Integrations"})
+	cmd.AddCommand(newSlackDeployCommand(app))
 	cmd.AddCommand(newSlackServeCommand(app))
 	return cmd
 }

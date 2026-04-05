@@ -99,6 +99,16 @@ func TestRuntimeClientGenerate(t *testing.T) {
 	}
 }
 
+func TestCodexAuthErrorClassifies401Unauthorized(t *testing.T) {
+	err := codexAuthError("unexpected status 401 Unauthorized: Missing bearer or basic authentication in header", context.Canceled)
+	if err == nil {
+		t.Fatal("codexAuthError() error = nil")
+	}
+	if !strings.Contains(err.Error(), "authentication is missing or expired") {
+		t.Fatalf("error = %v, want auth-specific message", err)
+	}
+}
+
 func TestServiceRepliesToAppMentionAndTracksConversation(t *testing.T) {
 	runtime := &fakeRuntime{reply: "hello"}
 	poster := &fakePoster{}

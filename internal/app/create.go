@@ -90,6 +90,7 @@ func newCreateCommand(app *App) *cobra.Command {
 					"re-run the failed stage directly once the host is ready",
 				)
 			}
+			cfg.Infra.InstanceID = strings.TrimSpace(instance.ID)
 			cfg.Slack.RuntimeURL = runtimeBaseURL(instance, cfg)
 			if err := config.Save(configPath, cfg); err != nil {
 				return err

@@ -347,6 +347,26 @@ func TestResolveSSHCIDRAutoDetectsPublicIP(t *testing.T) {
 	}
 }
 
+func TestResolveHostTargetFallsBackToRuntimeURLHost(t *testing.T) {
+	original := newAWSProvider
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+		return runtimeURLFallbackCloudProvider{}
+	}
+	defer func() { newAWSProvider = original }()
+
+	cfg := &config.Config{
+		Region: config.RegionConfig{Name: "ap-northeast-1"},
+		Slack:  config.SlackConfig{RuntimeURL: "http://203.0.113.10:8080"},
+	}
+	target, err := resolveHostTarget(context.Background(), "dev", cfg, "i-0123456789abcdef0")
+	if err != nil {
+		t.Fatalf("resolveHostTarget() error = %v", err)
+	}
+	if target != "203.0.113.10" {
+		t.Fatalf("target = %q, want 203.0.113.10", target)
+	}
+}
+
 func TestInstallCommandRunsWorkflowAgainstResolvedInstance(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()
@@ -1496,6 +1516,20 @@ func (c cleanupTrackingCloudProvider) DeleteInstance(ctx context.Context, region
 		c.onDelete(region, instanceID)
 	}
 	return nil
+}
+
+type runtimeURLFallbackCloudProvider struct {
+	stubCloudProvider
+}
+
+func (p runtimeURLFallbackCloudProvider) GetInstance(ctx context.Context, region, instanceID string) (*provider.Instance, error) {
+	return &provider.Instance{
+		ID:        instanceID,
+		Name:      instanceID,
+		Region:    region,
+		PublicIP:  "",
+		PrivateIP: "",
+	}, nil
 }
 
 type fakeTerraformBackend struct {
