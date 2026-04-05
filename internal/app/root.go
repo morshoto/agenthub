@@ -195,7 +195,7 @@ func newInitCommand(app *App) *cobra.Command {
 
 			logger := loggerFromContext(cmd.Context())
 			logger.Info("starting init provision flow")
-			progress := newProgressRenderer(cmd.OutOrStdout())
+			progress := newCreateProgressRenderer(cmd.OutOrStdout())
 			instance, installResult, verifyReport, err := runCreateWorkflow(cmd.Context(), app.opts.Profile, cfg, createOptions{}, progress)
 			if err != nil {
 				return wrapUserFacingError(

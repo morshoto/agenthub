@@ -869,41 +869,49 @@ func instanceTarget(instance *provider.Instance) string {
 }
 
 func printWorkflowSuccess(out io.Writer, instance *provider.Instance, installResult runtimeinstall.Result, verifyReport verify.Report, cfgPath string, cfg *config.Config, target string, createMode bool) {
+	fmt.Fprintln(out, "Created")
 	if instance != nil {
 		printCreatedInstance(out, instance)
+	} else {
+		fmt.Fprintln(out, "- instance: not available")
 	}
 	if strings.TrimSpace(target) != "" {
-		fmt.Fprintf(out, "connection target: %s\n", target)
+		fmt.Fprintf(out, "- connection target: %s\n", target)
 	}
 	if url := runtimeHealthURL(instance, cfg); strings.TrimSpace(url) != "" {
-		fmt.Fprintf(out, "health url: %s\n", url)
+		fmt.Fprintf(out, "- health url: %s\n", url)
 	}
 	if url := runtimeInvokeURL(instance, cfg); strings.TrimSpace(url) != "" {
-		fmt.Fprintf(out, "invoke url: %s\n", url)
+		fmt.Fprintf(out, "- invoke url: %s\n", url)
 	}
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Configured")
 	if strings.TrimSpace(installResult.WorkingDir) != "" {
-		fmt.Fprintf(out, "working directory: %s\n", installResult.WorkingDir)
+		fmt.Fprintf(out, "- working directory: %s\n", installResult.WorkingDir)
 	}
 	if strings.TrimSpace(installResult.ConfigPath) != "" {
-		fmt.Fprintf(out, "runtime config: %s\n", installResult.ConfigPath)
+		fmt.Fprintf(out, "- runtime config: %s\n", installResult.ConfigPath)
 	}
 	if len(verifyReport.Checks) > 0 {
+		fmt.Fprintln(out, "- verification summary:")
 		printVerificationReport(out, verifyReport)
 	}
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, "Next")
 	if strings.TrimSpace(cfgPath) != "" && strings.TrimSpace(target) != "" {
-		fmt.Fprintf(out, "verify command example: %s\n", commandRef(out, "agenthub", "verify", "--config", cfgPath, "--target", target))
+		fmt.Fprintf(out, "- verify: %s\n", commandRef(out, "agenthub", "verify", "--config", cfgPath, "--target", target))
 	}
 	if createMode && strings.TrimSpace(cfgPath) != "" && strings.TrimSpace(target) != "" && strings.TrimSpace(installResult.ServicePath) != "" {
-		fmt.Fprintf(out, "install command example: %s\n", commandRef(out, "agenthub", "install", "--config", cfgPath, "--target", target))
+		fmt.Fprintf(out, "- install: %s\n", commandRef(out, "agenthub", "install", "--config", cfgPath, "--target", target))
 	}
 	if createMode && cfg != nil && strings.EqualFold(strings.TrimSpace(cfg.Runtime.Provider), "codex") && strings.TrimSpace(cfgPath) != "" {
 		if strings.TrimSpace(cfg.Infra.InstanceID) != "" {
-			fmt.Fprintf(out, "slack deploy example: %s\n", commandRef(out, "agenthub", "slack", "deploy", "--config", cfgPath))
+			fmt.Fprintf(out, "- slack deploy: %s\n", commandRef(out, "agenthub", "slack", "deploy", "--config", cfgPath))
 		} else if strings.TrimSpace(target) != "" {
-			fmt.Fprintf(out, "slack deploy example: %s\n", commandRef(out, "agenthub", "slack", "deploy", "--config", cfgPath, "--target", target))
+			fmt.Fprintf(out, "- slack deploy: %s\n", commandRef(out, "agenthub", "slack", "deploy", "--config", cfgPath, "--target", target))
 		}
 	}
-	fmt.Fprintln(out, "next step: keep the runtime config and SSH target handy for future verify runs")
+	fmt.Fprintln(out, "- keep the runtime config and SSH target handy for future verify runs")
 }
 
 func runtimeBaseURL(instance *provider.Instance, cfg *config.Config) string {

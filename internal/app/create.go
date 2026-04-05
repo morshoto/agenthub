@@ -69,7 +69,7 @@ func newCreateCommand(app *App) *cobra.Command {
 
 			logger := loggerFromContext(cmd.Context())
 			logger.Info("starting create workflow")
-			progress := newProgressRenderer(cmd.OutOrStdout())
+			progress := newCreateProgressRenderer(cmd.OutOrStdout())
 			instance, installResult, verifyReport, err := runCreateWorkflow(cmd.Context(), profile, cfg, createOptions{
 				SSHKeyName:      sshKeyName,
 				SSHCIDR:         effectiveSSHCIDR,
