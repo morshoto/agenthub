@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -32,6 +34,8 @@ type Config struct {
 	BotToken        string
 	AppToken        string
 	RuntimeURL      string
+	Provider        string
+	Model           string
 	BotUserID       string
 	AllowedChannels []string
 	RequestTimeout  time.Duration
@@ -253,6 +257,9 @@ func Run(ctx context.Context, cfg Config, out io.Writer) error {
 	}
 
 	fmt.Fprintln(out, "ok starting Slack adapter")
+	if strings.EqualFold(strings.TrimSpace(cfg.Provider), "codex") {
+		fmt.Fprintln(out, "ok using local Codex CLI for replies")
+	}
 
 	api := slack.New(
 		cfg.BotToken,
@@ -276,17 +283,32 @@ func Run(ctx context.Context, cfg Config, out io.Writer) error {
 		botUserID = strings.TrimSpace(auth.UserID)
 	}
 
-	runtimeClient, err := NewRuntimeClient(cfg.RuntimeURL, cfg.RequestTimeout)
-	if err != nil {
-		return err
+	var runtime runtimeGenerator
+	var err error
+	if strings.EqualFold(strings.TrimSpace(cfg.Provider), "codex") {
+		runtime, err = newCodexRuntime(cfg.Model, cfg.RequestTimeout)
+		if err != nil {
+			return err
+		}
+	} else {
+		runtime, err = NewRuntimeClient(cfg.RuntimeURL, cfg.RequestTimeout)
+		if err != nil {
+			return err
+		}
 	}
 
-	service := NewService(runtimeClient, slackPoster{client: api}, botUserID, cfg.AllowedChannels, cfg.RequestTimeout, out)
+	service := NewService(runtime, slackPoster{client: api}, botUserID, cfg.AllowedChannels, cfg.RequestTimeout, out)
 	client := socketmode.New(api, socketmode.OptionDebug(cfg.Debug))
 
 	fmt.Fprintf(out, "ok connecting to Slack Socket Mode\n")
 	fmt.Fprintf(out, "listening for app mentions, DMs, and slash commands\n")
-	fmt.Fprintf(out, "runtime url: %s\n", cfg.RuntimeURL)
+	if strings.EqualFold(strings.TrimSpace(cfg.Provider), "codex") {
+		if strings.TrimSpace(cfg.Model) != "" {
+			fmt.Fprintf(out, "codex model: %s\n", strings.TrimSpace(cfg.Model))
+		}
+	} else {
+		fmt.Fprintf(out, "runtime url: %s\n", cfg.RuntimeURL)
+	}
 	if len(cfg.AllowedChannels) > 0 {
 		fmt.Fprintf(out, "allowed channels: %s\n", strings.Join(cfg.AllowedChannels, ", "))
 	}
@@ -345,10 +367,12 @@ func Run(ctx context.Context, cfg Config, out io.Writer) error {
 }
 
 func normalizeConfig(cfg Config) Config {
+	cfg.Provider = strings.TrimSpace(cfg.Provider)
+	cfg.Model = strings.TrimSpace(cfg.Model)
 	if strings.TrimSpace(cfg.RuntimeURL) == "" {
 		cfg.RuntimeURL = os.Getenv("OPENCLAW_RUNTIME_URL")
 	}
-	if strings.TrimSpace(cfg.RuntimeURL) == "" {
+	if strings.TrimSpace(cfg.RuntimeURL) == "" && !strings.EqualFold(cfg.Provider, "codex") {
 		cfg.RuntimeURL = defaultRuntimeURL
 	}
 	if strings.TrimSpace(cfg.BotToken) == "" {
@@ -379,7 +403,7 @@ func validateConfig(cfg Config) error {
 	if strings.TrimSpace(cfg.AppToken) == "" {
 		missing = append(missing, "slack app token")
 	}
-	if strings.TrimSpace(cfg.RuntimeURL) == "" {
+	if strings.TrimSpace(cfg.RuntimeURL) == "" && !strings.EqualFold(strings.TrimSpace(cfg.Provider), "codex") {
 		missing = append(missing, "runtime url")
 	}
 	if len(missing) > 0 {
@@ -392,9 +416,11 @@ func validateConfig(cfg Config) error {
 	if !strings.HasPrefix(strings.TrimSpace(cfg.AppToken), "xapp-") {
 		return errors.New("slack app token must start with xapp-")
 	}
-	parsed, err := url.Parse(strings.TrimSpace(cfg.RuntimeURL))
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return fmt.Errorf("runtime url %q must include a scheme and host", cfg.RuntimeURL)
+	if !strings.EqualFold(strings.TrimSpace(cfg.Provider), "codex") {
+		parsed, err := url.Parse(strings.TrimSpace(cfg.RuntimeURL))
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			return fmt.Errorf("runtime url %q must include a scheme and host", cfg.RuntimeURL)
+		}
 	}
 	return nil
 }
@@ -584,6 +610,75 @@ func splitAndTrim(value, sep string) []string {
 		}
 	}
 	return out
+}
+
+type codexRuntime struct {
+	model   string
+	timeout time.Duration
+}
+
+func newCodexRuntime(model string, timeout time.Duration) (runtimeGenerator, error) {
+	if _, err := exec.LookPath("codex"); err != nil {
+		return nil, fmt.Errorf("codex CLI is required for codex provider replies: %w", err)
+	}
+	if timeout <= 0 {
+		timeout = defaultRequestTimeout
+	}
+	return &codexRuntime{
+		model:   strings.TrimSpace(model),
+		timeout: timeout,
+	}, nil
+}
+
+func (c *codexRuntime) Generate(ctx context.Context, prompt string) (string, error) {
+	if c == nil {
+		return "", errors.New("codex runtime is required")
+	}
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return "", errors.New("prompt is required")
+	}
+
+	tmpDir, err := os.MkdirTemp("", "openclaw-codex-*")
+	if err != nil {
+		return "", fmt.Errorf("create codex output workspace: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	outputPath := filepath.Join(tmpDir, "last-message.txt")
+	args := []string{
+		"exec",
+		"--ephemeral",
+		"--skip-git-repo-check",
+		"--full-auto",
+		"--output-last-message",
+		outputPath,
+	}
+	if c.model != "" {
+		args = append(args, "--model", c.model)
+	}
+	args = append(args, "-")
+
+	cmd := exec.CommandContext(ctx, "codex", args...)
+	cmd.Stdin = strings.NewReader(prompt)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return "", fmt.Errorf("codex exec failed: %s: %w", msg, err)
+		}
+		return "", fmt.Errorf("codex exec failed: %w", err)
+	}
+
+	data, err := os.ReadFile(outputPath)
+	if err != nil {
+		return "", fmt.Errorf("read codex output: %w", err)
+	}
+	reply := strings.TrimSpace(string(data))
+	if reply == "" {
+		return "", errors.New("codex returned an empty response")
+	}
+	return reply, nil
 }
 
 func firstWriter(writers ...io.Writer) io.Writer {

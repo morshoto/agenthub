@@ -22,6 +22,8 @@ func TestSlackServeLoadsAgentEnvFile(t *testing.T) {
 	}
 	if err := os.WriteFile(configPath, []byte(strings.Join([]string{
 		"runtime:",
+		"  provider: codex",
+		"  model: codex-pro",
 		"  endpoint: http://localhost:11434",
 		"slack:",
 		"  runtime_url: http://agent-runtime.example.com",
@@ -74,6 +76,12 @@ func TestSlackServeLoadsAgentEnvFile(t *testing.T) {
 	}
 	if got.RuntimeURL != "http://agent-runtime.example.com" {
 		t.Fatalf("runtime url = %q, want agent runtime url", got.RuntimeURL)
+	}
+	if got.Provider != "codex" {
+		t.Fatalf("provider = %q, want codex", got.Provider)
+	}
+	if got.Model != "codex-pro" {
+		t.Fatalf("model = %q, want codex-pro", got.Model)
 	}
 	if got.BotUserID != "UAGENT" {
 		t.Fatalf("bot user id = %q, want UAGENT", got.BotUserID)

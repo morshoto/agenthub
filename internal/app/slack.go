@@ -60,6 +60,8 @@ func newSlackServeCommand(app *App) *cobra.Command {
 
 			cfg := slackbot.Config{
 				RuntimeURL:      firstNonEmpty(runtimeURL, slackRuntimeURL, os.Getenv("OPENCLAW_RUNTIME_URL")),
+				Provider:        agentCfg.Runtime.Provider,
+				Model:           agentCfg.Runtime.Model,
 				BotToken:        firstNonEmpty(botToken, fileValue("SLACK_BOT_TOKEN"), os.Getenv("SLACK_BOT_TOKEN")),
 				AppToken:        firstNonEmpty(appToken, fileValue("SLACK_APP_TOKEN"), os.Getenv("SLACK_APP_TOKEN")),
 				BotUserID:       firstNonEmpty(botUserID, slackBotUserID, fileValue("SLACK_BOT_USER_ID"), os.Getenv("SLACK_BOT_USER_ID")),
@@ -68,11 +70,17 @@ func newSlackServeCommand(app *App) *cobra.Command {
 				Debug:           debug || app.opts.Debug,
 			}
 			if err := runSlackAdapter(cmd.Context(), cfg, cmd.OutOrStdout()); err != nil {
+				details := "the Slack app token, bot token, or runtime URL is misconfigured"
+				nextStep := fmt.Sprintf("check %s for tokens or edit %s (slack.runtime_url) for the runtime URL", envPathForMessage(agentEnvPath), configPath)
+				if strings.EqualFold(strings.TrimSpace(agentCfg.Runtime.Provider), "codex") {
+					details = "the Slack app token, bot token, or codex CLI setup is misconfigured"
+					nextStep = fmt.Sprintf("check %s for tokens and confirm the `codex` CLI is installed", envPathForMessage(agentEnvPath))
+				}
 				return wrapUserFacingError(
 					"slack adapter failed",
 					err,
-					"the Slack app token, bot token, or runtime URL is misconfigured",
-					fmt.Sprintf("check %s for tokens or edit %s (slack.runtime_url) for the runtime URL", envPathForMessage(agentEnvPath), configPath),
+					details,
+					nextStep,
 					"confirm the runtime server is reachable from the adapter host",
 				)
 			}
