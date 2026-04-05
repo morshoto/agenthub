@@ -45,7 +45,7 @@ This command resolves the active AWS profile, derives the SSH public key from th
 				return err
 			}
 
-			vars, err := buildTerraformVars(cmd.Context(), profile, cfg)
+			vars, err := buildTerraformVars(cmd.Context(), profile, cfg, agentNameFromConfigPath(app.opts.ConfigPath))
 			if err != nil {
 				return err
 			}
@@ -118,9 +118,9 @@ func selectAWSProfile(ctx context.Context, in io.Reader, out io.Writer, existing
 	return strings.TrimSpace(value), nil
 }
 
-func buildTerraformVars(ctx context.Context, profile string, cfg *config.Config) (terraformVars, error) {
+func buildTerraformVars(ctx context.Context, profile string, cfg *config.Config, agentName string) (terraformVars, error) {
 	inputs, err := buildTerraformInputs(ctx, profile, cfg, createOptions{
-		AgentName: agentNameFromConfigPath(app.opts.ConfigPath),
+		AgentName: agentName,
 	})
 	if err != nil {
 		return terraformVars{}, err
