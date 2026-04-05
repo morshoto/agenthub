@@ -10,10 +10,3 @@
 <!-- open -->
 
 <!-- close -->
-
-## Screenshots
-
-<!-- It would be easier to review if you could attach screenshots or .gif files.！ -->
-<!-- open -->
-
-<!-- close -->
