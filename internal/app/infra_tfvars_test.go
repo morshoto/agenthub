@@ -22,12 +22,6 @@ func TestInfraTFVarsCommandWritesTerraformVars(t *testing.T) {
 	}
 	defer func() { deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey }()
 
-	originalReadGitHubPrivateKey := readGitHubPrivateKeyFunc
-	readGitHubPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
-		return "-----BEGIN OPENSSH PRIVATE KEY-----\nTEST-GITHUB-KEY\n-----END OPENSSH PRIVATE KEY-----", nil
-	}
-	defer func() { readGitHubPrivateKeyFunc = originalReadGitHubPrivateKey }()
-
 	dir := t.TempDir()
 	output := filepath.Join(dir, "terraform.tfvars")
 	keyPath := filepath.Join(dir, "id_ed25519")
@@ -56,6 +50,11 @@ sandbox:
   enabled: true
   network_mode: public
   use_nemoclaw: true
+github:
+  auth_mode: app
+  app_id: "123456"
+  installation_id: "789012"
+  private_key_secret_arn: arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-app-private-key
 ssh:
   key_name: demo-key
   private_key_path: `+keyPath+`
@@ -93,7 +92,8 @@ ssh:
 	mustContainTerraformAssignment(t, body, "runtime_provider", `""`)
 	mustContainTerraformAssignment(t, body, "ssh_key_name", `"demo-key"`)
 	mustContainTerraformAssignment(t, body, "ssh_public_key", `"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITfvarsTestKey agenthub"`)
-	mustContainTerraformAssignment(t, body, "github_private_key", `"-----BEGIN OPENSSH PRIVATE KEY-----\nTEST-GITHUB-KEY\n-----END OPENSSH PRIVATE KEY-----"`)
+	mustContainTerraformAssignment(t, body, "github_private_key_secret_arn", `"arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-app-private-key"`)
+	mustContainTerraformAssignment(t, body, "github_token_secret_arn", `""`)
 	mustContainTerraformAssignment(t, body, "ssh_cidr", `"203.0.113.0/24"`)
 	mustContainTerraformAssignment(t, body, "ssh_user", `"ubuntu"`)
 	mustContainTerraformAssignment(t, body, "name_prefix", `"agenthub"`)
@@ -105,6 +105,75 @@ ssh:
 	if !strings.Contains(stdout.String(), "terraform variables written to") {
 		t.Fatalf("stdout = %q, want success message", stdout.String())
 	}
+}
+
+func TestInfraTFVarsCommandWritesGitHubTokenSecretARN(t *testing.T) {
+	originalResolveSourceArchiveURL := resolveSourceArchiveURLFunc
+	resolveSourceArchiveURLFunc = func(ctx context.Context, profile, region string) (string, string, error) {
+		return "https://example.com/agenthub-bootstrap.tar.gz", "test-sha", nil
+	}
+	defer func() { resolveSourceArchiveURLFunc = originalResolveSourceArchiveURL }()
+
+	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
+	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITfvarsTestKey agenthub", nil
+	}
+	defer func() { deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey }()
+
+	dir := t.TempDir()
+	output := filepath.Join(dir, "terraform.tfvars")
+	keyPath := filepath.Join(dir, "id_ed25519")
+	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
+		t.Fatalf("WriteFile(keyPath) error = %v", err)
+	}
+	configPath := filepath.Join(dir, "agenthub.yaml")
+	writeConfig(t, configPath, `
+platform:
+  name: aws
+region:
+  name: ap-northeast-1
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+  network_mode: public
+image:
+  name: Ubuntu 22.04 LTS
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: true
+  network_mode: public
+github:
+  auth_mode: user
+  token_secret_arn: arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-token
+ssh:
+  key_name: demo-key
+  private_key_path: `+keyPath+`
+  cidr: 203.0.113.0/24
+  user: ubuntu
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "--config", configPath, "infra", "tfvars", "--output", output}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	body := string(data)
+	mustContainTerraformAssignment(t, body, "github_private_key_secret_arn", `""`)
+	mustContainTerraformAssignment(t, body, "github_token_secret_arn", `"arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-token"`)
 }
 
 func TestInfraTFVarsCommandWritesAWSProfile(t *testing.T) {
@@ -119,12 +188,6 @@ func TestInfraTFVarsCommandWritesAWSProfile(t *testing.T) {
 		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITfvarsTestKey agenthub", nil
 	}
 	defer func() { deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey }()
-
-	originalReadGitHubPrivateKey := readGitHubPrivateKeyFunc
-	readGitHubPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
-		return "-----BEGIN OPENSSH PRIVATE KEY-----\nTEST-GITHUB-KEY\n-----END OPENSSH PRIVATE KEY-----", nil
-	}
-	defer func() { readGitHubPrivateKeyFunc = originalReadGitHubPrivateKey }()
 
 	dir := t.TempDir()
 	output := filepath.Join(dir, "terraform.tfvars")

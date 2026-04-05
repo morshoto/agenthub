@@ -144,10 +144,11 @@ func TestWizardWarnsAndContinuesWhenQuotaInsufficient(t *testing.T) {
 		"1", // base image
 		"20",
 		"1",
-		"y",
-		"1",
-		"http://localhost:11434",
-		"y",
+		"",
+		"",
+		"",
+		"",
+		"",
 	}, "\n") + "\n"
 
 	quotaUsage := 1
@@ -195,10 +196,11 @@ func TestWizardFallsBackToBundledLookupsWhenAWSDataIsUnavailable(t *testing.T) {
 		"1", // base image
 		"20",
 		"1",
-		"y",
-		"1",
-		"http://localhost:11434",
-		"y",
+		"",
+		"",
+		"",
+		"",
+		"",
 	}, "\n") + "\n"
 
 	out := &bytes.Buffer{}
@@ -247,10 +249,11 @@ func TestWizardWarnsAndContinuesWhenQuotaCheckUnavailable(t *testing.T) {
 		"1", // base image
 		"20",
 		"1",
-		"y",
-		"1",
-		"http://localhost:11434",
-		"y",
+		"",
+		"",
+		"",
+		"",
+		"",
 	}, "\n") + "\n"
 
 	out := &bytes.Buffer{}
@@ -289,10 +292,11 @@ func TestWizardFallsBackToBundledImagesWhenSSMIsUnavailable(t *testing.T) {
 		"1", // bundled fallback image
 		"20",
 		"1",
-		"y",
-		"1",
-		"http://localhost:11434",
-		"y",
+		"",
+		"",
+		"",
+		"",
+		"",
 	}, "\n") + "\n"
 
 	out := &bytes.Buffer{}
@@ -343,10 +347,11 @@ func TestWizardFallsBackToBundledImagesWhenImageLookupFails(t *testing.T) {
 		"1", // bundled fallback image
 		"20",
 		"1",
-		"y",
-		"1",
-		"http://localhost:11434",
-		"y",
+		"",
+		"",
+		"",
+		"",
+		"",
 	}, "\n") + "\n"
 
 	out := &bytes.Buffer{}
@@ -384,6 +389,95 @@ func TestWizardFallsBackToBundledImagesWhenImageLookupFails(t *testing.T) {
 	}
 	if got := out.String(); !strings.Contains(got, "Warning: AWS image lookup unavailable; using bundled fallback images.") {
 		t.Fatalf("output = %q, want image lookup warning", got)
+	}
+}
+
+func TestWizardConfiguresGitHubUserAuthFromRepoOrigin(t *testing.T) {
+	originalRemote := gitRemoteOriginURLFunc
+	originalToken := runGitHubAuthTokenFunc
+	originalLogin := runGitHubAuthLoginFunc
+	originalStore := storeGitHubTokenFunc
+	defer func() {
+		gitRemoteOriginURLFunc = originalRemote
+		runGitHubAuthTokenFunc = originalToken
+		runGitHubAuthLoginFunc = originalLogin
+		storeGitHubTokenFunc = originalStore
+	}()
+
+	gitRemoteOriginURLFunc = func(ctx context.Context) (string, error) {
+		return "git@github.com:owner/repo.git", nil
+	}
+	runGitHubAuthTokenFunc = func(ctx context.Context) (string, error) {
+		return "gho_test_token", nil
+	}
+	runGitHubAuthLoginFunc = func(ctx context.Context) error {
+		t.Fatal("runGitHubAuthLoginFunc should not be called when a token is already available")
+		return nil
+	}
+	var storedProfile, storedRegion, storedSecretName, storedToken string
+	storeGitHubTokenFunc = func(ctx context.Context, profile, region, secretName, token string) (string, error) {
+		storedProfile, storedRegion, storedSecretName, storedToken = profile, region, secretName, token
+		return "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-token/owner/repo", nil
+	}
+
+	input := strings.Join([]string{
+		"alpha",
+		"1", // platform aws
+		"",  // accept default GPU compute mode
+		"1", // region
+		"",  // accept default instance type
+		"1", // base image
+		"20",
+		"1",
+		"y",
+		"1",
+		"y", // configure GitHub access
+		"1", // select user auth
+		"y", // use NemoClaw
+		"1", // provider codex
+		"http://localhost:11434",
+		"y", // confirm summary
+	}, "\n") + "\n"
+
+	out := &bytes.Buffer{}
+	wizard := NewWizard(
+		prompt.NewSession(strings.NewReader(input), out),
+		out,
+		func(platform, computeClass string) provider.CloudProvider {
+			return fakeProvider{
+				regions: []string{"us-east-1", "us-west-2"},
+				report: provider.GPUQuotaReport{
+					Region:          "us-east-1",
+					InstanceFamily:  "g5",
+					LikelyCreatable: true,
+				},
+			}
+		},
+		&config.Config{},
+	)
+	wizard.AWSProfile = "sso-dev"
+
+	cfg, err := wizard.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if cfg.GitHub.AuthMode != config.GitHubAuthModeUser {
+		t.Fatalf("GitHub.AuthMode = %q, want %q", cfg.GitHub.AuthMode, config.GitHubAuthModeUser)
+	}
+	if cfg.GitHub.TokenSecretARN == "" {
+		t.Fatal("GitHub.TokenSecretARN = empty, want value")
+	}
+	if storedProfile != "sso-dev" || storedRegion != "us-east-1" {
+		t.Fatalf("store profile/region = %q/%q, want sso-dev/us-east-1", storedProfile, storedRegion)
+	}
+	if storedSecretName != "agenthub/github-token/owner/repo" {
+		t.Fatalf("store secret name = %q, want agenthub/github-token/owner/repo", storedSecretName)
+	}
+	if storedToken != "gho_test_token" {
+		t.Fatalf("store token = %q, want gho_test_token", storedToken)
+	}
+	if !strings.Contains(out.String(), "detected GitHub repo candidate: owner/repo") {
+		t.Fatalf("output = %q, want repo candidate", out.String())
 	}
 }
 

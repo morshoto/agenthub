@@ -5,7 +5,7 @@ exec > >(tee /var/log/agenthub-bootstrap.log | logger -t agenthub-bootstrap -s 2
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates openssh-client
+apt-get install -y ca-certificates git openssh-client
 
 install -d -m 0755 /opt/agenthub/src
 install -d -m 0755 /opt/agenthub
@@ -15,27 +15,5 @@ chown ubuntu:ubuntu /home/ubuntu/.ssh
 cat > /opt/agenthub/runtime.yaml <<'EOF'
 ${runtime_config_yaml}
 EOF
-
-%{ if trimspace(github_private_key) != "" }
-  cat > /home/ubuntu/.ssh/id_ed25519 <<'EOF'
-${github_private_key}
-EOF
-  chown ubuntu:ubuntu /home/ubuntu/.ssh/id_ed25519
-  chmod 0600 /home/ubuntu/.ssh/id_ed25519
-
-  cat > /home/ubuntu/.ssh/config <<'EOF'
-Host github.com
-  HostName github.com
-  User git
-  IdentityFile ~/.ssh/id_ed25519
-  IdentitiesOnly yes
-EOF
-  chown ubuntu:ubuntu /home/ubuntu/.ssh/config
-  chmod 0600 /home/ubuntu/.ssh/config
-
-  ssh-keyscan github.com >> /home/ubuntu/.ssh/known_hosts
-  chown ubuntu:ubuntu /home/ubuntu/.ssh/known_hosts
-  chmod 0600 /home/ubuntu/.ssh/known_hosts
-%{ endif }
 
 touch /opt/agenthub/bootstrap.done

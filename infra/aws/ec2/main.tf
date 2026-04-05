@@ -45,19 +45,21 @@ data "aws_subnets" "any" {
 }
 
 locals {
-  vpc_id           = length(data.aws_vpcs.default.ids) > 0 ? data.aws_vpcs.default.ids[0] : ""
-  subnet_ids       = length(data.aws_subnets.default_for_az.ids) > 0 ? data.aws_subnets.default_for_az.ids : data.aws_subnets.any.ids
-  subnet_id        = length(local.subnet_ids) > 0 ? local.subnet_ids[0] : ""
-  owner            = trimspace(var.owner)
-  agent_name       = trimspace(var.agent_name)
-  environment      = trimspace(var.environment) != "" ? trimspace(var.environment) : "default"
-  tracking_id      = random_id.suffix.hex
-  instance_name    = "${trimspace(var.name_prefix)}-${local.owner}-${local.agent_name}-${local.environment}-${local.tracking_id}"
-  image_name       = trimspace(var.image_name)
-  image_id         = trimspace(var.image_id)
-  listen_port      = var.runtime_port > 0 ? var.runtime_port : 8080
-  runtime_cidr     = trimspace(var.runtime_cidr) != "" ? trimspace(var.runtime_cidr) : trimspace(var.ssh_cidr)
-  runtime_provider = trimspace(var.runtime_provider)
+  vpc_id              = length(data.aws_vpcs.default.ids) > 0 ? data.aws_vpcs.default.ids[0] : ""
+  subnet_ids          = length(data.aws_subnets.default_for_az.ids) > 0 ? data.aws_subnets.default_for_az.ids : data.aws_subnets.any.ids
+  subnet_id           = length(local.subnet_ids) > 0 ? local.subnet_ids[0] : ""
+  github_secret_arn   = trimspace(var.github_token_secret_arn) != "" ? trimspace(var.github_token_secret_arn) : trimspace(var.github_private_key_secret_arn)
+  github_auth_enabled = local.github_secret_arn != ""
+  owner               = trimspace(var.owner)
+  agent_name          = trimspace(var.agent_name)
+  environment         = trimspace(var.environment) != "" ? trimspace(var.environment) : "default"
+  tracking_id         = random_id.suffix.hex
+  instance_name       = "${trimspace(var.name_prefix)}-${local.owner}-${local.agent_name}-${local.environment}-${local.tracking_id}"
+  image_name          = trimspace(var.image_name)
+  image_id            = trimspace(var.image_id)
+  listen_port         = var.runtime_port > 0 ? var.runtime_port : 8080
+  runtime_cidr        = trimspace(var.runtime_cidr) != "" ? trimspace(var.runtime_cidr) : trimspace(var.ssh_cidr)
+  runtime_provider    = trimspace(var.runtime_provider)
   runtime_config_yaml = yamlencode({
     use_nemoclaw = var.use_nemoclaw
     nim_endpoint = var.nim_endpoint
@@ -76,7 +78,6 @@ locals {
     listen_port         = local.listen_port
     runtime_provider    = local.runtime_provider
     runtime_config_yaml = local.runtime_config_yaml
-    github_private_key  = trimspace(var.github_private_key)
     source_archive_url  = trimspace(var.source_archive_url)
   })
 
@@ -98,7 +99,7 @@ data "aws_ssm_parameter" "dlami_gpu_2204" {
   name  = "/aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id"
 }
 
-data "aws_iam_policy_document" "bedrock_assume_role" {
+data "aws_iam_policy_document" "runtime_assume_role" {
   statement {
     actions = ["sts:AssumeRole"]
     principals {
@@ -108,16 +109,16 @@ data "aws_iam_policy_document" "bedrock_assume_role" {
   }
 }
 
-resource "aws_iam_role" "bedrock" {
-  count              = local.runtime_provider == "aws-bedrock" ? 1 : 0
-  name               = "${var.name_prefix}-${random_id.suffix.hex}-bedrock"
-  assume_role_policy = data.aws_iam_policy_document.bedrock_assume_role.json
+resource "aws_iam_role" "runtime" {
+  count              = local.runtime_provider == "aws-bedrock" || local.github_auth_enabled ? 1 : 0
+  name               = "${var.name_prefix}-${random_id.suffix.hex}-runtime"
+  assume_role_policy = data.aws_iam_policy_document.runtime_assume_role.json
 }
 
 resource "aws_iam_role_policy" "bedrock" {
   count = local.runtime_provider == "aws-bedrock" ? 1 : 0
   name  = "${var.name_prefix}-${random_id.suffix.hex}-bedrock"
-  role  = aws_iam_role.bedrock[0].id
+  role  = aws_iam_role.runtime[0].id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -133,10 +134,27 @@ resource "aws_iam_role_policy" "bedrock" {
   })
 }
 
-resource "aws_iam_instance_profile" "bedrock" {
-  count = local.runtime_provider == "aws-bedrock" ? 1 : 0
-  name  = "${var.name_prefix}-${random_id.suffix.hex}-bedrock"
-  role  = aws_iam_role.bedrock[0].name
+resource "aws_iam_role_policy" "github" {
+  count = local.github_auth_enabled ? 1 : 0
+  name  = "${var.name_prefix}-${random_id.suffix.hex}-github"
+  role  = aws_iam_role.runtime[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "secretsmanager:GetSecretValue",
+      ]
+      Resource = local.github_secret_arn
+    }]
+  })
+}
+
+resource "aws_iam_instance_profile" "runtime" {
+  count = local.runtime_provider == "aws-bedrock" || local.github_auth_enabled ? 1 : 0
+  name  = "${var.name_prefix}-${random_id.suffix.hex}-runtime"
+  role  = aws_iam_role.runtime[0].name
 }
 
 locals {
@@ -198,7 +216,7 @@ resource "aws_instance" "this" {
   subnet_id                   = local.subnet_id
   associate_public_ip_address = var.network_mode == "public"
   vpc_security_group_ids      = [aws_security_group.this.id]
-  iam_instance_profile        = local.runtime_provider == "aws-bedrock" ? aws_iam_instance_profile.bedrock[0].name : null
+  iam_instance_profile        = local.runtime_provider == "aws-bedrock" || local.github_auth_enabled ? aws_iam_instance_profile.runtime[0].name : null
   user_data                   = local.user_data
 
   root_block_device {

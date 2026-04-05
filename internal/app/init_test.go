@@ -22,30 +22,6 @@ func stubGitHubSSHSetup(t *testing.T) {
 		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub", nil
 	}
 	t.Cleanup(func() { deriveSSHPublicKeyFunc = originalDerive })
-
-	originalStatus := runGHAuthStatusFunc
-	runGHAuthStatusFunc = func(ctx context.Context) (bool, error) {
-		return true, nil
-	}
-	t.Cleanup(func() { runGHAuthStatusFunc = originalStatus })
-
-	originalLogin := runGHAuthLoginFunc
-	runGHAuthLoginFunc = func(ctx context.Context) error {
-		return nil
-	}
-	t.Cleanup(func() { runGHAuthLoginFunc = originalLogin })
-
-	originalList := listGHSSHKeysFunc
-	listGHSSHKeysFunc = func(ctx context.Context) ([]string, error) {
-		return []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub"}, nil
-	}
-	t.Cleanup(func() { listGHSSHKeysFunc = originalList })
-
-	originalAdd := addGHSSHKeyFunc
-	addGHSSHKeyFunc = func(ctx context.Context, publicKeyPath string) error {
-		return nil
-	}
-	t.Cleanup(func() { addGHSSHKeyFunc = originalAdd })
 }
 
 func TestInitWritesConfigFile(t *testing.T) {
