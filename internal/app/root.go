@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -196,6 +197,7 @@ func newInitCommand(app *App) *cobra.Command {
 			logger := loggerFromContext(cmd.Context())
 			logger.Info("starting init provision flow")
 			progress := newCreateProgressRenderer(cmd.OutOrStdout())
+			startedAt := time.Now()
 			instance, installResult, verifyReport, err := runCreateWorkflow(cmd.Context(), app.opts.Profile, cfg, createOptions{}, progress)
 			if err != nil {
 				return wrapUserFacingError(
@@ -211,7 +213,7 @@ func newInitCommand(app *App) *cobra.Command {
 			if err := config.Save(configPath, cfg); err != nil {
 				return err
 			}
-			printWorkflowSuccess(cmd.OutOrStdout(), instance, installResult, verifyReport, configPath, cfg, instanceTarget(instance), true)
+			printWorkflowSuccess(cmd.OutOrStdout(), instance, installResult, verifyReport, configPath, cfg, instanceTarget(instance), time.Since(startedAt), true)
 			return nil
 		},
 	}

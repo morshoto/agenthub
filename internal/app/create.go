@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -70,6 +71,7 @@ func newCreateCommand(app *App) *cobra.Command {
 			logger := loggerFromContext(cmd.Context())
 			logger.Info("starting create workflow")
 			progress := newCreateProgressRenderer(cmd.OutOrStdout())
+			startedAt := time.Now()
 			instance, installResult, verifyReport, err := runCreateWorkflow(cmd.Context(), profile, cfg, createOptions{
 				SSHKeyName:      sshKeyName,
 				SSHCIDR:         effectiveSSHCIDR,
@@ -95,7 +97,7 @@ func newCreateCommand(app *App) *cobra.Command {
 			if err := config.Save(configPath, cfg); err != nil {
 				return err
 			}
-			printWorkflowSuccess(cmd.OutOrStdout(), instance, installResult, verifyReport, configPath, cfg, instanceTarget(instance), true)
+			printWorkflowSuccess(cmd.OutOrStdout(), instance, installResult, verifyReport, configPath, cfg, instanceTarget(instance), time.Since(startedAt), true)
 			return nil
 		},
 	}

@@ -124,6 +124,9 @@ func TestInitWritesConfigFile(t *testing.T) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), fragment)
 		}
 	}
+	if strings.Contains(stdout.String(), "Plan:") {
+		t.Fatalf("stdout = %q, want review output without duplicated Plan block", stdout.String())
+	}
 
 	envPath := filepath.Join(agentsDir, "alpha", ".env")
 	envData, err := os.ReadFile(envPath)
@@ -565,6 +568,7 @@ func TestInitFallsBackWhenAWSImageLookupIsPermissionDenied(t *testing.T) {
 	for _, fragment := range []string{
 		"Warning: AWS image lookup unavailable; using bundled fallback images.",
 		"Review configuration",
+		"Advanced details",
 		"image: AWS Deep Learning AMI GPU Ubuntu 22.04",
 	} {
 		if !strings.Contains(got, fragment) {

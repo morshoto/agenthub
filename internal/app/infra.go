@@ -55,7 +55,7 @@ func newInfraCreateCommand(app *App) *cobra.Command {
 			instance, err := runInfraCreate(cmd.Context(), app.opts.Profile, cfg, createOptions{
 				SSHKeyName: effectiveSSHKeyName,
 				SSHCIDR:    effectiveSSHCIDR,
-			})
+			}, nil)
 			printCreatedInstance(cmd.OutOrStdout(), instance)
 			if instance != nil {
 				printSuccessNextSteps(cmd.OutOrStdout(), app.opts.ConfigPath, instanceTarget(instance), true)

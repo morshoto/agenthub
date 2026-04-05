@@ -21,6 +21,7 @@ type createProgressRenderer struct {
 }
 
 type createProgressTask struct {
+	group      string
 	title      string
 	startedAt  time.Time
 	finishedAt time.Time
@@ -36,27 +37,36 @@ func newCreateProgressRenderer(out io.Writer) *createProgressRenderer {
 }
 
 func (r *createProgressRenderer) Run(ctx context.Context, title string, fn func(context.Context) error) error {
+	return r.RunGroup(ctx, "", title, fn)
+}
+
+func (r *createProgressRenderer) RunGroup(ctx context.Context, group, title string, fn func(context.Context) error) error {
 	if r == nil {
 		return fn(ctx)
 	}
 
+	group = strings.TrimSpace(group)
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return fn(ctx)
 	}
 
 	if !r.tty {
-		fmt.Fprintf(r.out, "%s ...\n", title)
+		label := title
+		if group != "" {
+			label = group + ": " + title
+		}
+		fmt.Fprintf(r.out, "%s ...\n", label)
 		err := fn(ctx)
 		if err != nil {
-			fmt.Fprintf(r.out, "failed: %s: %v\n", title, err)
+			fmt.Fprintf(r.out, "failed: %s: %v\n", label, err)
 			return err
 		}
-		fmt.Fprintf(r.out, "done: %s\n", title)
+		fmt.Fprintf(r.out, "done: %s\n", label)
 		return nil
 	}
 
-	task := r.startTask(title)
+	task := r.startTask(group, title)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -85,7 +95,7 @@ func (r *createProgressRenderer) Run(ctx context.Context, title string, fn func(
 	}
 }
 
-func (r *createProgressRenderer) startTask(title string) *createProgressTask {
+func (r *createProgressRenderer) startTask(group, title string) *createProgressTask {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
@@ -93,6 +103,7 @@ func (r *createProgressRenderer) startTask(title string) *createProgressTask {
 		r.start = time.Now()
 	}
 	task := createProgressTask{
+		group:     strings.TrimSpace(group),
 		title:     title,
 		startedAt: time.Now(),
 		running:   true,
@@ -141,13 +152,19 @@ func (r *createProgressRenderer) render() {
 
 	fmt.Fprintf(r.out, "Provisioning %s (%d/%d) • %d running\n\n", formatProgressDuration(elapsed), done, total, running)
 
-	groups := []string{"Infrastructure", "Access", "Runtime", "Verification"}
-	for i, task := range r.tasks {
-		group := groups[minInt(i, len(groups)-1)]
-		if i > 0 {
-			fmt.Fprintln(r.out)
+	currentGroup := ""
+	for _, task := range r.tasks {
+		group := strings.TrimSpace(task.group)
+		if group == "" {
+			group = "Tasks"
 		}
-		fmt.Fprintln(r.out, group)
+		if group != currentGroup {
+			if currentGroup != "" {
+				fmt.Fprintln(r.out)
+			}
+			fmt.Fprintln(r.out, group)
+			currentGroup = group
+		}
 		fmt.Fprintln(r.out, renderProgressTaskLine(task))
 	}
 }
@@ -196,13 +213,6 @@ func spinnerFrame(start time.Time) string {
 	}
 	idx := int(time.Since(start) / (120 * time.Millisecond))
 	return frames[idx%len(frames)]
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func isTerminalWriter(w io.Writer) bool {

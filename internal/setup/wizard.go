@@ -329,9 +329,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	render("Review configuration", 8, "Review", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), compact(networkMode, sshKeyName, sshCIDR, sshUser), compact(runtimeProvider, nimEndpoint, model), reviewSummary, false, false)
 
 	renderWizardPhase(w.Out, "Review configuration")
-	fmt.Fprintf(w.Out, "Plan: %s\n", compact("Agent: "+agentName, "Platform: "+strings.ToUpper(platform), "Compute: "+computeClass, "Region: "+region, "Instance: "+instanceType))
-	fmt.Fprintf(w.Out, "Plan: %s\n", compact("Image: "+image.Name, "Network: "+networkMode, "Runtime provider: "+runtimeProvider))
-	fmt.Fprintln(w.Out, "Details")
+	fmt.Fprintln(w.Out, "Advanced details")
 	fmt.Fprintf(w.Out, "- image: %s\n", valueOrDash(cfg.Image.Name))
 	fmt.Fprintf(w.Out, "- image id: %s\n", valueOrDash(image.ID))
 	fmt.Fprintf(w.Out, "- disk size: %d GB\n", cfg.Instance.DiskSizeGB)
