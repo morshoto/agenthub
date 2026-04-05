@@ -596,18 +596,31 @@ func (p *Provider) GetInstance(ctx context.Context, region, instanceID string) (
 	if instanceName == "" {
 		instanceName = instanceID
 	}
+	state := ""
+	if ec2Instance.State != nil {
+		state = string(ec2Instance.State.Name)
+	}
+	availabilityZone := ""
+	if ec2Instance.Placement != nil {
+		availabilityZone = awsString(ec2Instance.Placement.AvailabilityZone)
+	}
 
 	return &provider.Instance{
-		ID:             instanceID,
-		Name:           instanceName,
-		Owner:          tagValue(ec2Instance.Tags, "Owner"),
-		AgentName:      tagValue(ec2Instance.Tags, "AgentName"),
-		Environment:    tagValue(ec2Instance.Tags, "Environment"),
-		TrackingID:     tagValue(ec2Instance.Tags, "TrackingID"),
-		Region:         region,
-		PublicIP:       publicIP,
-		PrivateIP:      privateIP,
-		ConnectionInfo: connectionInfo,
+		ID:               instanceID,
+		Name:             instanceName,
+		Owner:            tagValue(ec2Instance.Tags, "Owner"),
+		AgentName:        tagValue(ec2Instance.Tags, "AgentName"),
+		Environment:      tagValue(ec2Instance.Tags, "Environment"),
+		TrackingID:       tagValue(ec2Instance.Tags, "TrackingID"),
+		Region:           region,
+		State:            state,
+		InstanceType:     string(ec2Instance.InstanceType),
+		AvailabilityZone: availabilityZone,
+		LaunchTime:       awsTime(ec2Instance.LaunchTime),
+		KeyName:          awsString(ec2Instance.KeyName),
+		PublicIP:         publicIP,
+		PrivateIP:        privateIP,
+		ConnectionInfo:   connectionInfo,
 	}, nil
 }
 
@@ -744,6 +757,13 @@ func isPermissionDenied(err error) bool {
 func awsString(value *string) string {
 	if value == nil {
 		return ""
+	}
+	return *value
+}
+
+func awsTime(value *time.Time) time.Time {
+	if value == nil {
+		return time.Time{}
 	}
 	return *value
 }

@@ -1,6 +1,9 @@
 package provider
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 type CloudProvider interface {
 	CheckAuth(ctx context.Context) (AuthStatus, error)
@@ -80,6 +83,11 @@ type Instance struct {
 	Environment        string
 	TrackingID         string
 	Region             string
+	State              string
+	InstanceType       string
+	AvailabilityZone   string
+	LaunchTime         time.Time
+	KeyName            string
 	PublicIP           string
 	PrivateIP          string
 	ConnectionInfo     string
