@@ -126,6 +126,16 @@ func TestRenderMenuClearsPreviousLinesBeforeRedraw(t *testing.T) {
 	}
 }
 
+func TestFinishMenuSelectionStartsNextPromptOnFreshLine(t *testing.T) {
+	out := &bytes.Buffer{}
+
+	finishMenuSelection(out)
+
+	if got := out.String(); got != "\r\033[2K\n" {
+		t.Fatalf("finishMenuSelection() output = %q, want carriage-return clear and newline", got)
+	}
+}
+
 func TestCanUseCursorMenuFallsBackWhenSearchHelpWouldWrap(t *testing.T) {
 	oldIsTerminalFile := isTerminalFileFunc
 	oldTerminalSize := terminalSizeFunc

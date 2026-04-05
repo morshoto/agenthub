@@ -105,7 +105,7 @@ func (s *Session) selectWithCursor(label string, options []string, defaultValue 
 		case menuKeyBackspace:
 		case menuKeyChar:
 		case menuKeyEnter:
-			fmt.Fprintln(s.out)
+			finishMenuSelection(s.out)
 			return options[selected], nil
 		case menuKeyInterrupt:
 			return "", errors.New("prompt interrupted")
@@ -165,7 +165,7 @@ func (s *Session) selectWithSearchCursor(label string, options []string, default
 			if len(filtered) == 0 {
 				continue
 			}
-			fmt.Fprintln(s.out)
+			finishMenuSelection(s.out)
 			return filtered[selected], nil
 		case menuKeyInterrupt:
 			return "", errors.New("prompt interrupted")
@@ -414,6 +414,10 @@ func menuWindowBounds(total, selected, size int) (int, int) {
 
 func writeMenuLine(out io.Writer, text string) {
 	fmt.Fprintf(out, "\r\033[2K%s\n", text)
+}
+
+func finishMenuSelection(out io.Writer) {
+	fmt.Fprint(out, "\r\033[2K\n")
 }
 
 func isTerminalFile(f *os.File) bool {
