@@ -185,6 +185,19 @@ func (i Installer) Install(ctx context.Context, req Request) (Result, error) {
 			CommandResults: []host.CommandResult{cmdResult},
 		}, err
 	}
+	if hasGitHubConfig(req.Config.GitHub) {
+		if err := i.configureGitHubAuth(ctx, req, workingDir); err != nil {
+			return Result{
+				WorkingDir:     workingDir,
+				ConfigPath:     remoteConfigPath,
+				ScriptPath:     remoteScriptPath,
+				BinaryPath:     serviceResult.BinaryPath,
+				ServicePath:    serviceResult.ServicePath,
+				Prerequisites:  report,
+				CommandResults: []host.CommandResult{cmdResult},
+			}, err
+		}
+	}
 
 	return Result{
 		WorkingDir:     workingDir,
@@ -315,6 +328,30 @@ func (i Installer) installService(ctx context.Context, req Request, workingDir s
 	}, nil
 }
 
+func (i Installer) configureGitHubAuth(ctx context.Context, req Request, workingDir string) error {
+	if i.Host == nil || req.Config == nil || !hasGitHubConfig(req.Config.GitHub) {
+		return nil
+	}
+
+	if err := ensureGitAvailable(ctx, i.Host); err != nil {
+		return err
+	}
+
+	remoteBinaryPath := pathJoin(workingDir, "bin", "agenthub")
+	runtimeConfigPath := pathJoin(workingDir, "runtime.yaml")
+	helperValue := fmt.Sprintf("!%s github credential --runtime-config %s", remoteBinaryPath, runtimeConfigPath)
+	if _, err := i.Host.Run(ctx, "git", "config", "--global", "credential.helper", helperValue); err != nil {
+		return fmt.Errorf("configure git credential helper: %w", err)
+	}
+	if _, err := i.Host.Run(ctx, "git", "config", "--global", "url.https://github.com/.insteadOf", "git@github.com:"); err != nil {
+		return fmt.Errorf("configure git github ssh rewrite: %w", err)
+	}
+	if _, err := i.Host.Run(ctx, "git", "config", "--global", "url.https://github.com/.insteadOf", "ssh://git@github.com/"); err != nil {
+		return fmt.Errorf("configure git github ssh rewrite: %w", err)
+	}
+	return nil
+}
+
 func buildRuntimeBinary(ctx context.Context) (string, error) {
 	tmpDir, err := os.MkdirTemp("", "agenthub-runtime-bin-*")
 	if err != nil {
@@ -358,6 +395,25 @@ func ensureDockerAvailable(ctx context.Context, exec host.Executor) error {
 	return nil
 }
 
+func ensureGitAvailable(ctx context.Context, exec host.Executor) error {
+	if exec == nil {
+		return errors.New("git check requires a host executor")
+	}
+	if _, err := exec.Run(ctx, "git", "--version"); err == nil {
+		return nil
+	}
+	if _, err := exec.Run(ctx, "sudo", "git", "--version"); err == nil {
+		return nil
+	}
+	if _, err := exec.Run(ctx, "sudo", "sh", "-lc", "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y git"); err != nil {
+		return fmt.Errorf("install git on target host: %w", err)
+	}
+	if _, err := exec.Run(ctx, "git", "--version"); err != nil {
+		return fmt.Errorf("verify git on target host: %w", err)
+	}
+	return nil
+}
+
 func renderSystemdUnit(binaryPath, runtimeConfigPath string, listenPort int, idleTimeout time.Duration, idleShutdownCommand, envFilePath string) string {
 	if listenPort <= 0 {
 		listenPort = 8080
@@ -396,4 +452,8 @@ func pathJoin(elem ...string) string {
 		parts = append(parts, strings.TrimRight(strings.TrimSpace(part), "/"))
 	}
 	return strings.Join(parts, "/")
+}
+
+func hasGitHubConfig(cfg config.GitHubConfig) bool {
+	return strings.TrimSpace(cfg.AppID) != "" && strings.TrimSpace(cfg.InstallationID) != "" && strings.TrimSpace(cfg.PrivateKeySecretARN) != ""
 }

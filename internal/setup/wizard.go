@@ -27,7 +27,6 @@ type Wizard struct {
 	Existing        *config.Config
 	AWSProfile      string
 	AgentName       string
-	GitHubSetup     func(context.Context, string) error
 }
 
 const initAWSLookupTimeout = 5 * time.Second
@@ -232,16 +231,27 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		accessSummary = networkMode
 	}
 
-	if w.GitHubSetup != nil {
-		render("Environment check", 6, "Access", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), compact(networkMode, sshKeyName, sshCIDR, sshUser), "", "", false, false)
-		connectGitHub, err := w.Prompter.Confirm("Authenticate Git with your GitHub credentials?", true)
+	render("Environment check", 6, "Access", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), compact(networkMode, sshKeyName, sshCIDR, sshUser), "", "", false, false)
+	githubCfg := config.GitHubConfig{}
+	if w.Existing != nil {
+		githubCfg = w.Existing.GitHub
+	}
+	connectGitHub, err := w.Prompter.Confirm("Configure project-owned GitHub App auth?", config.HasGitHubAuth(w.Existing))
+	if err != nil {
+		return nil, err
+	}
+	if connectGitHub {
+		githubCfg.AppID, err = w.Prompter.Text("GitHub App ID", strings.TrimSpace(githubCfg.AppID))
 		if err != nil {
 			return nil, err
 		}
-		if connectGitHub {
-			if err := w.GitHubSetup(ctx, sshPrivateKeyPath); err != nil {
-				return nil, err
-			}
+		githubCfg.InstallationID, err = w.Prompter.Text("GitHub installation ID", strings.TrimSpace(githubCfg.InstallationID))
+		if err != nil {
+			return nil, err
+		}
+		githubCfg.PrivateKeySecretARN, err = w.Prompter.Text("GitHub private key secret ARN", strings.TrimSpace(githubCfg.PrivateKeySecretARN))
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -304,6 +314,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 			Backend:   "terraform",
 			ModuleDir: filepath.Join("infra", "aws", "ec2"),
 		},
+		GitHub: githubCfg,
 		Sandbox: config.SandboxConfig{
 			Enabled:     true,
 			NetworkMode: networkMode,
@@ -362,6 +373,13 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	}
 	if cfg.Runtime.Provider == "aws-bedrock" {
 		fmt.Fprintln(w.Out, "- bedrock auth: uses instance role")
+	}
+	if config.HasGitHubAuth(cfg) {
+		fmt.Fprintf(w.Out, "- github auth: GitHub App %s / installation %s / secret %s\n",
+			valueOrDash(cfg.GitHub.AppID),
+			valueOrDash(cfg.GitHub.InstallationID),
+			valueOrDash(cfg.GitHub.PrivateKeySecretARN),
+		)
 	}
 
 	confirm, err := w.Prompter.Confirm("Write this configuration", true)

@@ -22,12 +22,6 @@ func TestInfraTFVarsCommandWritesTerraformVars(t *testing.T) {
 	}
 	defer func() { deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey }()
 
-	originalReadGitHubPrivateKey := readGitHubPrivateKeyFunc
-	readGitHubPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
-		return "-----BEGIN OPENSSH PRIVATE KEY-----\nTEST-GITHUB-KEY\n-----END OPENSSH PRIVATE KEY-----", nil
-	}
-	defer func() { readGitHubPrivateKeyFunc = originalReadGitHubPrivateKey }()
-
 	dir := t.TempDir()
 	output := filepath.Join(dir, "terraform.tfvars")
 	keyPath := filepath.Join(dir, "id_ed25519")
@@ -56,6 +50,10 @@ sandbox:
   enabled: true
   network_mode: public
   use_nemoclaw: true
+github:
+  app_id: "123456"
+  installation_id: "789012"
+  private_key_secret_arn: arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-app-private-key
 ssh:
   key_name: demo-key
   private_key_path: `+keyPath+`
@@ -93,7 +91,7 @@ ssh:
 	mustContainTerraformAssignment(t, body, "runtime_provider", `""`)
 	mustContainTerraformAssignment(t, body, "ssh_key_name", `"demo-key"`)
 	mustContainTerraformAssignment(t, body, "ssh_public_key", `"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITfvarsTestKey agenthub"`)
-	mustContainTerraformAssignment(t, body, "github_private_key", `"-----BEGIN OPENSSH PRIVATE KEY-----\nTEST-GITHUB-KEY\n-----END OPENSSH PRIVATE KEY-----"`)
+	mustContainTerraformAssignment(t, body, "github_private_key_secret_arn", `"arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-app-private-key"`)
 	mustContainTerraformAssignment(t, body, "ssh_cidr", `"203.0.113.0/24"`)
 	mustContainTerraformAssignment(t, body, "ssh_user", `"ubuntu"`)
 	mustContainTerraformAssignment(t, body, "name_prefix", `"agenthub"`)
@@ -119,12 +117,6 @@ func TestInfraTFVarsCommandWritesAWSProfile(t *testing.T) {
 		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITfvarsTestKey agenthub", nil
 	}
 	defer func() { deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey }()
-
-	originalReadGitHubPrivateKey := readGitHubPrivateKeyFunc
-	readGitHubPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
-		return "-----BEGIN OPENSSH PRIVATE KEY-----\nTEST-GITHUB-KEY\n-----END OPENSSH PRIVATE KEY-----", nil
-	}
-	defer func() { readGitHubPrivateKeyFunc = originalReadGitHubPrivateKey }()
 
 	dir := t.TempDir()
 	output := filepath.Join(dir, "terraform.tfvars")

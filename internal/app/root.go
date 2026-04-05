@@ -44,6 +44,7 @@ func newRootCommand(app *App) *cobra.Command {
 	rootCmd.AddCommand(newAuthCommand(app))
 	rootCmd.AddCommand(newOnboardCommand(app))
 	rootCmd.AddCommand(newConfigCommand(app))
+	rootCmd.AddCommand(newGitHubCommand(app))
 	rootCmd.AddCommand(newStatusCommand(app))
 	rootCmd.AddCommand(newQuotaCommand(app))
 	rootCmd.AddCommand(newSlackCommand(app))
@@ -164,7 +165,6 @@ func newInitCommand(app *App) *cobra.Command {
 				return newAWSProvider(wizard.AWSProfile, computeClass)
 			}
 			wizard.AWSProfile = app.opts.Profile
-			wizard.GitHubSetup = ensureGitHubSSHAccess
 			cfg, err := wizard.Run(cmd.Context())
 			if err != nil {
 				return err

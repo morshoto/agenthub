@@ -55,7 +55,7 @@ variable "ssh_public_key" {
   default = ""
 }
 
-variable "github_private_key" {
+variable "github_private_key_secret_arn" {
   type    = string
   default = ""
 }

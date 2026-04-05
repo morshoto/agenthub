@@ -73,6 +73,26 @@ func TestValidateReportsReadableErrors(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsIncompleteGitHubAuth(t *testing.T) {
+	cfg := &Config{
+		Platform: PlatformConfig{Name: PlatformAWS},
+		Region:   RegionConfig{Name: "us-east-1"},
+		Instance: InstanceConfig{Type: "t3.medium", DiskSizeGB: 20},
+		Image:    ImageConfig{Name: "ubuntu-24.04"},
+		Runtime:  RuntimeConfig{Endpoint: "http://localhost:11434", Model: "llama3.2"},
+		GitHub:   GitHubConfig{AppID: "123456"},
+		Sandbox:  SandboxConfig{Enabled: true},
+	}
+
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate() error = nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "github.installation_id") || !strings.Contains(got, "github.private_key_secret_arn") {
+		t.Fatalf("Validate() error = %q, want github auth validation errors", got)
+	}
+}
+
 func TestValidateRejectsMalformedAWSRegion(t *testing.T) {
 	cfg := &Config{
 		Platform: PlatformConfig{Name: PlatformAWS},
@@ -122,6 +142,7 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 		Instance: InstanceConfig{Type: "t3.medium", DiskSizeGB: 20},
 		Image:    ImageConfig{Name: "AWS Deep Learning AMI GPU Ubuntu 22.04", ID: "ami-0123456789abcdef0"},
 		Runtime:  RuntimeConfig{Endpoint: "http://localhost:11434", Model: "llama3.2", Provider: "codex", Codex: CodexConfig{SecretID: "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/codex-api-key"}},
+		GitHub:   GitHubConfig{AppID: "123456", InstallationID: "789012", PrivateKeySecretARN: "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-app-private-key"},
 		Sandbox:  SandboxConfig{Enabled: true, NetworkMode: "private", UseNemoClaw: true, FilesystemAllow: []string{"/tmp", "/var/tmp"}},
 	}
 
@@ -133,7 +154,7 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if loaded.Platform.Name != cfg.Platform.Name || loaded.Compute.Class != cfg.Compute.Class || loaded.Image.ID != cfg.Image.ID || loaded.Runtime.Provider != "codex" || loaded.Runtime.Codex.SecretID != cfg.Runtime.Codex.SecretID || loaded.Sandbox.NetworkMode != "private" || !loaded.Sandbox.UseNemoClaw {
+	if loaded.Platform.Name != cfg.Platform.Name || loaded.Compute.Class != cfg.Compute.Class || loaded.Image.ID != cfg.Image.ID || loaded.Runtime.Provider != "codex" || loaded.Runtime.Codex.SecretID != cfg.Runtime.Codex.SecretID || loaded.GitHub.PrivateKeySecretARN != cfg.GitHub.PrivateKeySecretARN || loaded.Sandbox.NetworkMode != "private" || !loaded.Sandbox.UseNemoClaw {
 		t.Fatalf("round trip mismatch: %#v", loaded)
 	}
 	if len(loaded.Sandbox.FilesystemAllow) != 2 || loaded.Sandbox.FilesystemAllow[0] != "/tmp" {

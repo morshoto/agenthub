@@ -276,6 +276,9 @@ func formatAgentConfigSummary(cfg config.Config) []string {
 	if value := formatSSHSummary(cfg.SSH); value != "" {
 		lines = append(lines, "ssh: "+value)
 	}
+	if value := formatGitHubSummary(cfg.GitHub); value != "" {
+		lines = append(lines, "github: "+value)
+	}
 	if value := formatInfraSummary(cfg.Infra); value != "" {
 		lines = append(lines, "infra: "+value)
 	}
@@ -333,8 +336,22 @@ func formatSSHSummary(cfg config.SSHConfig) string {
 	if value := strings.TrimSpace(cfg.PrivateKeyPath); value != "" {
 		parts = append(parts, "private_key_path="+value)
 	}
-	if value := strings.TrimSpace(cfg.GitHubPrivateKeyPath); value != "" {
-		parts = append(parts, "github_private_key_path="+value)
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " ")
+}
+
+func formatGitHubSummary(cfg config.GitHubConfig) string {
+	parts := make([]string, 0, 3)
+	if value := strings.TrimSpace(cfg.AppID); value != "" {
+		parts = append(parts, "app_id="+value)
+	}
+	if value := strings.TrimSpace(cfg.InstallationID); value != "" {
+		parts = append(parts, "installation_id="+value)
+	}
+	if value := strings.TrimSpace(cfg.PrivateKeySecretARN); value != "" {
+		parts = append(parts, "private_key_secret_arn="+value)
 	}
 	if len(parts) == 0 {
 		return ""

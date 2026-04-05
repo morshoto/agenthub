@@ -11,13 +11,14 @@ import (
 
 // RuntimeConfig is the file written to the remote host for the runtime installer.
 type RuntimeConfig struct {
-	UseNemoClaw bool    `yaml:"use_nemoclaw"`
-	NIMEndpoint string  `yaml:"nim_endpoint"`
-	Model       string  `yaml:"model,omitempty"`
-	Port        int     `yaml:"port,omitempty"`
-	Provider    string  `yaml:"provider,omitempty"`
-	Region      string  `yaml:"region,omitempty"`
-	Sandbox     Sandbox `yaml:"sandbox"`
+	UseNemoClaw bool                `yaml:"use_nemoclaw"`
+	NIMEndpoint string              `yaml:"nim_endpoint"`
+	Model       string              `yaml:"model,omitempty"`
+	Port        int                 `yaml:"port,omitempty"`
+	Provider    string              `yaml:"provider,omitempty"`
+	Region      string              `yaml:"region,omitempty"`
+	GitHub      config.GitHubConfig `yaml:"github,omitempty"`
+	Sandbox     Sandbox             `yaml:"sandbox"`
 }
 
 type Sandbox struct {
@@ -48,6 +49,7 @@ func RenderRuntimeConfig(cfg *config.Config, useNemoClaw *bool, port int) ([]byt
 		Port:        effectivePort,
 		Provider:    strings.TrimSpace(cfg.Runtime.Provider),
 		Region:      strings.TrimSpace(cfg.Region.Name),
+		GitHub:      cfg.GitHub,
 		Sandbox: Sandbox{
 			Enabled:         cfg.Sandbox.Enabled,
 			NetworkMode:     strings.TrimSpace(cfg.Sandbox.NetworkMode),

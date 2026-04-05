@@ -35,8 +35,6 @@ var (
 	defaultSSHReadyMaxWait     = 10 * time.Second
 )
 
-var readGitHubPrivateKeyFunc = readGitHubPrivateKey
-
 type installOptions struct {
 	Target            string
 	SSHUser           string
@@ -63,46 +61,46 @@ type createOptions struct {
 }
 
 type terraformVars struct {
-	AWSProfile       string `json:"aws_profile"`
-	Region           string `json:"region"`
-	ComputeClass     string `json:"compute_class"`
-	Owner            string `json:"owner"`
-	AgentName        string `json:"agent_name"`
-	Environment      string `json:"environment"`
-	InstanceType     string `json:"instance_type"`
-	DiskSizeGB       int    `json:"disk_size_gb"`
-	NetworkMode      string `json:"network_mode"`
-	ImageName        string `json:"image_name"`
-	ImageID          string `json:"image_id"`
-	RuntimePort      int    `json:"runtime_port"`
-	RuntimeCIDR      string `json:"runtime_cidr"`
-	RuntimeProvider  string `json:"runtime_provider"`
-	SSHKeyName       string `json:"ssh_key_name"`
-	SSHPublicKey     string `json:"ssh_public_key"`
-	GitHubPrivateKey string `json:"github_private_key"`
-	SSHCIDR          string `json:"ssh_cidr"`
-	SSHUser          string `json:"ssh_user"`
-	NamePrefix       string `json:"name_prefix"`
-	UseNemoClaw      bool   `json:"use_nemoclaw"`
-	NIMEndpoint      string `json:"nim_endpoint"`
-	Model            string `json:"model"`
-	SourceURL        string `json:"source_archive_url"`
+	AWSProfile                string `json:"aws_profile"`
+	Region                    string `json:"region"`
+	ComputeClass              string `json:"compute_class"`
+	Owner                     string `json:"owner"`
+	AgentName                 string `json:"agent_name"`
+	Environment               string `json:"environment"`
+	InstanceType              string `json:"instance_type"`
+	DiskSizeGB                int    `json:"disk_size_gb"`
+	NetworkMode               string `json:"network_mode"`
+	ImageName                 string `json:"image_name"`
+	ImageID                   string `json:"image_id"`
+	RuntimePort               int    `json:"runtime_port"`
+	RuntimeCIDR               string `json:"runtime_cidr"`
+	RuntimeProvider           string `json:"runtime_provider"`
+	SSHKeyName                string `json:"ssh_key_name"`
+	SSHPublicKey              string `json:"ssh_public_key"`
+	GitHubPrivateKeySecretARN string `json:"github_private_key_secret_arn"`
+	SSHCIDR                   string `json:"ssh_cidr"`
+	SSHUser                   string `json:"ssh_user"`
+	NamePrefix                string `json:"name_prefix"`
+	UseNemoClaw               bool   `json:"use_nemoclaw"`
+	NIMEndpoint               string `json:"nim_endpoint"`
+	Model                     string `json:"model"`
+	SourceURL                 string `json:"source_archive_url"`
 }
 
 type terraformInputs struct {
-	NetworkMode      string
-	RuntimePort      int
-	RuntimeCIDR      string
-	RuntimeProvider  string
-	SSHKeyName       string
-	SSHPublicKey     string
-	GitHubPrivateKey string
-	SSHCIDR          string
-	SSHUser          string
-	SourceURL        string
-	Owner            string
-	AgentName        string
-	Environment      string
+	NetworkMode               string
+	RuntimePort               int
+	RuntimeCIDR               string
+	RuntimeProvider           string
+	SSHKeyName                string
+	SSHPublicKey              string
+	GitHubPrivateKeySecretARN string
+	SSHCIDR                   string
+	SSHUser                   string
+	SourceURL                 string
+	Owner                     string
+	AgentName                 string
+	Environment               string
 }
 
 type verifyOptions struct {
@@ -178,28 +176,28 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 			return err
 		}
 		varsPath, err = writeTerraformVars(workdir, terraformVars{
-			Region:           cfg.Region.Name,
-			ComputeClass:     config.EffectiveComputeClass(cfg.Compute.Class),
-			Owner:            inputs.Owner,
-			AgentName:        inputs.AgentName,
-			Environment:      inputs.Environment,
-			InstanceType:     instanceType,
-			DiskSizeGB:       cfg.Instance.DiskSizeGB,
-			NetworkMode:      inputs.NetworkMode,
-			ImageID:          image.ID,
-			RuntimePort:      inputs.RuntimePort,
-			RuntimeCIDR:      inputs.RuntimeCIDR,
-			RuntimeProvider:  inputs.RuntimeProvider,
-			SSHKeyName:       inputs.SSHKeyName,
-			SSHPublicKey:     inputs.SSHPublicKey,
-			GitHubPrivateKey: inputs.GitHubPrivateKey,
-			SSHCIDR:          inputs.SSHCIDR,
-			SSHUser:          inputs.SSHUser,
-			NamePrefix:       "agenthub",
-			UseNemoClaw:      cfg.Sandbox.UseNemoClaw,
-			NIMEndpoint:      cfg.Runtime.Endpoint,
-			Model:            cfg.Runtime.Model,
-			SourceURL:        inputs.SourceURL,
+			Region:                    cfg.Region.Name,
+			ComputeClass:              config.EffectiveComputeClass(cfg.Compute.Class),
+			Owner:                     inputs.Owner,
+			AgentName:                 inputs.AgentName,
+			Environment:               inputs.Environment,
+			InstanceType:              instanceType,
+			DiskSizeGB:                cfg.Instance.DiskSizeGB,
+			NetworkMode:               inputs.NetworkMode,
+			ImageID:                   image.ID,
+			RuntimePort:               inputs.RuntimePort,
+			RuntimeCIDR:               inputs.RuntimeCIDR,
+			RuntimeProvider:           inputs.RuntimeProvider,
+			SSHKeyName:                inputs.SSHKeyName,
+			SSHPublicKey:              inputs.SSHPublicKey,
+			GitHubPrivateKeySecretARN: inputs.GitHubPrivateKeySecretARN,
+			SSHCIDR:                   inputs.SSHCIDR,
+			SSHUser:                   inputs.SSHUser,
+			NamePrefix:                "agenthub",
+			UseNemoClaw:               cfg.Sandbox.UseNemoClaw,
+			NIMEndpoint:               cfg.Runtime.Endpoint,
+			Model:                     cfg.Runtime.Model,
+			SourceURL:                 inputs.SourceURL,
 		})
 		if err != nil {
 			return err
@@ -327,14 +325,6 @@ func buildTerraformInputs(ctx context.Context, profile string, cfg *config.Confi
 	if err != nil {
 		return terraformInputs{}, err
 	}
-	githubKeyPath := strings.TrimSpace(cfg.SSH.GitHubPrivateKeyPath)
-	if githubKeyPath == "" {
-		githubKeyPath = sshKeyPath
-	}
-	githubPrivateKey, err := readGitHubPrivateKeyFunc(ctx, githubKeyPath)
-	if err != nil {
-		return terraformInputs{}, err
-	}
 	sourceURL, _, err := resolveSourceArchiveURLFunc(ctx, profile, cfg.Region.Name)
 	if err != nil {
 		return terraformInputs{}, err
@@ -360,19 +350,19 @@ func buildTerraformInputs(ctx context.Context, profile string, cfg *config.Confi
 	}
 
 	return terraformInputs{
-		NetworkMode:      networkMode,
-		RuntimePort:      runtimePort,
-		RuntimeCIDR:      resolveRuntimeCIDR(cfg),
-		RuntimeProvider:  strings.TrimSpace(cfg.Runtime.Provider),
-		SSHKeyName:       sshKeyName,
-		SSHPublicKey:     sshPublicKey,
-		GitHubPrivateKey: githubPrivateKey,
-		SSHCIDR:          sshCIDR,
-		SSHUser:          sshUser,
-		SourceURL:        sourceURL,
-		Owner:            owner,
-		AgentName:        agentName,
-		Environment:      environment,
+		NetworkMode:               networkMode,
+		RuntimePort:               runtimePort,
+		RuntimeCIDR:               resolveRuntimeCIDR(cfg),
+		RuntimeProvider:           strings.TrimSpace(cfg.Runtime.Provider),
+		SSHKeyName:                sshKeyName,
+		SSHPublicKey:              sshPublicKey,
+		GitHubPrivateKeySecretARN: strings.TrimSpace(cfg.GitHub.PrivateKeySecretARN),
+		SSHCIDR:                   sshCIDR,
+		SSHUser:                   sshUser,
+		SourceURL:                 sourceURL,
+		Owner:                     owner,
+		AgentName:                 agentName,
+		Environment:               environment,
 	}, nil
 }
 
@@ -755,18 +745,6 @@ func resolveProvisioningSSH(ctx context.Context, cfg *config.Config, opts create
 	}
 
 	return sshKeyName, sshCIDR, sshUser, sshKeyPath, nil
-}
-
-func readGitHubPrivateKey(ctx context.Context, privateKeyPath string) (string, error) {
-	path, err := resolveSSHPrivateKeyPath(privateKeyPath)
-	if err != nil {
-		return "", err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read github ssh private key %q: %w", path, err)
-	}
-	return strings.TrimSpace(string(data)), nil
 }
 
 func resolveInstallSSH(cfg *config.Config, userFlag, keyFlag string) (string, string, error) {
