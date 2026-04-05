@@ -48,7 +48,8 @@ locals {
   vpc_id              = length(data.aws_vpcs.default.ids) > 0 ? data.aws_vpcs.default.ids[0] : ""
   subnet_ids          = length(data.aws_subnets.default_for_az.ids) > 0 ? data.aws_subnets.default_for_az.ids : data.aws_subnets.any.ids
   subnet_id           = length(local.subnet_ids) > 0 ? local.subnet_ids[0] : ""
-  github_auth_enabled = trimspace(var.github_private_key_secret_arn) != ""
+  github_secret_arn   = trimspace(var.github_token_secret_arn) != "" ? trimspace(var.github_token_secret_arn) : trimspace(var.github_private_key_secret_arn)
+  github_auth_enabled = local.github_secret_arn != ""
   owner               = trimspace(var.owner)
   agent_name          = trimspace(var.agent_name)
   environment         = trimspace(var.environment) != "" ? trimspace(var.environment) : "default"
@@ -145,7 +146,7 @@ resource "aws_iam_role_policy" "github" {
       Action = [
         "secretsmanager:GetSecretValue",
       ]
-      Resource = trimspace(var.github_private_key_secret_arn)
+      Resource = local.github_secret_arn
     }]
   })
 }

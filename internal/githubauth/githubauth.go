@@ -21,6 +21,7 @@ import (
 	awsbase "github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/aws/smithy-go"
 
 	"agenthub/internal/config"
 )
@@ -99,14 +100,86 @@ func InstallationToken(ctx context.Context, region string, cfg config.GitHubConf
 }
 
 func CredentialForGit(ctx context.Context, region string, cfg config.GitHubConfig) (Credential, error) {
-	token, err := InstallationToken(ctx, region, cfg)
-	if err != nil {
-		return Credential{}, err
+	switch config.GitHubAuthModeFor(cfg) {
+	case config.GitHubAuthModeUser:
+		token, err := LoadToken(ctx, region, cfg.TokenSecretARN)
+		if err != nil {
+			return Credential{}, err
+		}
+		return Credential{Username: "x-access-token", Password: token}, nil
+	case config.GitHubAuthModeApp, "":
+		token, err := InstallationToken(ctx, region, cfg)
+		if err != nil {
+			return Credential{}, err
+		}
+		return Credential{Username: "x-access-token", Password: token}, nil
+	default:
+		return Credential{}, fmt.Errorf("unsupported github auth mode %q", cfg.AuthMode)
 	}
-	return Credential{
-		Username: "x-access-token",
-		Password: token,
-	}, nil
+}
+
+func StoreToken(ctx context.Context, profile, region, secretName, token string) (string, error) {
+	secretName = strings.TrimSpace(secretName)
+	token = strings.TrimSpace(token)
+	if secretName == "" {
+		secretName = "agenthub/github-token"
+	}
+	if token == "" {
+		return "", errors.New("github token is required")
+	}
+
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(strings.TrimSpace(region)), awsconfig.WithSharedConfigProfile(strings.TrimSpace(profile)))
+	if err != nil {
+		return "", fmt.Errorf("load aws config for github token secret: %w", err)
+	}
+	client := secretsmanager.NewFromConfig(awsCfg)
+
+	out, err := client.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
+		Name:         awsbase.String(secretName),
+		SecretString: awsbase.String(token),
+	})
+	if err == nil {
+		return secretString(out.ARN), nil
+	}
+	var apiErr smithy.APIError
+	if !errors.As(err, &apiErr) || apiErr.ErrorCode() != "ResourceExistsException" {
+		return "", fmt.Errorf("create github token secret %q: %w", secretName, err)
+	}
+
+	putOut, putErr := client.PutSecretValue(ctx, &secretsmanager.PutSecretValueInput{
+		SecretId:     awsbase.String(secretName),
+		SecretString: awsbase.String(token),
+	})
+	if putErr != nil {
+		return "", fmt.Errorf("update github token secret %q: %w", secretName, putErr)
+	}
+	if arn := secretString(putOut.ARN); arn != "" {
+		return arn, nil
+	}
+	return secretName, nil
+}
+
+func LoadToken(ctx context.Context, region, secretID string) (string, error) {
+	secretID = strings.TrimSpace(secretID)
+	if secretID == "" {
+		return "", errors.New("github token secret id is required")
+	}
+
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(strings.TrimSpace(region)))
+	if err != nil {
+		return "", fmt.Errorf("load aws config for github token secret: %w", err)
+	}
+	client := secretsmanager.NewFromConfig(awsCfg)
+	out, err := client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
+		SecretId: awsbase.String(secretID),
+	})
+	if err != nil {
+		return "", fmt.Errorf("get github token secret %q: %w", secretID, err)
+	}
+	if strings.TrimSpace(secretString(out.SecretString)) == "" {
+		return "", fmt.Errorf("github token secret %q did not contain a secret string", secretID)
+	}
+	return strings.TrimSpace(secretString(out.SecretString)), nil
 }
 
 func parseRSAPrivateKey(secret string) (*rsa.PrivateKey, error) {

@@ -343,7 +343,10 @@ func formatSSHSummary(cfg config.SSHConfig) string {
 }
 
 func formatGitHubSummary(cfg config.GitHubConfig) string {
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 5)
+	if value := strings.TrimSpace(cfg.AuthMode); value != "" {
+		parts = append(parts, "auth_mode="+value)
+	}
 	if value := strings.TrimSpace(cfg.AppID); value != "" {
 		parts = append(parts, "app_id="+value)
 	}
@@ -352,6 +355,9 @@ func formatGitHubSummary(cfg config.GitHubConfig) string {
 	}
 	if value := strings.TrimSpace(cfg.PrivateKeySecretARN); value != "" {
 		parts = append(parts, "private_key_secret_arn="+value)
+	}
+	if value := strings.TrimSpace(cfg.TokenSecretARN); value != "" {
+		parts = append(parts, "token_secret_arn="+value)
 	}
 	if len(parts) == 0 {
 		return ""

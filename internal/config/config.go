@@ -75,9 +75,11 @@ type CodexConfig struct {
 }
 
 type GitHubConfig struct {
+	AuthMode            string `yaml:"auth_mode,omitempty"`
 	AppID               string `yaml:"app_id,omitempty"`
 	InstallationID      string `yaml:"installation_id,omitempty"`
 	PrivateKeySecretARN string `yaml:"private_key_secret_arn,omitempty"`
+	TokenSecretARN      string `yaml:"token_secret_arn,omitempty"`
 }
 
 type SlackConfig struct {
@@ -220,22 +222,41 @@ func Validate(cfg *Config) error {
 		v.Add("runtime.provider", fmt.Sprintf("unsupported provider %q", provider))
 	}
 	if gh := cfg.GitHub; hasGitHubConfig(gh) {
-		if strings.TrimSpace(gh.AppID) == "" {
-			v.Add("github.app_id", "is required when github auth is configured")
-		} else if _, err := strconv.ParseInt(strings.TrimSpace(gh.AppID), 10, 64); err != nil {
-			v.Add("github.app_id", "must be a numeric GitHub App id")
+		explicitMode := strings.ToLower(strings.TrimSpace(gh.AuthMode))
+		if explicitMode != "" && explicitMode != GitHubAuthModeApp && explicitMode != GitHubAuthModeUser {
+			v.Add("github.auth_mode", fmt.Sprintf("unsupported GitHub auth mode %q", gh.AuthMode))
+			goto validateGitHubConfigDone
 		}
-		if strings.TrimSpace(gh.InstallationID) == "" {
-			v.Add("github.installation_id", "is required when github auth is configured")
-		} else if _, err := strconv.ParseInt(strings.TrimSpace(gh.InstallationID), 10, 64); err != nil {
-			v.Add("github.installation_id", "must be a numeric GitHub installation id")
-		}
-		if strings.TrimSpace(gh.PrivateKeySecretARN) == "" {
-			v.Add("github.private_key_secret_arn", "is required when github auth is configured")
-		} else if !strings.HasPrefix(strings.TrimSpace(gh.PrivateKeySecretARN), "arn:") {
-			v.Add("github.private_key_secret_arn", "must be a Secrets Manager ARN")
+		mode := GitHubAuthModeFor(gh)
+		switch mode {
+		case GitHubAuthModeUser:
+			if strings.TrimSpace(gh.TokenSecretARN) == "" {
+				v.Add("github.token_secret_arn", "is required when github user auth is configured")
+			} else if !strings.HasPrefix(strings.TrimSpace(gh.TokenSecretARN), "arn:") {
+				v.Add("github.token_secret_arn", "must be a Secrets Manager ARN")
+			}
+		case GitHubAuthModeApp:
+			if strings.TrimSpace(gh.AppID) == "" {
+				v.Add("github.app_id", "is required when github app auth is configured")
+			} else if _, err := strconv.ParseInt(strings.TrimSpace(gh.AppID), 10, 64); err != nil {
+				v.Add("github.app_id", "must be a numeric GitHub App id")
+			}
+			if strings.TrimSpace(gh.InstallationID) == "" {
+				v.Add("github.installation_id", "is required when github app auth is configured")
+			} else if _, err := strconv.ParseInt(strings.TrimSpace(gh.InstallationID), 10, 64); err != nil {
+				v.Add("github.installation_id", "must be a numeric GitHub installation id")
+			}
+			if strings.TrimSpace(gh.PrivateKeySecretARN) == "" {
+				v.Add("github.private_key_secret_arn", "is required when github app auth is configured")
+			} else if !strings.HasPrefix(strings.TrimSpace(gh.PrivateKeySecretARN), "arn:") {
+				v.Add("github.private_key_secret_arn", "must be a Secrets Manager ARN")
+			}
+		default:
+			// no-op: config.HasGitHubAuth may be true when the auth fields are
+			// incomplete, and the specific validation errors above will cover them.
 		}
 	}
+validateGitHubConfigDone:
 	if publicCIDR := strings.TrimSpace(cfg.Runtime.PublicCIDR); publicCIDR != "" {
 		if _, err := parseCIDRLike(publicCIDR); err != nil {
 			v.Add("runtime.public_cidr", err.Error())
@@ -341,7 +362,37 @@ func IsValidRuntimeProvider(provider string) bool {
 }
 
 func hasGitHubConfig(cfg GitHubConfig) bool {
-	return strings.TrimSpace(cfg.AppID) != "" || strings.TrimSpace(cfg.InstallationID) != "" || strings.TrimSpace(cfg.PrivateKeySecretARN) != ""
+	return strings.TrimSpace(cfg.AuthMode) != "" ||
+		strings.TrimSpace(cfg.AppID) != "" ||
+		strings.TrimSpace(cfg.InstallationID) != "" ||
+		strings.TrimSpace(cfg.PrivateKeySecretARN) != "" ||
+		strings.TrimSpace(cfg.TokenSecretARN) != ""
+}
+
+const (
+	GitHubAuthModeApp  = "app"
+	GitHubAuthModeUser = "user"
+)
+
+func GitHubAuthModeFor(cfg GitHubConfig) string {
+	mode := strings.ToLower(strings.TrimSpace(cfg.AuthMode))
+	switch mode {
+	case GitHubAuthModeApp, GitHubAuthModeUser:
+		return mode
+	case "":
+		if strings.TrimSpace(cfg.TokenSecretARN) != "" && strings.TrimSpace(cfg.AppID) == "" && strings.TrimSpace(cfg.InstallationID) == "" && strings.TrimSpace(cfg.PrivateKeySecretARN) == "" {
+			return GitHubAuthModeUser
+		}
+		if strings.TrimSpace(cfg.AppID) != "" || strings.TrimSpace(cfg.InstallationID) != "" || strings.TrimSpace(cfg.PrivateKeySecretARN) != "" {
+			return GitHubAuthModeApp
+		}
+		if strings.TrimSpace(cfg.TokenSecretARN) != "" {
+			return GitHubAuthModeUser
+		}
+		return ""
+	default:
+		return mode
+	}
 }
 
 func HasGitHubAuth(cfg *Config) bool {

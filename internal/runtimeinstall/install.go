@@ -185,7 +185,7 @@ func (i Installer) Install(ctx context.Context, req Request) (Result, error) {
 			CommandResults: []host.CommandResult{cmdResult},
 		}, err
 	}
-	if hasGitHubConfig(req.Config.GitHub) {
+	if mode := config.GitHubAuthModeFor(req.Config.GitHub); mode != "" {
 		if err := i.configureGitHubAuth(ctx, req, workingDir); err != nil {
 			return Result{
 				WorkingDir:     workingDir,
@@ -329,7 +329,11 @@ func (i Installer) installService(ctx context.Context, req Request, workingDir s
 }
 
 func (i Installer) configureGitHubAuth(ctx context.Context, req Request, workingDir string) error {
-	if i.Host == nil || req.Config == nil || !hasGitHubConfig(req.Config.GitHub) {
+	if i.Host == nil || req.Config == nil {
+		return nil
+	}
+	mode := config.GitHubAuthModeFor(req.Config.GitHub)
+	if mode == "" {
 		return nil
 	}
 
@@ -349,7 +353,12 @@ func (i Installer) configureGitHubAuth(ctx context.Context, req Request, working
 	if _, err := i.Host.Run(ctx, "git", "config", "--global", "url.https://github.com/.insteadOf", "ssh://git@github.com/"); err != nil {
 		return fmt.Errorf("configure git github ssh rewrite: %w", err)
 	}
-	return nil
+	switch mode {
+	case config.GitHubAuthModeApp, config.GitHubAuthModeUser:
+		return nil
+	default:
+		return fmt.Errorf("unsupported github auth mode %q", req.Config.GitHub.AuthMode)
+	}
 }
 
 func buildRuntimeBinary(ctx context.Context) (string, error) {
@@ -452,8 +461,4 @@ func pathJoin(elem ...string) string {
 		parts = append(parts, strings.TrimRight(strings.TrimSpace(part), "/"))
 	}
 	return strings.Join(parts, "/")
-}
-
-func hasGitHubConfig(cfg config.GitHubConfig) bool {
-	return strings.TrimSpace(cfg.AppID) != "" && strings.TrimSpace(cfg.InstallationID) != "" && strings.TrimSpace(cfg.PrivateKeySecretARN) != ""
 }

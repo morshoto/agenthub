@@ -27,7 +27,7 @@ func newInfraTFVarsCommand(app *App) *cobra.Command {
 		Short: "Generate deploy-ready terraform.tfvars from a configuration file",
 		Long: strings.TrimSpace(`Generate a deploy-ready terraform.tfvars file from an AgentHub config.
 
-This command resolves the active AWS profile, derives the SSH public key from the configured private key path, records any project-owned GitHub App secret ARN for the host role, and stages the current working tree as a bootstrap archive URL. It is intended for deploy-time use and can fail if the local git state, SSH key, or AWS environment is not ready.`),
+This command resolves the active AWS profile, derives the SSH public key from the configured private key path, records any GitHub auth secret ARN for the host role, and stages the current working tree as a bootstrap archive URL. It is intended for deploy-time use and can fail if the local git state, SSH key, or AWS environment is not ready.`),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(app.opts.ConfigPath) == "" {
 				return errors.New("config file is required: pass --config <path>")
@@ -144,6 +144,7 @@ func buildTerraformVars(ctx context.Context, profile string, cfg *config.Config,
 		SSHKeyName:                inputs.SSHKeyName,
 		SSHPublicKey:              inputs.SSHPublicKey,
 		GitHubPrivateKeySecretARN: inputs.GitHubPrivateKeySecretARN,
+		GitHubTokenSecretARN:      inputs.GitHubTokenSecretARN,
 		SSHCIDR:                   inputs.SSHCIDR,
 		SSHUser:                   inputs.SSHUser,
 		NamePrefix:                "agenthub",
@@ -189,6 +190,7 @@ func renderTerraformVars(vars terraformVars) string {
 		"ssh_key_name",
 		"ssh_public_key",
 		"github_private_key_secret_arn",
+		"github_token_secret_arn",
 		"ssh_cidr",
 		"ssh_user",
 		"name_prefix",
@@ -221,6 +223,7 @@ func renderTerraformVars(vars terraformVars) string {
 		fmt.Sprintf("%-*s = %s", maxWidth, "ssh_key_name", terraformQuoted(vars.SSHKeyName)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "ssh_public_key", terraformQuoted(vars.SSHPublicKey)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "github_private_key_secret_arn", terraformQuoted(vars.GitHubPrivateKeySecretARN)),
+		fmt.Sprintf("%-*s = %s", maxWidth, "github_token_secret_arn", terraformQuoted(vars.GitHubTokenSecretARN)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "ssh_cidr", terraformQuoted(vars.SSHCIDR)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "ssh_user", terraformQuoted(vars.SSHUser)),
 		fmt.Sprintf("%-*s = %s", maxWidth, "name_prefix", terraformQuoted(vars.NamePrefix)),

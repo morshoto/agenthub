@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -232,26 +233,52 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	}
 
 	render("Environment check", 6, "Access", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), compact(networkMode, sshKeyName, sshCIDR, sshUser), "", "", false, false)
+	repoSlug, err := detectGitHubRepoSlug(ctx)
+	if err == nil && strings.TrimSpace(repoSlug) != "" {
+		fmt.Fprintf(w.Out, "! detected GitHub repo candidate: %s\n", repoSlug)
+	}
 	githubCfg := config.GitHubConfig{}
 	if w.Existing != nil {
 		githubCfg = w.Existing.GitHub
 	}
-	connectGitHub, err := w.Prompter.Confirm("Configure project-owned GitHub App auth?", config.HasGitHubAuth(w.Existing))
+	connectGitHub, err := w.Prompter.Confirm("Configure GitHub access?", config.HasGitHubAuth(w.Existing))
 	if err != nil {
 		return nil, err
 	}
 	if connectGitHub {
-		githubCfg.AppID, err = w.Prompter.Text("GitHub App ID", strings.TrimSpace(githubCfg.AppID))
+		defaultAuthMode := config.GitHubAuthModeFor(githubCfg)
+		if defaultAuthMode == "" {
+			if _, lookPathErr := exec.LookPath("gh"); lookPathErr == nil {
+				defaultAuthMode = config.GitHubAuthModeUser
+			} else {
+				defaultAuthMode = config.GitHubAuthModeApp
+			}
+		}
+		authMode, err := w.Prompter.Select("Select GitHub auth mode", []string{config.GitHubAuthModeUser, config.GitHubAuthModeApp}, defaultAuthMode)
 		if err != nil {
 			return nil, err
 		}
-		githubCfg.InstallationID, err = w.Prompter.Text("GitHub installation ID", strings.TrimSpace(githubCfg.InstallationID))
-		if err != nil {
-			return nil, err
-		}
-		githubCfg.PrivateKeySecretARN, err = w.Prompter.Text("GitHub private key secret ARN", strings.TrimSpace(githubCfg.PrivateKeySecretARN))
-		if err != nil {
-			return nil, err
+		switch authMode {
+		case config.GitHubAuthModeUser:
+			githubCfg, err = bootstrapGitHubUserAuth(ctx, w.AWSProfile, region, repoSlug)
+			if err != nil {
+				return nil, err
+			}
+		case config.GitHubAuthModeApp:
+			githubCfg = config.GitHubConfig{AuthMode: config.GitHubAuthModeApp}
+			githubCfg.AppID, err = w.Prompter.Text("GitHub App ID", strings.TrimSpace(githubCfg.AppID))
+			if err != nil {
+				return nil, err
+			}
+			githubCfg.InstallationID, err = w.Prompter.Text("GitHub installation ID", strings.TrimSpace(githubCfg.InstallationID))
+			if err != nil {
+				return nil, err
+			}
+			githubCfg.PrivateKeySecretARN, err = w.Prompter.Text("GitHub private key secret ARN", strings.TrimSpace(githubCfg.PrivateKeySecretARN))
+			if err != nil {
+				return nil, err
+			}
+			githubCfg.TokenSecretARN = ""
 		}
 	}
 
@@ -375,11 +402,19 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		fmt.Fprintln(w.Out, "- bedrock auth: uses instance role")
 	}
 	if config.HasGitHubAuth(cfg) {
-		fmt.Fprintf(w.Out, "- github auth: GitHub App %s / installation %s / secret %s\n",
-			valueOrDash(cfg.GitHub.AppID),
-			valueOrDash(cfg.GitHub.InstallationID),
-			valueOrDash(cfg.GitHub.PrivateKeySecretARN),
-		)
+		mode := config.GitHubAuthModeFor(cfg.GitHub)
+		switch mode {
+		case config.GitHubAuthModeUser:
+			fmt.Fprintf(w.Out, "- github auth: mode=user / token secret %s\n", valueOrDash(cfg.GitHub.TokenSecretARN))
+		case config.GitHubAuthModeApp:
+			fmt.Fprintf(w.Out, "- github auth: mode=app / GitHub App %s / installation %s / secret %s\n",
+				valueOrDash(cfg.GitHub.AppID),
+				valueOrDash(cfg.GitHub.InstallationID),
+				valueOrDash(cfg.GitHub.PrivateKeySecretARN),
+			)
+		default:
+			fmt.Fprintf(w.Out, "- github auth: %s\n", valueOrDash(cfg.GitHub.AuthMode))
+		}
 	}
 
 	confirm, err := w.Prompter.Confirm("Write this configuration", true)
