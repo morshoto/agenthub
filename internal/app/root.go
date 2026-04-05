@@ -174,7 +174,7 @@ func newInitCommand(app *App) *cobra.Command {
 			}
 			cfg.Infra.AWSProfile = strings.TrimSpace(wizard.AWSProfile)
 
-			agentName = strings.TrimSpace(wizard.AgentName)
+			agentName := strings.TrimSpace(wizard.AgentName)
 			if agentName == "" {
 				agentName = "default"
 			}
@@ -198,7 +198,7 @@ func newInitCommand(app *App) *cobra.Command {
 			logger.Info("starting init provision flow")
 			progress := newCreateProgressRenderer(cmd.OutOrStdout())
 			startedAt := time.Now()
-			agentName := strings.TrimSpace(wizard.AgentName)
+			agentName = strings.TrimSpace(wizard.AgentName)
 			if agentName == "" {
 				agentName = "default"
 			}
