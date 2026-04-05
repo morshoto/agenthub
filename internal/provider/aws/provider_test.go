@@ -537,3 +537,7 @@ func (f *fakeEC2Client) DescribeInstances(ctx context.Context, params *ec2.Descr
 		}},
 	}, nil
 }
+
+func (f *fakeEC2Client) TerminateInstances(ctx context.Context, params *ec2.TerminateInstancesInput, optFns ...func(*ec2.Options)) (*ec2.TerminateInstancesOutput, error) {
+	return &ec2.TerminateInstancesOutput{}, nil
+}

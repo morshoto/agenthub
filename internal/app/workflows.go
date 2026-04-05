@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -347,18 +348,28 @@ func runVerifyWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 	return report, resolvedTarget, err
 }
 
-func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, opts createOptions, progress stageRunner) (*provider.Instance, runtimeinstall.Result, verify.Report, error) {
+func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, opts createOptions, progress stageRunner) (_ *provider.Instance, _ runtimeinstall.Result, _ verify.Report, err error) {
 	if progress == nil {
 		progress = newProgressRenderer(io.Discard)
 	}
 
 	var instance *provider.Instance
-	if err := progress.Run(ctx, "provisioning infrastructure", func(runCtx context.Context) error {
+	if err = progress.Run(ctx, "provisioning infrastructure", func(runCtx context.Context) error {
 		var err error
 		instance, err = runInfraCreate(runCtx, profile, cfg, opts)
 		return err
 	}); err != nil {
 		return instance, runtimeinstall.Result{}, verify.Report{}, err
+	}
+	if instance != nil {
+		defer func() {
+			if err == nil {
+				return
+			}
+			if cleanupErr := cleanupCreatedInstance(context.Background(), profile, cfg, instance); cleanupErr != nil {
+				err = errors.Join(err, cleanupErr)
+			}
+		}()
 	}
 
 	target := instanceTarget(instance)
@@ -366,17 +377,39 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 		WorkingDir: "/opt/openclaw",
 		ConfigPath: "/opt/openclaw/runtime.yaml",
 	}
-	if err := progress.Run(ctx, "waiting for bootstrap", func(runCtx context.Context) error {
+	if err = progress.Run(ctx, "waiting for bootstrap", func(runCtx context.Context) error {
 		return waitForBootstrapReady(runCtx, cfg, target, opts.SSHUser, opts.SSHKey, opts.SSHPort, os.Stdout)
 	}); err != nil {
 		return instance, installResult, verify.Report{}, err
 	}
 
+	var resolvedTarget string
+	if err = progress.Run(ctx, "installing runtime", func(runCtx context.Context) error {
+		var err error
+		installResult, resolvedTarget, err = runInstallWorkflow(runCtx, profile, cfg, installOptions{
+			Target:            target,
+			SSHUser:           opts.SSHUser,
+			SSHKey:            opts.SSHKey,
+			SSHPort:           opts.SSHPort,
+			WorkingDir:        opts.WorkingDir,
+			Port:              opts.Port,
+			UseNemoClaw:       opts.UseNemoClaw,
+			DisableNemoClaw:   opts.DisableNemoClaw,
+			RuntimeConfigPath: installResult.ConfigPath,
+		})
+		return err
+	}); err != nil {
+		return instance, installResult, verify.Report{}, err
+	}
+	if strings.TrimSpace(resolvedTarget) == "" {
+		resolvedTarget = target
+	}
+
 	var verifyReport verify.Report
-	if err := progress.Run(ctx, "verifying runtime", func(runCtx context.Context) error {
+	if err = progress.Run(ctx, "verifying runtime", func(runCtx context.Context) error {
 		var err error
 		verifyReport, _, err = runVerifyWorkflow(runCtx, profile, cfg, verifyOptions{
-			Target:            target,
+			Target:            resolvedTarget,
 			SSHUser:           opts.SSHUser,
 			SSHKey:            opts.SSHKey,
 			SSHPort:           opts.SSHPort,
@@ -387,6 +420,27 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 		return instance, installResult, verify.Report{}, err
 	}
 	return instance, installResult, verifyReport, nil
+}
+
+func cleanupCreatedInstance(ctx context.Context, profile string, cfg *config.Config, instance *provider.Instance) error {
+	if cfg == nil || instance == nil {
+		return nil
+	}
+	region := strings.TrimSpace(instance.Region)
+	if region == "" {
+		region = strings.TrimSpace(cfg.Region.Name)
+	}
+	if region == "" || strings.TrimSpace(instance.ID) == "" {
+		return nil
+	}
+	cleanupCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	provider := newAWSProvider(profile, cfg.Compute.Class)
+	if err := provider.DeleteInstance(cleanupCtx, region, instance.ID); err != nil {
+		return fmt.Errorf("cleanup created instance %s: %w", instance.ID, err)
+	}
+	return nil
 }
 
 func waitForBootstrapReady(ctx context.Context, cfg *config.Config, target, sshUser, sshKey string, sshPort int, out io.Writer) error {
@@ -425,20 +479,20 @@ func waitForBootstrapReady(ctx context.Context, cfg *config.Config, target, sshU
 		msg := strings.ToLower(strings.TrimSpace(result.Stderr + " " + err.Error()))
 		if attempt == 1 || attempt%3 == 0 {
 			if status, statusErr := probeBootstrapStatus(waitCtx, exec); statusErr == nil {
-				fmt.Fprintf(out, "bootstrap still running on %s\n%s\n", target, status)
+				fmt.Fprintf(out, "bootstrap still running on %s: %s\n", target, summarizeBootstrapStatus(status))
 			} else {
-				fmt.Fprintf(out, "bootstrap still running on %s (status unavailable: %v)\n", target, statusErr)
+				fmt.Fprintf(out, "bootstrap still running on %s (status unavailable)\n", target)
 			}
 		}
 		if waitCtx.Err() != nil {
-			return fmt.Errorf("wait for docker bootstrap on %s: %w", target, waitCtx.Err())
+			return fmt.Errorf("wait for bootstrap on %s: %w", target, waitCtx.Err())
 		}
-		if result.ExitCode == 1 || strings.Contains(msg, "permission denied") || strings.Contains(msg, "no such file") || strings.Contains(msg, "exit status 1") || strings.Contains(msg, "exit code 1") {
+		if isTransientSSHError(err) {
 			timer := time.NewTimer(delay)
 			select {
 			case <-waitCtx.Done():
 				timer.Stop()
-				return fmt.Errorf("wait for docker bootstrap on %s: %w", target, waitCtx.Err())
+				return fmt.Errorf("wait for bootstrap on %s: %w", target, waitCtx.Err())
 			case <-timer.C:
 			}
 			if delay < 30*time.Second {
@@ -446,7 +500,20 @@ func waitForBootstrapReady(ctx context.Context, cfg *config.Config, target, sshU
 			}
 			continue
 		}
-		return fmt.Errorf("wait for docker bootstrap on %s: %w", target, err)
+		if result.ExitCode == 1 || strings.Contains(msg, "permission denied") || strings.Contains(msg, "no such file") || strings.Contains(msg, "exit status 1") || strings.Contains(msg, "exit code 1") {
+			timer := time.NewTimer(delay)
+			select {
+			case <-waitCtx.Done():
+				timer.Stop()
+				return fmt.Errorf("wait for bootstrap on %s: %w", target, waitCtx.Err())
+			case <-timer.C:
+			}
+			if delay < 30*time.Second {
+				delay *= 2
+			}
+			continue
+		}
+		return fmt.Errorf("wait for bootstrap on %s: %w", target, err)
 	}
 	return nil
 }
@@ -469,6 +536,44 @@ tail -n 20 /var/log/openclaw-bootstrap.log 2>&1 || true
 		text = "no bootstrap status available yet"
 	}
 	return text, nil
+}
+
+func summarizeBootstrapStatus(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "no bootstrap status available yet"
+	}
+
+	lines := strings.Split(text, "\n")
+	parts := make([]string, 0, 3)
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "cloud-init status:"):
+			continue
+		case strings.HasPrefix(line, "bootstrap log tail:"):
+			continue
+		case strings.HasPrefix(line, "tail: cannot open"):
+			parts = append(parts, "bootstrap log unavailable")
+		default:
+			parts = append(parts, line)
+		}
+		if len(parts) >= 3 {
+			break
+		}
+	}
+	if len(parts) == 0 {
+		return "no bootstrap status available yet"
+	}
+	summary := strings.Join(parts, "; ")
+	const maxLen = 180
+	if len(summary) > maxLen {
+		return summary[:maxLen-1] + "…"
+	}
+	return summary
 }
 
 func resolveCodexAPIKey(ctx context.Context, profile string, cfg *config.Config) (string, error) {
@@ -507,9 +612,31 @@ func resolveHostTarget(ctx context.Context, profile string, cfg *config.Config, 
 				return instance.PrivateIP, nil
 			}
 		}
+		if fallback := hostFromRuntimeURL(cfg); fallback != "" {
+			return fallback, nil
+		}
 		return "", fmt.Errorf("instance %s does not expose an SSH-reachable address", target)
 	}
 	return target, nil
+}
+
+func hostFromRuntimeURL(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(cfg.Slack.RuntimeURL)
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	host := strings.TrimSpace(parsed.Hostname())
+	if host != "" {
+		return host
+	}
+	return strings.TrimSpace(parsed.Host)
 }
 
 func resolveVerifyTarget(ctx context.Context, profile string, cfg *config.Config, target string) (string, error) {
@@ -764,12 +891,34 @@ func printWorkflowSuccess(out io.Writer, instance *provider.Instance, installRes
 		printVerificationReport(out, verifyReport)
 	}
 	if strings.TrimSpace(cfgPath) != "" && strings.TrimSpace(target) != "" {
-		fmt.Fprintf(out, "verify command example: openclaw verify --config %s --target %s\n", cfgPath, target)
+		fmt.Fprintf(out, "verify command example: %s\n", commandRef(out, "openclaw", "verify", "--config", cfgPath, "--target", target))
 	}
 	if createMode && strings.TrimSpace(cfgPath) != "" && strings.TrimSpace(target) != "" && strings.TrimSpace(installResult.ServicePath) != "" {
-		fmt.Fprintf(out, "install command example: openclaw install --config %s --target %s\n", cfgPath, target)
+		fmt.Fprintf(out, "install command example: %s\n", commandRef(out, "openclaw", "install", "--config", cfgPath, "--target", target))
+	}
+	if createMode && cfg != nil && strings.EqualFold(strings.TrimSpace(cfg.Runtime.Provider), "codex") && strings.TrimSpace(cfgPath) != "" {
+		if strings.TrimSpace(cfg.Infra.InstanceID) != "" {
+			fmt.Fprintf(out, "slack deploy example: %s\n", commandRef(out, "openclaw", "slack", "deploy", "--config", cfgPath))
+		} else if strings.TrimSpace(target) != "" {
+			fmt.Fprintf(out, "slack deploy example: %s\n", commandRef(out, "openclaw", "slack", "deploy", "--config", cfgPath, "--target", target))
+		}
 	}
 	fmt.Fprintln(out, "next step: keep the runtime config and SSH target handy for future verify runs")
+}
+
+func runtimeBaseURL(instance *provider.Instance, cfg *config.Config) string {
+	if instance == nil {
+		return ""
+	}
+	host := strings.TrimSpace(instance.PublicIP)
+	if host == "" {
+		return ""
+	}
+	port := 8080
+	if cfg != nil && cfg.Runtime.Port > 0 {
+		port = cfg.Runtime.Port
+	}
+	return fmt.Sprintf("http://%s:%d", host, port)
 }
 
 func runtimeHealthURL(instance *provider.Instance, cfg *config.Config) string {
@@ -833,10 +982,10 @@ func printVerificationReport(out io.Writer, report verify.Report) {
 func printSuccessNextSteps(out io.Writer, cfgPath, target string, includeInstall bool) {
 	fmt.Fprintln(out, "next steps")
 	if strings.TrimSpace(target) != "" && strings.TrimSpace(cfgPath) != "" {
-		fmt.Fprintf(out, "- verify: openclaw verify --config %s --target %s\n", cfgPath, target)
+		fmt.Fprintf(out, "- verify: %s\n", commandRef(out, "openclaw", "verify", "--config", cfgPath, "--target", target))
 	}
 	if includeInstall && strings.TrimSpace(target) != "" && strings.TrimSpace(cfgPath) != "" {
-		fmt.Fprintf(out, "- install: openclaw install --config %s --target %s\n", cfgPath, target)
+		fmt.Fprintf(out, "- install: %s\n", commandRef(out, "openclaw", "install", "--config", cfgPath, "--target", target))
 	}
 	fmt.Fprintln(out, "- destroy: not implemented yet")
 }

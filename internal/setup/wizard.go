@@ -26,6 +26,7 @@ type Wizard struct {
 	Provider        provider.CloudProvider
 	Existing        *config.Config
 	AWSProfile      string
+	AgentName       string
 	GitHubSetup     func(context.Context, string) error
 }
 
@@ -38,6 +39,16 @@ func NewWizard(prompter *prompt.Session, out io.Writer, factory func(platform, c
 }
 
 func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
+	agentName, err := w.Prompter.Text("Agent name", defaultAgentName())
+	if err != nil {
+		return nil, err
+	}
+	agentName, err = normalizeAgentName(agentName)
+	if err != nil {
+		return nil, err
+	}
+	w.AgentName = agentName
+
 	platform, err := w.Prompter.Select("Select platform", []string{"aws", "gcp", "azure"}, config.PlatformAWS)
 	if err != nil {
 		return nil, err
@@ -289,6 +300,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	}
 	fmt.Fprintf(w.Out, "infra backend: %s\n", cfg.Infra.Backend)
 	fmt.Fprintf(w.Out, "terraform module: %s\n", cfg.Infra.ModuleDir)
+	fmt.Fprintf(w.Out, "agent name: %s\n", agentName)
 	fmt.Fprintf(w.Out, "use NemoClaw: %t\n", cfg.Sandbox.UseNemoClaw)
 	fmt.Fprintf(w.Out, "runtime provider: %s\n", cfg.Runtime.Provider)
 	if cfg.Runtime.Provider == "codex" {
@@ -328,6 +340,30 @@ func defaultRuntimeProvider(existing *config.Config) string {
 		return "codex"
 	}
 	return provider
+}
+
+func defaultAgentName() string {
+	return "default"
+}
+
+func normalizeAgentName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "default", nil
+	}
+	if name == "." || name == ".." {
+		return "", fmt.Errorf("invalid agent name %q", name)
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("invalid agent name %q: path separators are not allowed", name)
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return "", fmt.Errorf("invalid agent name %q: use letters, digits, hyphen, or underscore", name)
+	}
+	return name, nil
 }
 
 func defaultRuntimeModel(provider string) string {

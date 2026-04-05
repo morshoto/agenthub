@@ -18,8 +18,9 @@ func newVerifyCommand(app *App) *cobra.Command {
 	var runtimeConfigPath string
 
 	cmd := &cobra.Command{
-		Use:   "verify",
-		Short: "Verify the runtime environment",
+		Use:     "verify",
+		Short:   "Verify the runtime environment",
+		GroupID: "runtime",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var cfg *config.Config
 			var err error
@@ -52,7 +53,7 @@ func newVerifyCommand(app *App) *cobra.Command {
 					"verification failed",
 					err,
 					"the target host is not reachable or the runtime config is missing",
-					"re-run `openclaw install --target ...` to refresh the runtime",
+					"re-run "+commandRef(cmd.OutOrStdout(), "openclaw", "install", "--target", "...")+" to refresh the runtime",
 					"check the host logs and network connectivity",
 				)
 			}
@@ -61,7 +62,7 @@ func newVerifyCommand(app *App) *cobra.Command {
 					"verification failed",
 					errors.New(fmt.Sprintf("%d required checks failed", report.RequiredFailures())),
 					"one or more required readiness checks did not pass",
-					"fix the failed checks and run `openclaw verify` again",
+					"fix the failed checks and run "+commandRef(cmd.OutOrStdout(), "openclaw", "verify")+" again",
 				)
 			}
 			return nil

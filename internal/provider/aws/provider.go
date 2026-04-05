@@ -57,6 +57,7 @@ type ec2Client interface {
 	DescribeRegions(ctx context.Context, params *ec2.DescribeRegionsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeRegionsOutput, error)
 	DescribeInstanceTypes(ctx context.Context, params *ec2.DescribeInstanceTypesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeInstanceTypesOutput, error)
 	DescribeInstances(ctx context.Context, params *ec2.DescribeInstancesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
+	TerminateInstances(ctx context.Context, params *ec2.TerminateInstancesInput, optFns ...func(*ec2.Options)) (*ec2.TerminateInstancesOutput, error)
 }
 
 const (
@@ -600,6 +601,29 @@ func (p *Provider) GetInstance(ctx context.Context, region, instanceID string) (
 		PrivateIP:      privateIP,
 		ConnectionInfo: connectionInfo,
 	}, nil
+}
+
+func (p *Provider) DeleteInstance(ctx context.Context, region, instanceID string) error {
+	region = strings.TrimSpace(region)
+	instanceID = strings.TrimSpace(instanceID)
+	if region == "" {
+		return errors.New("region is required")
+	}
+	if instanceID == "" {
+		return errors.New("instance id is required")
+	}
+
+	cfg, err := p.loadAWSConfig(ctx)
+	if err != nil {
+		return err
+	}
+	cfg.Region = region
+
+	client := p.newEC2Client(cfg)
+	if _, err := client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: []string{instanceID}}); err != nil {
+		return fmt.Errorf("terminate EC2 instance %s: %w", instanceID, err)
+	}
+	return nil
 }
 
 const (

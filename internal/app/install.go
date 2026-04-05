@@ -23,8 +23,9 @@ func newInstallCommand(app *App) *cobra.Command {
 	var disableNemoClaw bool
 
 	cmd := &cobra.Command{
-		Use:   "install",
-		Short: "Install the OpenClaw runtime on a prepared host",
+		Use:     "install",
+		Short:   "Install the OpenClaw runtime on a prepared host",
+		GroupID: "provision",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(app.opts.ConfigPath) == "" {
 				return errors.New("config file is required: pass --config <path>")
@@ -60,7 +61,7 @@ func newInstallCommand(app *App) *cobra.Command {
 					"install failed",
 					err,
 					"the SSH target is unreachable or the host prerequisites are missing",
-					fmt.Sprintf("run `openclaw verify --config %s --target %s` after fixing the host", app.opts.ConfigPath, resolvedTarget),
+					"run "+commandRef(cmd.OutOrStdout(), "openclaw", "verify", "--config", app.opts.ConfigPath, "--target", resolvedTarget)+" after fixing the host",
 					"check Docker, GPU drivers, and SSH access on the target host",
 				)
 			}

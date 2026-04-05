@@ -1,13 +1,16 @@
 
-// bdges
-
 ```bash
 # Regenerating the module sums
 go mod tidy
-# Build
-go build ./cmd/openclaw
 # Run the interactive setup
-go run ./cmd/openclaw init --output openclaw.yaml
+go run ./cmd/openclaw init
+# Create instances with config files
+go run ./cmd/openclaw create
+# Deploy to slack channel with .env data
+go run ./cmd/openclaw slack deploy
+```
+
+```bash
 # Run tests
 go test ./... -v
 ```

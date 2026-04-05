@@ -9,6 +9,7 @@ type CloudProvider interface {
 	RecommendInstanceTypes(ctx context.Context, region, computeClass string) ([]InstanceType, error)
 	RecommendBaseImages(ctx context.Context, region, computeClass string) ([]BaseImage, error)
 	GetInstance(ctx context.Context, region, instanceID string) (*Instance, error)
+	DeleteInstance(ctx context.Context, region, instanceID string) error
 }
 
 type CloudAdvisor = CloudProvider

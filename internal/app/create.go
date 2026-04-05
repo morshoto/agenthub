@@ -1,12 +1,17 @@
 package app
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"io"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"openclaw/internal/config"
+	"openclaw/internal/prompt"
 )
 
 func newCreateCommand(app *App) *cobra.Command {
@@ -19,23 +24,42 @@ func newCreateCommand(app *App) *cobra.Command {
 	var port int
 	var useNemoClaw bool
 	var disableNemoClaw bool
+	var agentsDir string
 
 	cmd := &cobra.Command{
-		Use:   "create",
-		Short: "Create and verify a new environment",
+		Use:     "create",
+		Short:   "Create and verify a new environment",
+		GroupID: "provision",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(app.opts.ConfigPath) == "" {
-				return errors.New("config file is required: pass --config <path>")
+			configPath := strings.TrimSpace(app.opts.ConfigPath)
+			if configPath == "" {
+				session := prompt.NewSession(cmd.InOrStdin(), cmd.OutOrStdout())
+				selectedConfigPath, err := selectAgentConfigPath(session, agentsDir)
+				if err != nil {
+					return err
+				}
+				configPath = selectedConfigPath
+				app.opts.ConfigPath = configPath
 			}
-			cfg, err := config.Load(app.opts.ConfigPath)
+			cfg, err := config.Load(configPath)
 			if err != nil {
 				return err
 			}
 			if err := config.Validate(cfg); err != nil {
 				return err
 			}
+			profile, err := selectCreateAWSProfile(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), firstNonEmpty(app.opts.Profile, cfg.Infra.AWSProfile))
+			if err != nil {
+				return err
+			}
+			app.opts.Profile = profile
+			refreshedSSHCIDR, err := refreshCreateSSHCIDR(cmd.Context(), cfg, sshCIDR)
+			if err != nil {
+				return err
+			}
+			cfg.SSH.CIDR = refreshedSSHCIDR
 			effectiveSSHKeyName := firstNonEmpty(sshKeyName, cfg.SSH.KeyName)
-			effectiveSSHCIDR := firstNonEmpty(sshCIDR, cfg.SSH.CIDR)
+			effectiveSSHCIDR := refreshedSSHCIDR
 			if err := validateCreateWorkflowSSHFlags(cfg, effectiveSSHKeyName, effectiveSSHCIDR); err != nil {
 				return err
 			}
@@ -46,9 +70,9 @@ func newCreateCommand(app *App) *cobra.Command {
 			logger := loggerFromContext(cmd.Context())
 			logger.Info("starting create workflow")
 			progress := newProgressRenderer(cmd.OutOrStdout())
-			instance, installResult, verifyReport, err := runCreateWorkflow(cmd.Context(), app.opts.Profile, cfg, createOptions{
+			instance, installResult, verifyReport, err := runCreateWorkflow(cmd.Context(), profile, cfg, createOptions{
 				SSHKeyName:      sshKeyName,
-				SSHCIDR:         sshCIDR,
+				SSHCIDR:         effectiveSSHCIDR,
 				SSHUser:         sshUser,
 				SSHKey:          sshKey,
 				SSHPort:         sshPort,
@@ -66,7 +90,12 @@ func newCreateCommand(app *App) *cobra.Command {
 					"re-run the failed stage directly once the host is ready",
 				)
 			}
-			printWorkflowSuccess(cmd.OutOrStdout(), instance, installResult, verifyReport, app.opts.ConfigPath, cfg, instanceTarget(instance), true)
+			cfg.Infra.InstanceID = strings.TrimSpace(instance.ID)
+			cfg.Slack.RuntimeURL = runtimeBaseURL(instance, cfg)
+			if err := config.Save(configPath, cfg); err != nil {
+				return err
+			}
+			printWorkflowSuccess(cmd.OutOrStdout(), instance, installResult, verifyReport, configPath, cfg, instanceTarget(instance), true)
 			return nil
 		},
 	}
@@ -80,7 +109,109 @@ func newCreateCommand(app *App) *cobra.Command {
 	cmd.Flags().IntVar(&port, "port", 0, "runtime port override")
 	cmd.Flags().BoolVar(&useNemoClaw, "use-nemoclaw", false, "enable NemoClaw settings for the generated runtime config")
 	cmd.Flags().BoolVar(&disableNemoClaw, "disable-nemoclaw", false, "disable NemoClaw settings for the generated runtime config")
+	cmd.Flags().StringVar(&agentsDir, "agents-dir", "agents", "path to the agents directory")
 	return cmd
+}
+
+func selectAgentConfigPath(session *prompt.Session, agentsDir string) (string, error) {
+	if session == nil || !session.Interactive {
+		return "", errors.New("config file is required: pass --config <path> or run interactively")
+	}
+	files, err := listAgentConfigFiles(agentsDir)
+	if err != nil {
+		return "", err
+	}
+	if len(files) == 0 {
+		root := strings.TrimSpace(agentsDir)
+		if root == "" {
+			root = "agents"
+		}
+		return "", fmt.Errorf("no agent config files found under %q; run openclaw init first", root)
+	}
+
+	options := make([]string, len(files))
+	defaultValue := files[0].Label
+	for i, file := range files {
+		options[i] = file.Label
+	}
+	selected, err := session.SelectSearch("Select configuration file", options, defaultValue)
+	if err != nil {
+		return "", err
+	}
+	for _, file := range files {
+		if file.Label == selected {
+			return file.Path, nil
+		}
+	}
+	return "", fmt.Errorf("selected configuration file %q not found", selected)
+}
+
+func selectCreateAWSProfile(ctx context.Context, in io.Reader, out io.Writer, existing string) (string, error) {
+	profile := strings.TrimSpace(existing)
+	if profile != "" {
+		return profile, nil
+	}
+
+	defaultProfile := strings.TrimSpace(os.Getenv("AWS_PROFILE"))
+	if defaultProfile == "" {
+		defaultProfile = strings.TrimSpace(os.Getenv("AWS_DEFAULT_PROFILE"))
+	}
+	profiles, err := listAWSProfilesFunc(ctx)
+	if err != nil {
+		if defaultProfile != "" {
+			return defaultProfile, nil
+		}
+		session := prompt.NewSession(in, out)
+		value, promptErr := session.Text("AWS profile", "")
+		if promptErr != nil {
+			return "", promptErr
+		}
+		return strings.TrimSpace(value), nil
+	}
+
+	session := prompt.NewSession(in, out)
+	if len(profiles) == 0 {
+		value, err := session.Text("AWS profile", defaultProfile)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(value), nil
+	}
+	if defaultProfile == "" && len(profiles) > 0 {
+		defaultProfile = profiles[0]
+	}
+	value, err := session.Select("Select AWS profile", profiles, defaultProfile)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(value), nil
+}
+
+func refreshCreateSSHCIDR(ctx context.Context, cfg *config.Config, sshCIDR string) (string, error) {
+	if trimmed := strings.TrimSpace(sshCIDR); trimmed != "" {
+		return normalizeSSHCIDR(trimmed)
+	}
+	if cfg == nil {
+		return "", errors.New("config is required")
+	}
+	if strings.TrimSpace(cfg.SSH.KeyName) == "" {
+		if trimmed := strings.TrimSpace(cfg.SSH.CIDR); trimmed != "" {
+			return normalizeSSHCIDR(trimmed)
+		}
+		return "", nil
+	}
+	sshKeyName := firstNonEmpty(cfg.SSH.KeyName, defaultSSHKeyName())
+	refreshed, err := resolveSSHCIDR(ctx, sshKeyName, "")
+	if err == nil && strings.TrimSpace(refreshed) != "" {
+		return refreshed, nil
+	}
+	if trimmed := strings.TrimSpace(cfg.SSH.CIDR); trimmed != "" {
+		return normalizeSSHCIDR(trimmed)
+	}
+	if err != nil {
+		return "", err
+	}
+	return "", errors.New("ssh cidr is required")
 }
 
 func validateCreateWorkflowSSHFlags(cfg *config.Config, sshKeyName, sshCIDR string) error {

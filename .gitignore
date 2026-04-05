@@ -5,6 +5,7 @@
 diff.txt
 
 # Configuration files
+agents/
 openclaw
 openclaw.yaml
 

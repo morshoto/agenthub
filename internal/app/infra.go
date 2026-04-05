@@ -15,8 +15,9 @@ import (
 
 func newInfraCommand(app *App) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "infra",
-		Short: "Provision infrastructure",
+		Use:     "infra",
+		Short:   "Provision infrastructure",
+		GroupID: "provision",
 	}
 	cmd.AddCommand(newInfraCreateCommand(app))
 	cmd.AddCommand(newInfraTFVarsCommand(app))
@@ -65,7 +66,7 @@ func newInfraCreateCommand(app *App) *cobra.Command {
 					err,
 					"the AWS provider rejected the request or the selected region lacks capacity",
 					"check the AWS error above",
-					fmt.Sprintf("run `openclaw quota check --platform aws --region %s --instance-family %s` before retrying", cfg.Region.Name, cfg.Instance.Type),
+					"run "+commandRef(cmd.OutOrStdout(), "openclaw", "quota", "check", "--platform", "aws", "--region", cfg.Region.Name, "--instance-family", cfg.Instance.Type)+" before retrying",
 				)
 			}
 			return nil

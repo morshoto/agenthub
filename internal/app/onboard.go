@@ -18,8 +18,9 @@ func newOnboardCommand(app *App) *cobra.Command {
 	var authChoice string
 
 	cmd := &cobra.Command{
-		Use:   "onboard",
-		Short: "Set up local Codex authentication",
+		Use:     "onboard",
+		Short:   "Set up local Codex authentication",
+		GroupID: "setup",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			choice := strings.ToLower(strings.TrimSpace(authChoice))
 			if choice == "" {
@@ -35,7 +36,7 @@ func newOnboardCommand(app *App) *cobra.Command {
 						"onboard failed",
 						err,
 						"the Codex CLI is missing or the browser login did not complete",
-						"install or update the Codex CLI, then run `openclaw onboard --auth-choice openai-codex` again",
+						"install or update the Codex CLI, then run "+commandRef(cmd.OutOrStdout(), "openclaw", "onboard", "--auth-choice", "openai-codex")+" again",
 					)
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), "Codex authentication configured")

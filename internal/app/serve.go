@@ -2,14 +2,12 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -32,8 +30,9 @@ func newServeCommand(app *App) *cobra.Command {
 	var idleShutdownCommand string
 
 	cmd := &cobra.Command{
-		Use:   "serve",
-		Short: "Run the OpenClaw runtime daemon",
+		Use:     "serve",
+		Short:   "Run the OpenClaw runtime daemon",
+		GroupID: "runtime",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(runtimeConfigPath) == "" {
 				return errors.New("runtime config path is required")
@@ -99,93 +98,8 @@ func runtimeGeneratorForConfig(ctx context.Context, runtimeCfg *runtimeinstall.R
 }
 
 func runRuntimeServer(ctx context.Context, addr, runtimeConfigPath string, runtimeCfg *runtimeinstall.RuntimeConfig, generator runtimeGenerator, idleTimeout time.Duration, idleShutdownCommand string) error {
-	mux := http.NewServeMux()
-	var mu sync.Mutex
-	lastActivity := time.Now()
-	touch := func() {
-		mu.Lock()
-		lastActivity = time.Now()
-		mu.Unlock()
-	}
-	readLastActivity := func() time.Time {
-		mu.Lock()
-		defer mu.Unlock()
-		return lastActivity
-	}
-
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		touch()
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status":           "ok",
-			"runtime_config":   runtimeConfigPath,
-			"listen":           addr,
-			"use_nemoclaw":     runtimeCfg.UseNemoClaw,
-			"provider":         runtimeCfg.Provider,
-			"region":           runtimeCfg.Region,
-			"nim_endpoint":     runtimeCfg.NIMEndpoint,
-			"model":            runtimeCfg.Model,
-			"configured_port":  runtimeCfg.Port,
-			"sandbox_enabled":  runtimeCfg.Sandbox.Enabled,
-			"sandbox_network":  runtimeCfg.Sandbox.NetworkMode,
-			"filesystem_allow": runtimeCfg.Sandbox.FilesystemAllow,
-		})
-	})
-	mux.HandleFunc("/v1/generate", func(w http.ResponseWriter, r *http.Request) {
-		touch()
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if strings.ToLower(strings.TrimSpace(runtimeCfg.Provider)) != "aws-bedrock" {
-			http.Error(w, "generate is only available for aws-bedrock provider", http.StatusNotImplemented)
-			return
-		}
-		if generator == nil {
-			http.Error(w, "bedrock generator is not configured", http.StatusServiceUnavailable)
-			return
-		}
-		var req struct {
-			Prompt string `json:"prompt"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, fmt.Sprintf("parse request: %v", err), http.StatusBadRequest)
-			return
-		}
-		output, err := generator.Generate(r.Context(), req.Prompt)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status":   "ok",
-			"provider": runtimeCfg.Provider,
-			"model":    runtimeCfg.Model,
-			"output":   output,
-		})
-	})
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
-		touch()
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ready"))
-	})
-	mux.HandleFunc("/config", func(w http.ResponseWriter, r *http.Request) {
-		touch()
-		w.Header().Set("Content-Type", "application/x-yaml")
-		data, err := yaml.Marshal(runtimeCfg)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		_, _ = w.Write(data)
-	})
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		touch()
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte("openclaw runtime"))
-	})
-
+	state := newRuntimeServerState(runtimeConfigPath, addr, runtimeCfg, generator)
+	mux := newRuntimeServerMux(state)
 	server := &http.Server{
 		Addr:    addr,
 		Handler: mux,
@@ -200,7 +114,7 @@ func runRuntimeServer(ctx context.Context, addr, runtimeConfigPath string, runti
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
-					if time.Since(readLastActivity()) < idleTimeout {
+					if time.Since(state.readLastActivity()) < idleTimeout {
 						continue
 					}
 					if strings.TrimSpace(idleShutdownCommand) != "" {

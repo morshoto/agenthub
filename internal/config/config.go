@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -29,6 +30,7 @@ type Config struct {
 	Instance InstanceConfig `yaml:"instance"`
 	Image    ImageConfig    `yaml:"image"`
 	Runtime  RuntimeConfig  `yaml:"runtime"`
+	Slack    SlackConfig    `yaml:"slack,omitempty"`
 	SSH      SSHConfig      `yaml:"ssh,omitempty"`
 	Infra    InfraConfig    `yaml:"infra,omitempty"`
 	Sandbox  SandboxConfig  `yaml:"sandbox"`
@@ -70,6 +72,12 @@ type CodexConfig struct {
 	SecretID string `yaml:"secret_id,omitempty"`
 }
 
+type SlackConfig struct {
+	RuntimeURL      string   `yaml:"runtime_url,omitempty"`
+	BotUserID       string   `yaml:"bot_user_id,omitempty"`
+	AllowedChannels []string `yaml:"allowed_channels,omitempty"`
+}
+
 type SSHConfig struct {
 	KeyName              string `yaml:"key_name,omitempty"`
 	PrivateKeyPath       string `yaml:"private_key_path,omitempty"`
@@ -79,8 +87,10 @@ type SSHConfig struct {
 }
 
 type InfraConfig struct {
-	Backend   string `yaml:"backend,omitempty"`
-	ModuleDir string `yaml:"module_dir,omitempty"`
+	Backend    string `yaml:"backend,omitempty"`
+	ModuleDir  string `yaml:"module_dir,omitempty"`
+	AWSProfile string `yaml:"aws_profile,omitempty"`
+	InstanceID string `yaml:"instance_id,omitempty"`
 }
 
 type SandboxConfig struct {
@@ -244,6 +254,11 @@ func Save(path string, cfg *Config) error {
 	}
 	if strings.TrimSpace(path) == "" {
 		return errors.New("config save failed: output path is required")
+	}
+	if dir := filepath.Dir(path); dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("prepare config output directory: %w", err)
+		}
 	}
 
 	data, err := yaml.Marshal(cfg)
