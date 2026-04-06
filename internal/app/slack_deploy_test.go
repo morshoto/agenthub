@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -245,6 +246,108 @@ func TestRunSlackDeployWorkflowInstallsHostService(t *testing.T) {
 	}
 	if !strings.Contains(unitContents, "User=ubuntu") {
 		t.Fatalf("unit upload contents = %q, want unit to run as ubuntu", unitContents)
+	}
+}
+
+func TestSlackDeployCommandRunsEndToEndWorkflow(t *testing.T) {
+	dir := t.TempDir()
+	agentsDir := filepath.Join(dir, "agents")
+	configPath := filepath.Join(agentsDir, "alpha", "config.yaml")
+	envPath := filepath.Join(agentsDir, "alpha", ".env")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, configPath, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+image:
+  name: ubuntu-24.04
+runtime:
+  provider: codex
+  endpoint: https://nim.example.com
+infra:
+  instance_id: i-0123456789abcdef0
+`)
+	if err := os.WriteFile(envPath, []byte(strings.Join([]string{
+		"SLACK_BOT_TOKEN=xoxb-agent-token",
+		"SLACK_APP_TOKEN=xapp-agent-token",
+		"OPENAI_API_KEY=sk-env-key",
+		"",
+	}, "\n")), 0o600); err != nil {
+		t.Fatalf("WriteFile(env) error = %v", err)
+	}
+	keyPath := filepath.Join(dir, "id_ed25519")
+	if err := os.WriteFile(keyPath, []byte("ssh-key"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+
+	exec := &slackDeployExecutor{
+		results: map[string]host.CommandResult{
+			"true":                               {},
+			"test -x /opt/agenthub/bin/agenthub": {},
+			"command -v codex":                   {},
+			"sudo mkdir -p /opt/agenthub/agents/alpha":                                                                   {},
+			"sudo chown -R ubuntu:ubuntu /opt/agenthub/agents/alpha":                                                     {},
+			"sudo mv /opt/agenthub/agents/alpha/agenthub-slack.service /etc/systemd/system/agenthub-slack-alpha.service": {},
+			"sudo chmod 600 /opt/agenthub/agents/alpha/.env":                                                             {},
+			"sudo systemctl daemon-reload":                                                                               {},
+			"sudo systemctl enable --now agenthub-slack-alpha.service":                                                   {},
+		},
+	}
+
+	originalNewSSHExecutor := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return exec
+	}
+	defer func() { newSSHExecutor = originalNewSSHExecutor }()
+
+	originalResolveSlackDeployTarget := resolveSlackDeployTarget
+	resolveSlackDeployTarget = func(ctx context.Context, profile string, cfg *config.Config, target string) (string, error) {
+		if target != "i-0123456789abcdef0" {
+			t.Fatalf("target = %q, want instance id from config", target)
+		}
+		return "203.0.113.10", nil
+	}
+	defer func() { resolveSlackDeployTarget = originalResolveSlackDeployTarget }()
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{
+		"agenthub",
+		"--config", configPath,
+		"slack",
+		"deploy",
+		"--ssh-user", "ubuntu",
+		"--ssh-key", keyPath,
+		"--working-dir", "/opt/agenthub",
+	}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	got := stdout.String()
+	for _, fragment := range []string{
+		"running slack deploy workflow...",
+		"slack adapter deployed to 203.0.113.10",
+		"service: agenthub-slack-alpha",
+	} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("stdout = %q, want %q", got, fragment)
+		}
+	}
+	if len(exec.uploads) != 3 {
+		t.Fatalf("uploads = %#v, want 3", exec.uploads)
 	}
 }
 
