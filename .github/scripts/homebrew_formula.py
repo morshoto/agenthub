@@ -32,6 +32,14 @@ FORMULA_TEMPLATE = """class Agenthub < Formula
       puts pwd
       puts "top-level entries:"
       puts Dir.children(".").sort
+      unless File.exist?("go.mod")
+        archive = Dir.glob("*.tar.gz*").first
+        if archive
+          system "tar", "-xzf", archive, "--strip-components=1"
+        end
+      end
+      puts "top-level entries after extract:"
+      puts Dir.children(".").sort
       puts "go.mod files:"
       puts Dir.glob("**/go.mod")
       system "go", "build", *std_go_args(ldflags: ldflags), "./cmd/agenthub"
