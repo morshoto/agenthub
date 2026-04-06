@@ -14,14 +14,23 @@ import (
 	"agenthub/internal/host"
 )
 
-func TestProgressRendererClearLineUsesANSIEraseSequence(t *testing.T) {
+func TestProgressRendererRunWritesHistoryInsteadOfOverwriting(t *testing.T) {
 	var out bytes.Buffer
 	r := &progressRenderer{out: &out, tty: true}
 
-	r.clearLine()
+	if err := r.Run(context.Background(), "long-running task", func(context.Context) error { return nil }); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
 
-	if got := out.String(); got != "\r\033[2K" {
-		t.Fatalf("clearLine() output = %q, want ANSI erase line sequence", got)
+	got := out.String()
+	if strings.Contains(got, "\033[2K") || strings.Contains(got, "\033[2J") {
+		t.Fatalf("Run() output = %q, want no screen-clearing escape sequences", got)
+	}
+	if !strings.Contains(got, "long-running task ...") {
+		t.Fatalf("Run() output = %q, want start line", got)
+	}
+	if !strings.Contains(got, "done: long-running task") {
+		t.Fatalf("Run() output = %q, want completion line", got)
 	}
 }
 
@@ -63,8 +72,28 @@ func TestProgressRendererRunPassesContextToWorker(t *testing.T) {
 		t.Fatal("Run() did not return after cancellation")
 	}
 
-	if got := out.String(); !strings.Contains(got, "\033[2K") {
-		t.Fatalf("output %q does not clear the line", got)
+	if got := out.String(); !strings.Contains(got, "failed: long-running task: context canceled") {
+		t.Fatalf("output %q does not contain cancellation summary", got)
+	}
+}
+
+func TestCreateProgressRendererRunGroupWritesHistoryInsteadOfRedrawing(t *testing.T) {
+	var out bytes.Buffer
+	r := &createProgressRenderer{out: &out, tty: true}
+
+	if err := r.RunGroup(context.Background(), "Runtime", "installing runtime", func(context.Context) error { return nil }); err != nil {
+		t.Fatalf("RunGroup() error = %v", err)
+	}
+
+	got := out.String()
+	if strings.Contains(got, "\033[2J") || strings.Contains(got, "\033[2K") || strings.Contains(got, "\033[H") {
+		t.Fatalf("RunGroup() output = %q, want no screen-clearing escape sequences", got)
+	}
+	if !strings.Contains(got, "Runtime: installing runtime ...") {
+		t.Fatalf("RunGroup() output = %q, want start line", got)
+	}
+	if !strings.Contains(got, "done: Runtime: installing runtime") {
+		t.Fatalf("RunGroup() output = %q, want completion line", got)
 	}
 }
 
