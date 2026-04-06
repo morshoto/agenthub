@@ -574,6 +574,44 @@ func TestWaitForSSHReadyRetriesTransientErrors(t *testing.T) {
 	}
 }
 
+func TestWaitForSSHReadyIncludesTimeoutDetails(t *testing.T) {
+	originalTimeout := defaultSSHReadyTimeout
+	originalInitialWait := defaultSSHReadyInitialWait
+	originalMaxWait := defaultSSHReadyMaxWait
+	defaultSSHReadyTimeout = 40 * time.Millisecond
+	defaultSSHReadyInitialWait = 10 * time.Millisecond
+	defaultSSHReadyMaxWait = 10 * time.Millisecond
+	defer func() {
+		defaultSSHReadyTimeout = originalTimeout
+		defaultSSHReadyInitialWait = originalInitialWait
+		defaultSSHReadyMaxWait = originalMaxWait
+	}()
+
+	exec := flexibleExecutor{
+		run: func(command string, args ...string) (host.CommandResult, error) {
+			if command != "true" || len(args) != 0 {
+				return host.CommandResult{}, errors.New("unexpected command: " + command + " " + strings.Join(args, " "))
+			}
+			return host.CommandResult{}, errors.New("ssh connection timed out: verify the host address, network path, and security groups: exit status 255")
+		},
+	}
+
+	err := waitForSSHReady(context.Background(), exec, "203.0.113.10")
+	if err == nil {
+		t.Fatal("waitForSSHReady() error = nil, want timeout")
+	}
+	msg := err.Error()
+	for _, fragment := range []string{
+		"wait for ssh readiness on 203.0.113.10 after",
+		"attempt",
+		"ssh connection timed out",
+	} {
+		if !strings.Contains(msg, fragment) {
+			t.Fatalf("error %q does not contain %q", msg, fragment)
+		}
+	}
+}
+
 func TestWaitForBootstrapReadyRetriesTransientSSHErrors(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()

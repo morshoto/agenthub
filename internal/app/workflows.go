@@ -789,24 +789,29 @@ func waitForSSHReady(ctx context.Context, exec host.Executor, target string) err
 		defer cancel()
 	}
 
+	startedAt := time.Now()
 	delay := defaultSSHReadyInitialWait
+	attempts := 0
+	var lastErr error
 	for {
+		attempts++
 		_, err := exec.Run(waitCtx, "true")
 		if err == nil {
 			return nil
 		}
+		lastErr = err
 		if !isTransientSSHError(err) {
 			return fmt.Errorf("wait for ssh readiness on %s: %w", target, err)
 		}
 		if waitCtx.Err() != nil {
-			return fmt.Errorf("wait for ssh readiness on %s: %w", target, err)
+			return formatSSHReadyTimeoutError(target, startedAt, attempts, lastErr, waitCtx.Err())
 		}
 
 		timer := time.NewTimer(delay)
 		select {
 		case <-waitCtx.Done():
 			timer.Stop()
-			return fmt.Errorf("wait for ssh readiness on %s: %w", target, waitCtx.Err())
+			return formatSSHReadyTimeoutError(target, startedAt, attempts, lastErr, waitCtx.Err())
 		case <-timer.C:
 		}
 
@@ -817,12 +822,36 @@ func waitForSSHReady(ctx context.Context, exec host.Executor, target string) err
 	}
 }
 
+func formatSSHReadyTimeoutError(target string, startedAt time.Time, attempts int, lastErr, ctxErr error) error {
+	elapsed := time.Since(startedAt).Round(time.Second)
+	if elapsed <= 0 {
+		elapsed = time.Second
+	}
+	base := fmt.Sprintf("wait for ssh readiness on %s after %s (%d attempts)", target, elapsed, attempts)
+	switch {
+	case lastErr != nil && ctxErr != nil:
+		return fmt.Errorf("%s: %w", base, errors.Join(ctxErr, lastErr))
+	case lastErr != nil:
+		return fmt.Errorf("%s: %w", base, lastErr)
+	case ctxErr != nil:
+		return fmt.Errorf("%s: %w", base, ctxErr)
+	default:
+		return fmt.Errorf("%s", base)
+	}
+}
+
 func isTransientSSHError(err error) bool {
 	if err == nil {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
-	for _, fragment := range []string{"connection refused", "connection timed out", "operation timed out"} {
+	for _, fragment := range []string{
+		"connection refused",
+		"connection timed out",
+		"operation timed out",
+		"no route to host",
+		"network is unreachable",
+	} {
 		if strings.Contains(msg, fragment) {
 			return true
 		}
