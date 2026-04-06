@@ -112,7 +112,7 @@ jobs:
             - name: Generate test report
               shell: bash
               run: |
-                  python3 .github/scripts/go_test_report.py \
+                  python3 .github/scripts/test_report.py \
                     --test-json test.json \
                     --coverprofile coverage.out \
                     --output test-report.md \
