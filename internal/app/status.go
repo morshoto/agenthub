@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -9,11 +10,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"agenthub/internal/config"
+	"agenthub/internal/provider"
 )
 
 type agentStatusReport struct {
@@ -27,6 +30,12 @@ type agentStatusEntry struct {
 	Files  []string
 	Config config.Config
 	Err    error
+	Live   agentLiveStatus
+}
+
+type agentLiveStatus struct {
+	Instance *provider.Instance
+	Err      error
 }
 
 func newStatusCommand(app *App) *cobra.Command {
@@ -38,6 +47,7 @@ func newStatusCommand(app *App) *cobra.Command {
 		GroupID: "runtime",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			report, err := loadAgentStatusReport(agentsDir)
+			attachAgentLiveStatus(cmd.Context(), app.opts.Profile, &report)
 			printAgentStatusReport(cmd.OutOrStdout(), report)
 			return err
 		},
@@ -81,6 +91,34 @@ func loadAgentStatusReport(root string) (agentStatusReport, error) {
 	})
 
 	return report, errors.Join(errs...)
+}
+
+func attachAgentLiveStatus(ctx context.Context, profile string, report *agentStatusReport) {
+	if report == nil {
+		return
+	}
+	for i := range report.Agents {
+		agent := &report.Agents[i]
+		if agent.Err != nil {
+			continue
+		}
+		instanceID := strings.TrimSpace(agent.Config.Infra.InstanceID)
+		if instanceID == "" {
+			continue
+		}
+		region := strings.TrimSpace(agent.Config.Region.Name)
+		if region == "" {
+			agent.Live.Err = errors.New("region is required")
+			continue
+		}
+		prov := newAWSProvider(firstNonEmpty(profile, agent.Config.Infra.AWSProfile), "")
+		instance, err := prov.GetInstance(ctx, region, instanceID)
+		if err != nil {
+			agent.Live.Err = err
+			continue
+		}
+		agent.Live.Instance = instance
+	}
 }
 
 func loadAgentStatusEntry(path string) (agentStatusEntry, error) {
@@ -238,7 +276,54 @@ func printAgentStatusReport(out io.Writer, report agentStatusReport) {
 		for _, line := range formatAgentConfigSummary(agent.Config) {
 			fmt.Fprintf(out, "  %s\n", line)
 		}
+		for _, line := range formatAgentLiveSummary(agent) {
+			fmt.Fprintf(out, "  %s\n", line)
+		}
 	}
+}
+
+func formatAgentLiveSummary(agent agentStatusEntry) []string {
+	instanceID := strings.TrimSpace(agent.Config.Infra.InstanceID)
+	if instanceID == "" {
+		return []string{"ec2: not provisioned"}
+	}
+	if agent.Live.Err != nil {
+		return []string{fmt.Sprintf("ec2: unavailable: %v", agent.Live.Err)}
+	}
+	if agent.Live.Instance == nil {
+		return []string{"ec2: unavailable"}
+	}
+
+	instance := agent.Live.Instance
+	lines := []string{"ec2:"}
+	if value := strings.TrimSpace(instance.ID); value != "" {
+		lines = append(lines, "  instance-id: "+value)
+	}
+	if value := strings.TrimSpace(instance.State); value != "" {
+		lines = append(lines, "  state: "+value)
+	}
+	if value := strings.TrimSpace(instance.InstanceType); value != "" {
+		lines = append(lines, "  instance-type: "+value)
+	}
+	if value := strings.TrimSpace(instance.AvailabilityZone); value != "" {
+		lines = append(lines, "  availability-zone: "+value)
+	}
+	if value := strings.TrimSpace(instance.PublicIP); value != "" {
+		lines = append(lines, "  public-ip: "+value)
+	}
+	if value := strings.TrimSpace(instance.PrivateIP); value != "" {
+		lines = append(lines, "  private-ip: "+value)
+	}
+	if !instance.LaunchTime.IsZero() {
+		lines = append(lines, "  launch-time: "+instance.LaunchTime.UTC().Format(time.RFC3339))
+	}
+	if value := strings.TrimSpace(instance.KeyName); value != "" {
+		lines = append(lines, "  key-name: "+value)
+	}
+	if value := strings.TrimSpace(instance.Name); value != "" {
+		lines = append(lines, "  name: "+value)
+	}
+	return lines
 }
 
 func formatAgentConfigSummary(cfg config.Config) []string {

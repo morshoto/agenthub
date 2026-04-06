@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	awsbase "github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
@@ -258,6 +259,12 @@ func TestGetInstanceUsesEC2Tags(t *testing.T) {
 	}
 	if instance.Owner != "test-owner" || instance.AgentName != "bravo" || instance.Environment != "prod" || instance.TrackingID != "cafebabe" {
 		t.Fatalf("instance metadata = %#v", instance)
+	}
+	if instance.State != "running" || instance.InstanceType != "g5.xlarge" || instance.AvailabilityZone != "us-west-2a" || instance.KeyName != "demo-key" {
+		t.Fatalf("instance runtime metadata = %#v", instance)
+	}
+	if instance.LaunchTime.IsZero() || !instance.LaunchTime.Equal(time.Date(2026, 4, 6, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("instance.LaunchTime = %v, want fixed launch time", instance.LaunchTime)
 	}
 }
 
@@ -575,8 +582,12 @@ func (f *fakeEC2Client) DescribeInstances(ctx context.Context, params *ec2.Descr
 		Reservations: []ec2types.Reservation{{
 			Instances: []ec2types.Instance{{
 				InstanceId:       awsbase.String("i-0123456789abcdef0"),
+				InstanceType:     ec2types.InstanceType("g5.xlarge"),
 				PublicIpAddress:  publicIP,
 				PrivateIpAddress: awsbase.String("10.0.0.10"),
+				Placement:        &ec2types.Placement{AvailabilityZone: awsbase.String("us-west-2a")},
+				LaunchTime:       awsbase.Time(time.Date(2026, 4, 6, 12, 0, 0, 0, time.UTC)),
+				KeyName:          awsbase.String("demo-key"),
 				Tags:             tags,
 				State:            &ec2types.InstanceState{Name: ec2types.InstanceStateNameRunning},
 			}},
