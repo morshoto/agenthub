@@ -33,7 +33,7 @@ FORMULA_TEMPLATE = """class Agenthub < Formula
       puts "top-level entries:"
       puts Dir.children(".").sort
       puts "go.mod files:"
-      puts Dir.glob("**/go.mod").sort
+      puts Dir.glob("**/go.mod")
       system "go", "build", *std_go_args(ldflags: ldflags), "./cmd/agenthub"
     end
   end
