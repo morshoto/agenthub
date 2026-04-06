@@ -96,6 +96,28 @@ runtime:
 	}
 }
 
+func TestVersionFlagPrintsVersionInformation(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--version"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	got := stdout.String()
+	for _, fragment := range []string{"agenthub dev", "commit: none", "build date: unknown"} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("stdout = %q, want %q", got, fragment)
+		}
+	}
+}
+
 func TestQuotaCheckCommandReportsLiveQuotaStatus(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()

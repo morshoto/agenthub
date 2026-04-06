@@ -12,8 +12,8 @@
 GitHub Releases are the source of truth for release binaries.
 
 ```bash
-# macOS / Linux binary from the latest release
-curl -fsSL -o agenthub.tar.gz https://github.com/morshoto/agenthub/releases/latest/download/agenthub_${VERSION}_${OS}_${ARCH}
+# macOS arm64 binary from the latest release
+gh release download latest --pattern 'agenthub_*_darwin_arm64'
 
 # Nix
 nix run github:morshoto/agenthub -- version
