@@ -227,6 +227,22 @@ jobs:
                     --sha256 "${{ steps.archive.outputs.sha256 }}" \
                     --output "${tap_path}/Formula/a/agenthub.rb"
 
+            - name: Debug Homebrew source tree
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  tap_path="$(brew --repo tmp/agenthub)"
+                  cache_dir="$(brew --cache)"
+                  echo "tap_path=${tap_path}"
+                  echo "cache_dir=${cache_dir}"
+                  echo "formula:"
+                  sed -n '1,120p' "${tap_path}/Formula/a/agenthub.rb"
+                  echo "tap tree:"
+                  find "${tap_path}" -maxdepth 3 -print | sort
+                  echo "cache tree:"
+                  find "${cache_dir}" -maxdepth 3 -name 'agenthub*' -print | sort
+
             - name: Install dry-run formula
               shell: bash
               run: |
