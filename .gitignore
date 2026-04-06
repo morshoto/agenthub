@@ -4,6 +4,9 @@
 .tool-versions
 diff.txt
 
+# MCP
+.playwright-mcp/
+
 # Configuration files
 agents/
 agenthub
