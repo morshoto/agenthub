@@ -68,3 +68,4 @@ go test ./... -v
 - Release builds are created by `.github/workflows/publish.yml`.
 - The workflow also updates the `morshoto/homebrew-agenthub` tap.
 - Set the `HOMEBREW_TAP_TOKEN` repository secret on `morshoto/agenthub` so the tap push step can authenticate.
+- `go-ci` runs a dry-run publish check against a temporary Homebrew tap before release jobs run.
