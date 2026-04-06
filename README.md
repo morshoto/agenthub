@@ -7,28 +7,44 @@
 
 `agenthub` is a Go CLI for provisioning and operating AgentHub agent environments on AWS, installing the runtime on a host, and wiring Slack integrations.
 
-### Common Workflow
+### Install
+
+1. Open the latest GitHub Release page.
+2. Download the binary that matches your platform.
+3. Make the binary executable and place it on your `PATH`.
+4. Optionally verify the download with the published checksum file.
+
+Release artifacts are published as:
+
+- `agenthub_<version>_linux_amd64`
+- `agenthub_<version>_darwin_arm64`
+
+The release workflow also publishes `checksums.txt` and `release-metadata.json` alongside the binaries.
+
+### Supported OS / arch
+
+- Linux `amd64`
+- macOS `arm64`
+
+### Common Commands
 
 ```bash
 # Run the interactive setup
-go run ./cmd/agenthub init
-# Create instances with config files
-go run ./cmd/agenthub create
-# Deploy to slack channel with .env data
-go run ./cmd/agenthub slack deploy
+agenthub init
+
+# Create instances from a config file
+agenthub create --config agenthub.yaml
+
+# Deploy Slack integration
+agenthub slack deploy --config agenthub.yaml
+
+# Show merged agent config status under `agents/`
+agenthub status
 ```
 
-**Useful commands**:
+### Running Tests
 
 ```bash
-# shows the merged agent config status under `agents/`
-go run ./cmd/agenthub status
-```
-
-**Running tests**:
-
-```bash
-# Run tests
 go test ./... -v
 ```
 
@@ -37,4 +53,4 @@ go test ./... -v
 - `publish` is handled by `.github/workflows/publish.yml`
 - the workflow has a `patch`, `minor`, `major` dropdown for manual dispatches
 - manual dispatches compute the next version from the latest `vX.Y.Z` tag
-- pushing a `v*` tag or dispatching `publish` builds artifacts, creates the release, runs smoke tests, and publishes the release in the same workflow run
+- pushing a `v*` tag or dispatching `publish` builds `linux/amd64` and `darwin/arm64` release artifacts, creates the release, runs smoke tests, and publishes the release in the same workflow run
