@@ -297,10 +297,9 @@ jobs:
               run: |
                   set -euo pipefail
 
-                  release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${VERSION}" --jq '.id')"
-                  gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
-                    -f draft=false \
-                    -f make_latest=true
+                  gh release edit "${VERSION}" \
+                    --draft=false \
+                    --latest
 
             - name: Update release metadata
               shell: bash
@@ -309,9 +308,13 @@ jobs:
               run: |
                   set -euo pipefail
 
-                  release_url="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${VERSION}"
-                  release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${VERSION}" --jq '.id')"
-                  published_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  release_json="$(gh release view "${VERSION}" --json id,url,publishedAt)"
+                  release_id="$(jq -r '.id' <<< "${release_json}")"
+                  release_url="$(jq -r '.url' <<< "${release_json}")"
+                  published_at="$(jq -r '.publishedAt // empty' <<< "${release_json}")"
+                  if [[ -z "${published_at}" ]]; then
+                    published_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  fi
 
                   jq -n \
                     --arg version "${VERSION}" \
