@@ -30,7 +30,10 @@ FORMULA_TEMPLATE = """class Agenthub < Formula
 
     cd buildpath do
       puts pwd
-      system "ls", "-la"
+      puts "top-level entries:"
+      puts Dir.children(".").sort
+      puts "go.mod files:"
+      puts Dir.glob("**/go.mod").sort
       system "go", "build", *std_go_args(ldflags: ldflags), "./cmd/agenthub"
     end
   end
