@@ -16,9 +16,7 @@
 
 ```bash
 # Install with Homebrew
-brew tap morshoto/agenthub
-brew install agenthub
-
+brew tap morshoto/agenthub && brew install agenthub
 # Install directly from this repository
 nix profile install github:morshoto/agenthub
 
