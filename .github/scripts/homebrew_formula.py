@@ -34,9 +34,7 @@ FORMULA_TEMPLATE = """class Agenthub < Formula
       puts Dir.children(".").sort
       unless File.exist?("go.mod")
         archive = Dir.glob("*.tar.gz*").first
-        if archive
-          system "tar", "-xzf", archive, "--strip-components=1"
-        end
+        system "tar", "-xzf", archive, "--strip-components=1" if archive
       end
       puts "top-level entries after extract:"
       puts Dir.children(".").sort
