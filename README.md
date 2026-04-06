@@ -9,10 +9,25 @@
 
 ### Install
 
-1. Open the latest GitHub Release page.
-2. Download the binary that matches your platform.
-3. Make the binary executable and place it on your `PATH`.
-4. Optionally verify the download with the published checksum file.
+GitHub Releases are the source of truth for release binaries.
+
+```bash
+# macOS arm64 binary from the latest release
+gh release download latest --pattern 'agenthub_*_darwin_arm64'
+
+# Linux amd64 binary from the latest release
+gh release download latest --pattern 'agenthub_*_linux_amd64'
+
+# Nix
+nix run github:morshoto/agenthub -- version
+
+# Homebrew validation build from this repo
+brew install --build-from-source Formula/agenthub.rb
+```
+
+1. Download the binary that matches your platform from the latest GitHub Release.
+2. Make the binary executable and place it on your `PATH`.
+3. Verify the release checksum if you mirror or cache the archive.
 
 Release artifacts are published as:
 
@@ -25,6 +40,7 @@ The release workflow also publishes `checksums.txt` and `release-metadata.json` 
 
 - Linux `amd64`
 - macOS `arm64`
+- Nix on the same systems supported by nixpkgs
 
 ### Common Commands
 
@@ -40,6 +56,9 @@ agenthub slack deploy --config agenthub.yaml
 
 # Show merged agent config status under `agents/`
 agenthub status
+
+# Print the release version
+agenthub --version
 ```
 
 ### Running Tests

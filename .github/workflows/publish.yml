@@ -16,12 +16,16 @@ on:
                     - minor
                     - major
 
+concurrency:
+    group: publish-${{ github.ref }}
+    cancel-in-progress: false
+
 permissions:
     contents: write
 
 jobs:
     prepare:
-        name: Resolve release version
+        name: Release version
         runs-on: ubuntu-latest
         outputs:
             version: ${{ steps.resolve.outputs.version }}
@@ -101,7 +105,7 @@ jobs:
                   echo "mode=${mode}" >> "${GITHUB_OUTPUT}"
 
     build:
-        name: Build release artifacts
+        name: Build artifacts
         runs-on: ubuntu-latest
         needs: prepare
         strategy:
@@ -162,7 +166,7 @@ jobs:
                   if-no-files-found: error
 
     release:
-        name: Create, test, and publish release
+        name: Publish release
         runs-on: ubuntu-latest
         needs:
             - prepare
@@ -226,7 +230,7 @@ jobs:
                       checksums: $checksums
                     }' > release-metadata.json
 
-            - name: Create draft GitHub release
+            - name: Create or update draft GitHub release
               shell: bash
               env:
                   GH_TOKEN: ${{ github.token }}
@@ -239,12 +243,28 @@ jobs:
                     release-metadata.json
                   )
 
-                  gh release create "${VERSION}" \
-                    --draft \
-                    --target "${TARGET_REF}" \
-                    --title "${VERSION}" \
-                    --notes-file release-notes.md \
-                    "${assets[@]}"
+                  if gh release view "${VERSION}" >/dev/null 2>&1; then
+                    release_json="$(gh release view "${VERSION}" --json isDraft)"
+                    is_draft="$(jq -r '.isDraft' <<< "${release_json}")"
+                    if [[ "${is_draft}" != "true" ]]; then
+                      echo "release ${VERSION} is already published; refusing to overwrite" >&2
+                      exit 1
+                    fi
+
+                    gh release edit "${VERSION}" \
+                      --draft \
+                      --target "${TARGET_REF}" \
+                      --title "${VERSION}" \
+                      --notes-file release-notes.md
+                  else
+                    gh release create "${VERSION}" \
+                      --draft \
+                      --target "${TARGET_REF}" \
+                      --title "${VERSION}" \
+                      --notes-file release-notes.md
+                  fi
+
+                  gh release upload "${VERSION}" "${assets[@]}" --clobber
 
             - name: Run smoke tests
               shell: bash
