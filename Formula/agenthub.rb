@@ -22,7 +22,7 @@ class Agenthub < Formula
     ].join(" ")
 
     cd buildpath do
-      system "pwd"
+      puts pwd
       system "ls", "-la"
       system "go", "build", *std_go_args(ldflags: ldflags), "./cmd/agenthub"
     end
