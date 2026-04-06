@@ -9,8 +9,7 @@ FORMULA_TEMPLATE = """class Agenthub < Formula
   desc "CLI for provisioning and operating AgentHub environments"
   homepage "https://github.com/morshoto/agenthub"
   url "{url}"
-  version "{version}"
-  sha256 "{sha256}"
+{version_block}  sha256 "{sha256}"
   license "MIT"
 
   livecheck do
@@ -44,14 +43,16 @@ end
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--version", required=True)
+    parser.add_argument("--version")
     parser.add_argument("--url", required=True)
     parser.add_argument("--sha256", required=True)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
+    version_block = f'  version "{args.version}"\n' if args.version else ""
+
     rendered = FORMULA_TEMPLATE.format(
-        version=args.version,
+        version_block=version_block,
         url=args.url,
         sha256=args.sha256,
     )
