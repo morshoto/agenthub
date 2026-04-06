@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
+	"sync"
 
 	"golang.org/x/term"
 )
@@ -23,13 +25,18 @@ type wizardProgressItem struct {
 	Value string
 }
 
+const (
+	wizardAnsiReset = "\033[0m"
+	wizardAnsiDim   = "\033[2m"
+	wizardAnsiGreen = "\033[32m"
+	wizardAnsiCyan  = "\033[36m"
+)
+
+var wizardProgressLineCount sync.Map
+
 func renderWizardProgress(out io.Writer, phase, title string, step, total int, current string, items []wizardProgressItem) {
 	if out == nil {
 		return
-	}
-
-	if isTerminalWriter(out) {
-		fmt.Fprint(out, "\r\033[2J\033[H")
 	}
 
 	phase = strings.TrimSpace(phase)
@@ -59,12 +66,29 @@ func renderWizardProgress(out io.Writer, phase, title string, step, total int, c
 		currentIndex = step - 1
 	}
 
-	if phase != "" {
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, phase)
+	tty := isTerminalWriter(out)
+	lines := buildWizardProgressLines(tty, phase, title, step, total, currentIndex, items)
+	if tty {
+		if prev := wizardProgressPreviousLines(out); prev > 0 {
+			fmt.Fprintf(out, "\033[%dA", prev)
+		}
 	}
-	fmt.Fprintln(out)
-	fmt.Fprintf(out, "%s  Step %d/%d\n\n", title, step, total)
+	for _, line := range lines {
+		fmt.Fprintf(out, "\r\033[2K%s\n", line)
+	}
+	if tty {
+		wizardProgressLineCount.Store(wizardProgressKey(out), len(lines))
+	}
+}
+
+func buildWizardProgressLines(tty bool, phase, title string, step, total, currentIndex int, items []wizardProgressItem) []string {
+	lines := make([]string, 0, 4+len(items))
+	if phase != "" {
+		lines = append(lines, wizardStyle(tty, wizardAnsiDim, phase))
+	}
+	lines = append(lines, "")
+	lines = append(lines, wizardStyle(tty, wizardAnsiCyan, fmt.Sprintf("%s  Step %d/%d", title, step, total)))
+	lines = append(lines, "")
 	for i, item := range items {
 		label := strings.TrimSpace(item.Label)
 		if label == "" {
@@ -74,15 +98,18 @@ func renderWizardProgress(out io.Writer, phase, title string, step, total int, c
 		switch {
 		case i < currentIndex:
 			if value == "" {
-				value = "done"
+				value = wizardStyle(tty, wizardAnsiGreen, "done")
+			} else {
+				value = wizardStyle(tty, wizardAnsiGreen, value)
 			}
-			fmt.Fprintf(out, "✓ %-18s %s\n", label, value)
+			lines = append(lines, fmt.Sprintf("%s %-18s %s", wizardStyle(tty, wizardAnsiGreen, "✓"), label, value))
 		case i == currentIndex:
-			fmt.Fprintf(out, "→ %-18s -\n", label)
+			lines = append(lines, fmt.Sprintf("%s %-18s %s", wizardStyle(tty, wizardAnsiCyan, "→"), label, wizardStyle(tty, wizardAnsiDim, "-")))
 		default:
-			fmt.Fprintf(out, "  %-18s -\n", label)
+			lines = append(lines, fmt.Sprintf("  %-18s %s", label, wizardStyle(tty, wizardAnsiDim, "-")))
 		}
 	}
+	return lines
 }
 
 func renderWizardPhase(out io.Writer, title string, body ...string) {
@@ -119,4 +146,40 @@ func isTerminalWriter(w io.Writer) bool {
 		return false
 	}
 	return term.IsTerminal(int(file.Fd()))
+}
+
+func wizardProgressKey(out io.Writer) uintptr {
+	value := reflect.ValueOf(out)
+	if !value.IsValid() {
+		return 0
+	}
+	switch value.Kind() {
+	case reflect.Pointer, reflect.UnsafePointer:
+		return value.Pointer()
+	default:
+		return 0
+	}
+}
+
+func wizardProgressPreviousLines(out io.Writer) int {
+	key := wizardProgressKey(out)
+	if key == 0 {
+		return 0
+	}
+	value, ok := wizardProgressLineCount.Load(key)
+	if !ok {
+		return 0
+	}
+	lines, ok := value.(int)
+	if !ok {
+		return 0
+	}
+	return lines
+}
+
+func wizardStyle(enabled bool, code, text string) string {
+	if !enabled || text == "" {
+		return text
+	}
+	return code + text + wizardAnsiReset
 }

@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	commandColorBlue  = "\x1b[34m"
+	commandColorCyan  = "\x1b[36m"
 	commandColorReset = "\x1b[0m"
 )
 
@@ -30,7 +30,7 @@ func (f commandFormatter) Ref(parts ...string) string {
 	if text == "" || !f.color {
 		return text
 	}
-	return commandColorBlue + text + commandColorReset
+	return commandColorCyan + text + commandColorReset
 }
 
 func (f commandFormatter) PaddedName(name string, width int) string {
@@ -42,7 +42,7 @@ func (f commandFormatter) PaddedName(name string, width int) string {
 	if !f.color {
 		return name + padding
 	}
-	return commandColorBlue + name + commandColorReset + padding
+	return commandColorCyan + name + commandColorReset + padding
 }
 
 func (f commandFormatter) GroupTitle(title string) string {
@@ -50,7 +50,7 @@ func (f commandFormatter) GroupTitle(title string) string {
 	if title == "" || !f.color {
 		return title
 	}
-	return commandColorBlue + title + commandColorReset
+	return commandColorCyan + title + commandColorReset
 }
 
 func (f commandFormatter) Example(parts ...string) string {

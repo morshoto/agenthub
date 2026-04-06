@@ -256,7 +256,7 @@ func (s *Session) renderMenu(label string, options []string, defaultValue string
 	if previousLines > 0 {
 		fmt.Fprintf(s.out, "\033[%dA", previousLines)
 	}
-	writeMenuLine(s.out, s.style(ansiBrightCyan, label))
+	writeMenuLine(s.out, s.style(ansiCyan, label))
 	start, end := menuWindowBounds(len(options), selected, menuWindowSize)
 	if start > 0 {
 		writeMenuLine(s.out, s.style(ansiDim, "  ..."))
@@ -273,7 +273,7 @@ func (s *Session) renderMenu(label string, options []string, defaultValue string
 		}
 		text := option
 		if i == selected {
-			text = s.style(ansiBrightGreen, option)
+			text = s.style(ansiGreen, option)
 		}
 		writeMenuLine(s.out, fmt.Sprintf("%s%s%s", prefix, text, marker))
 	}
@@ -295,7 +295,7 @@ func (s *Session) renderSearchMenu(label, query string, options []string, defaul
 	if previousLines > 0 {
 		fmt.Fprintf(s.out, "\033[%dA", previousLines)
 	}
-	writeMenuLine(s.out, s.style(ansiBrightCyan, label))
+	writeMenuLine(s.out, s.style(ansiCyan, label))
 	if query == "" {
 		writeMenuLine(s.out, s.style(ansiDim, "Type to filter, Backspace to edit, Enter to select"))
 	} else {
@@ -322,7 +322,7 @@ func (s *Session) renderSearchMenu(label, query string, options []string, defaul
 		}
 		text := option
 		if i == selected {
-			text = s.style(ansiBrightGreen, option)
+			text = s.style(ansiGreen, option)
 		}
 		writeMenuLine(s.out, fmt.Sprintf("%s%s%s", prefix, text, marker))
 	}
