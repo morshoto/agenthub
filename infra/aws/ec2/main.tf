@@ -44,10 +44,54 @@ data "aws_subnets" "any" {
   }
 }
 
+data "aws_route_tables" "any" {
+  vpc_id = local.vpc_id
+}
+
+data "aws_route_table" "by_id" {
+  for_each       = toset(data.aws_route_tables.any.ids)
+  route_table_id = each.value
+}
+
 locals {
-  vpc_id              = length(data.aws_vpcs.default.ids) > 0 ? data.aws_vpcs.default.ids[0] : ""
-  subnet_ids          = length(data.aws_subnets.default_for_az.ids) > 0 ? data.aws_subnets.default_for_az.ids : data.aws_subnets.any.ids
-  subnet_id           = length(local.subnet_ids) > 0 ? local.subnet_ids[0] : ""
+  vpc_id          = length(data.aws_vpcs.default.ids) > 0 ? data.aws_vpcs.default.ids[0] : ""
+  subnet_ids      = data.aws_subnets.any.ids
+  route_table_ids = data.aws_route_tables.any.ids
+  main_route_table_ids = [
+    for route_table_id in local.route_table_ids : route_table_id
+    if anytrue([for association in data.aws_route_table.by_id[route_table_id].associations : association.main])
+  ]
+  main_route_table_id = length(local.main_route_table_ids) > 0 ? local.main_route_table_ids[0] : ""
+  public_route_table_ids = sort([
+    for route_table_id in local.route_table_ids : route_table_id
+    if anytrue([
+      for route in data.aws_route_table.by_id[route_table_id].routes :
+      route.cidr_block == "0.0.0.0/0" && startswith(route.gateway_id, "igw-")
+    ])
+  ])
+  explicit_associated_subnet_ids = sort(distinct(flatten([
+    for route_table_id in local.route_table_ids : [
+      for association in data.aws_route_table.by_id[route_table_id].associations : association.subnet_id
+      if trimspace(association.subnet_id) != ""
+    ]
+  ])))
+  public_subnet_ids = sort(distinct(concat(
+    flatten([
+      for route_table_id in local.public_route_table_ids : [
+        for association in data.aws_route_table.by_id[route_table_id].associations : association.subnet_id
+        if trimspace(association.subnet_id) != ""
+      ]
+    ]),
+    contains(local.public_route_table_ids, local.main_route_table_id) ? [
+      for subnet_id in local.subnet_ids : subnet_id
+      if !contains(local.explicit_associated_subnet_ids, subnet_id)
+    ] : []
+  )))
+  preferred_subnet_ids = sort([
+    for subnet_id in data.aws_subnets.default_for_az.ids : subnet_id
+    if contains(local.public_subnet_ids, subnet_id)
+  ])
+  subnet_id           = length(local.preferred_subnet_ids) > 0 ? local.preferred_subnet_ids[0] : length(local.public_subnet_ids) > 0 ? local.public_subnet_ids[0] : ""
   github_secret_arn   = trimspace(var.github_token_secret_arn) != "" ? trimspace(var.github_token_secret_arn) : trimspace(var.github_private_key_secret_arn)
   github_auth_enabled = local.github_secret_arn != ""
   owner               = trimspace(var.owner)
@@ -218,6 +262,13 @@ resource "aws_instance" "this" {
   vpc_security_group_ids      = [aws_security_group.this.id]
   iam_instance_profile        = local.runtime_provider == "aws-bedrock" || local.github_auth_enabled ? aws_iam_instance_profile.runtime[0].name : null
   user_data                   = local.user_data
+
+  lifecycle {
+    precondition {
+      condition     = length(local.public_subnet_ids) > 0
+      error_message = "no public subnet with an internet gateway route was found in the selected VPC"
+    }
+  }
 
   root_block_device {
     volume_size           = var.disk_size_gb
