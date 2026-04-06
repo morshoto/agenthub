@@ -383,6 +383,7 @@ jobs:
 
                   mkdir -p Formula/a
                   python3 "${GITHUB_WORKSPACE}/.github/scripts/render_homebrew_formula.py" \
+                    --version "${VERSION#v}" \
                     --url "${source_url}" \
                     --sha256 "${source_sha256}" \
                     --output Formula/a/agenthub.rb

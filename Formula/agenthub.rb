@@ -2,6 +2,7 @@ class Agenthub < Formula
   desc "CLI for provisioning and operating AgentHub environments"
   homepage "https://github.com/morshoto/agenthub"
   url "https://github.com/morshoto/agenthub/archive/refs/tags/v0.1.0.tar.gz"
+  version "0.1.0"
   sha256 "173fcee428bed572235202b51433e8d753ae91701514f897079dcf966c6958a8"
   license "MIT"
 
@@ -27,5 +28,7 @@ class Agenthub < Formula
   test do
     output = shell_output("#{bin}/agenthub version")
     assert_match "agenthub v#{version}", output
+    assert_match "commit: unknown", output
+    assert_match "build date: unknown", output
   end
 end
