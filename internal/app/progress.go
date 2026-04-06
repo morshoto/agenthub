@@ -20,6 +20,11 @@ type progressRenderer struct {
 	lock sync.Mutex
 }
 
+const (
+	progressAnsiReset = "\x1b[0m"
+	progressAnsiCyan  = "\x1b[36m"
+)
+
 func newProgressRenderer(out io.Writer) *progressRenderer {
 	return &progressRenderer{
 		out: out,
@@ -73,7 +78,7 @@ func (p *progressRenderer) Run(ctx context.Context, title string, fn func(contex
 			return nil
 		case <-ticker.C:
 			p.lock.Lock()
-			fmt.Fprintf(p.out, "\r[%s] %s", frames[frame%len(frames)], title)
+			fmt.Fprintf(p.out, "\r[%s%s%s] %s", progressAnsiCyan, frames[frame%len(frames)], progressAnsiReset, title)
 			p.lock.Unlock()
 			frame++
 		}

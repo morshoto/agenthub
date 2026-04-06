@@ -51,6 +51,9 @@ func TestRenderWizardProgressShowsCurrentStateWithoutHistoryNoise(t *testing.T) 
 			t.Fatalf("render output %q unexpectedly contains %q", got, fragment)
 		}
 	}
+	if strings.Contains(got, "\033[2J") {
+		t.Fatalf("render output %q unexpectedly clears the full screen", got)
+	}
 }
 
 type fakeProvider struct {
