@@ -1,5 +1,5 @@
 class Agenthub < Formula
-  desc "AgentHub CLI"
+  desc "CLI for provisioning and operating AgentHub environments"
   homepage "https://github.com/morshoto/agenthub"
   url "https://github.com/morshoto/agenthub/archive/refs/tags/v0.1.0.tar.gz"
   sha256 "173fcee428bed572235202b51433e8d753ae91701514f897079dcf966c6958a8"
@@ -20,7 +20,7 @@ class Agenthub < Formula
   end
 
   test do
-    output = shell_output("#{bin}/agenthub --version")
+    output = shell_output("#{bin}/agenthub version")
     assert_match "agenthub v#{version}", output
   end
 end
