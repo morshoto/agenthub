@@ -89,18 +89,20 @@ func validateInfraConfig(cfg *config.Config) error {
 	}
 
 	var v config.ValidationError
-	if cfg.Platform.Name != config.PlatformAWS {
-		if cfg.Platform.Name == "" {
-			v.Add("platform.name", "is required")
-		} else {
-			v.Add("platform.name", fmt.Sprintf("unsupported platform %q", cfg.Platform.Name))
-		}
+	platform := strings.ToLower(strings.TrimSpace(cfg.Platform.Name))
+	if platform == "" {
+		v.Add("platform.name", "is required")
+	} else if !config.IsSupportedPlatform(platform) {
+		v.Add("platform.name", fmt.Sprintf("unsupported platform %q", cfg.Platform.Name))
 	}
-	if class := strings.TrimSpace(cfg.Compute.Class); class != "" && !config.IsValidComputeClass(class) {
-		v.Add("compute.class", fmt.Sprintf("unsupported compute class %q", class))
+	if platform == "" {
+		platform = config.PlatformAWS
 	}
 	if strings.TrimSpace(cfg.Region.Name) == "" {
 		v.Add("region.name", "is required")
+	}
+	if class := strings.TrimSpace(cfg.Compute.Class); class != "" && !config.IsValidComputeClass(class) {
+		v.Add("compute.class", fmt.Sprintf("unsupported compute class %q", class))
 	}
 	if strings.TrimSpace(cfg.Instance.Type) == "" {
 		v.Add("instance.type", "is required")

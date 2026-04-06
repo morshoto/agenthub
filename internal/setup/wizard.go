@@ -81,9 +81,6 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	if platform != config.PlatformAWS {
-		return nil, fmt.Errorf("%s is not implemented yet", platform)
-	}
 
 	computeClass := defaultComputeClass(w.Existing)
 	render("Setup", 3, "Compute mode", agentName, platform, computeClass, "", "", "", "", "", false, false)
@@ -133,10 +130,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	regionDefault := "us-east-1"
-	if w.Existing != nil && strings.TrimSpace(w.Existing.Region.Name) != "" && slices.Contains(regions, w.Existing.Region.Name) {
-		regionDefault = w.Existing.Region.Name
-	}
+	regionDefault := defaultRegion(platform, w.Existing, regions)
 	render("Environment check", 4, "Region", agentName, platform, computeClass, "", "", "", "", "", false, false)
 	region, err := w.Prompter.Select("Select AWS region", regions, regionDefault)
 	if err != nil {
@@ -152,7 +146,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		return nil, err
 	}
 	render("Environment check", 5, "Instance", agentName, platform, computeClass, region, "", "", "", "", false, false)
-	instanceType, err := w.Prompter.SelectSearch("Select instance type", instanceTypes, defaultInstanceType(computeClass))
+	instanceType, err := w.Prompter.SelectSearch("Select instance type", instanceTypes, defaultInstanceTypeForPlatform(platform, computeClass))
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +333,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		},
 		Infra: config.InfraConfig{
 			Backend:   "terraform",
-			ModuleDir: filepath.Join("infra", "aws", "ec2"),
+			ModuleDir: defaultTerraformModuleDir(platform),
 		},
 		GitHub: githubCfg,
 		Sandbox: config.SandboxConfig{
@@ -426,6 +420,17 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func defaultTerraformModuleDir(platform string) string {
+	switch strings.ToLower(strings.TrimSpace(platform)) {
+	case config.PlatformGCP:
+		return filepath.Join("infra", "gcp", "vm")
+	case config.PlatformAzure:
+		return filepath.Join("infra", "azure", "vm")
+	default:
+		return filepath.Join("infra", "aws", "ec2")
+	}
 }
 
 func runtimeProviderOptions() []string {
@@ -608,6 +613,62 @@ func defaultInstanceType(computeClass string) string {
 		return "t3.xlarge"
 	}
 	return "g5.xlarge"
+}
+
+func defaultInstanceTypeForPlatform(platform, computeClass string) string {
+	switch strings.ToLower(strings.TrimSpace(platform)) {
+	case config.PlatformGCP:
+		if config.EffectiveComputeClass(computeClass) == config.ComputeClassCPU {
+			return "e2-medium"
+		}
+		return "a2-highgpu-1g"
+	case config.PlatformAzure:
+		if config.EffectiveComputeClass(computeClass) == config.ComputeClassCPU {
+			return "Standard_B2s"
+		}
+		return "Standard_NC4as_T4_v3"
+	default:
+		return defaultInstanceType(computeClass)
+	}
+}
+
+func defaultRegion(platform string, existing *config.Config, regions []string) string {
+	if existing != nil {
+		if value := strings.TrimSpace(existing.Region.Name); value != "" && slices.Contains(regions, value) {
+			return value
+		}
+	}
+	if len(regions) == 0 {
+		switch strings.ToLower(strings.TrimSpace(platform)) {
+		case config.PlatformGCP:
+			return "us-central1"
+		case config.PlatformAzure:
+			return "japaneast"
+		default:
+			return "us-east-1"
+		}
+	}
+	switch strings.ToLower(strings.TrimSpace(platform)) {
+	case config.PlatformGCP:
+		for _, preferred := range []string{"us-central1", "us-east1", "asia-northeast1"} {
+			if slices.Contains(regions, preferred) {
+				return preferred
+			}
+		}
+	case config.PlatformAzure:
+		for _, preferred := range []string{"japaneast", "eastus", "westeurope"} {
+			if slices.Contains(regions, preferred) {
+				return preferred
+			}
+		}
+	default:
+		for _, preferred := range []string{"us-east-1", "us-west-2", "ap-northeast-1"} {
+			if slices.Contains(regions, preferred) {
+				return preferred
+			}
+		}
+	}
+	return regions[0]
 }
 
 func defaultNetworkMode(computeClass string) string {

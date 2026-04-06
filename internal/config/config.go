@@ -16,7 +16,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const PlatformAWS = "aws"
+const (
+	PlatformAWS   = "aws"
+	PlatformGCP   = "gcp"
+	PlatformAzure = "azure"
+)
 const (
 	ComputeClassGPU = "gpu"
 	ComputeClassCPU = "cpu"
@@ -179,15 +183,16 @@ func Validate(cfg *Config) error {
 		v.Add("compute.class", fmt.Sprintf("unsupported compute class %q", class))
 	}
 
-	if cfg.Platform.Name == "" {
+	platform := strings.ToLower(strings.TrimSpace(cfg.Platform.Name))
+	if platform == "" {
 		v.Add("platform.name", "is required")
-	} else if cfg.Platform.Name != PlatformAWS {
+	} else if !IsSupportedPlatform(platform) {
 		v.Add("platform.name", fmt.Sprintf("unsupported platform %q", cfg.Platform.Name))
 	}
 
 	if cfg.Region.Name == "" {
 		v.Add("region.name", "is required")
-	} else if !awsRegionPattern.MatchString(strings.TrimSpace(cfg.Region.Name)) {
+	} else if platform == PlatformAWS && !awsRegionPattern.MatchString(strings.TrimSpace(cfg.Region.Name)) {
 		v.Add("region.name", "must look like an AWS region name such as ap-northeast-1")
 	}
 
@@ -268,7 +273,7 @@ validateGitHubConfigDone:
 	if cfg.Infra.Backend != "" && strings.ToLower(strings.TrimSpace(cfg.Infra.Backend)) != "terraform" {
 		v.Add("infra.backend", "must be terraform")
 	}
-	if class := strings.TrimSpace(cfg.Compute.Class); class != "" {
+	if class := strings.TrimSpace(cfg.Compute.Class); class != "" && platform == PlatformAWS {
 		effective := EffectiveComputeClass(class)
 		if effective == ComputeClassCPU {
 			if strings.TrimSpace(cfg.Instance.Type) != "" && !strings.HasPrefix(strings.TrimSpace(cfg.Instance.Type), "t3.") {
@@ -327,6 +332,15 @@ func EffectiveComputeClass(class string) string {
 func IsValidComputeClass(class string) bool {
 	switch strings.ToLower(strings.TrimSpace(class)) {
 	case ComputeClassCPU, ComputeClassGPU:
+		return true
+	default:
+		return false
+	}
+}
+
+func IsSupportedPlatform(platform string) bool {
+	switch strings.ToLower(strings.TrimSpace(platform)) {
+	case PlatformAWS, PlatformGCP, PlatformAzure:
 		return true
 	default:
 		return false
