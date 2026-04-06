@@ -336,16 +336,25 @@ jobs:
                     published_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                   fi
 
+                  source_url="https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${VERSION}.tar.gz"
+                  source_archive="$(mktemp)"
+                  curl -fsSL "${source_url}" -o "${source_archive}"
+                  source_sha256="$(sha256sum "${source_archive}" | awk '{print $1}')"
+
                   jq -n \
                     --arg version "${VERSION}" \
                     --arg release_id "${release_id}" \
                     --arg release_url "${release_url}" \
                     --arg published_at "${published_at}" \
+                    --arg source_url "${source_url}" \
+                    --arg source_sha256 "${source_sha256}" \
                     '{
                       version: $version,
                       release_id: $release_id,
                       release_url: $release_url,
                       published_at: $published_at,
+                      source_url: $source_url,
+                      source_sha256: $source_sha256,
                       status: "published"
                     }' > release-metadata.json
 
