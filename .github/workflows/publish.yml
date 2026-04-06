@@ -84,12 +84,15 @@ jobs:
                     mode="existing-tag"
                   else
                     if [[ -z "${latest_tag}" ]]; then
-                      echo "no prior semver tag found; create the first release tag manually before using workflow_dispatch" >&2
-                      exit 1
+                      version="v0.1.0"
+                      previous_tag=""
+                      mode="initial-tag"
+                      echo "no prior semver tag found; using initial release version ${version}"
+                    else
+                      version="$(bump_version "${latest_tag}" "${BUMP}")"
+                      previous_tag="${latest_tag}"
+                      mode="bumped-tag"
                     fi
-                    version="$(bump_version "${latest_tag}" "${BUMP}")"
-                    previous_tag="${latest_tag}"
-                    mode="bumped-tag"
                   fi
 
                   echo "version=${version}" >> "${GITHUB_OUTPUT}"
