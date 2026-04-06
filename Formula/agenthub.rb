@@ -21,7 +21,7 @@ class Agenthub < Formula
       -X agenthub/internal/app.BuildDate=unknown
     ].join(" ")
 
-    cd buildpath/"agenthub-#{version}" do
+    cd buildpath do
       puts pwd
       system "ls", "-la"
       system "go", "build", *std_go_args(ldflags: ldflags), "./cmd/agenthub"
