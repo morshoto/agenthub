@@ -20,7 +20,7 @@
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
-          version = "v0.1.0";
+          version = "0.1.0";
         in
         {
           default = pkgs.buildGoModule {
@@ -29,11 +29,10 @@
             src = ./.;
             subPackages = [ "cmd/agenthub" ];
             vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-            CGO_ENABLED = 0;
             ldflags = [
               "-s"
               "-w"
-              "-X agenthub/internal/app.Version=${version}"
+              "-X agenthub/internal/app.Version=v${version}"
               "-X agenthub/internal/app.CommitSHA=unknown"
               "-X agenthub/internal/app.BuildDate=unknown"
             ];
