@@ -5,6 +5,11 @@ class Agenthub < Formula
   sha256 "173fcee428bed572235202b51433e8d753ae91701514f897079dcf966c6958a8"
   license "MIT"
 
+  livecheck do
+    url :stable
+    strategy :github_latest
+  end
+
   depends_on "go" => :build
 
   def install
@@ -12,8 +17,8 @@ class Agenthub < Formula
       -s
       -w
       -X agenthub/internal/app.Version=v#{version}
-      -X agenthub/internal/app.CommitSHA=homebrew
-      -X agenthub/internal/app.BuildDate=homebrew
+      -X agenthub/internal/app.CommitSHA=unknown
+      -X agenthub/internal/app.BuildDate=unknown
     ].join(" ")
 
     system "go", "build", *std_go_args(ldflags: ldflags), "./cmd/agenthub"
