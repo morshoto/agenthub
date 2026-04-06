@@ -10,31 +10,35 @@
 
 ### Install
 
-**Homebrew**: Homebrew package once the `homebrew/core` formula is merged <br>
-**nix**: Install directory freom this repository using nix <br>
-**GitHub Releases**: Download the binary that matches your platform from the latest GitHub Release. Remain the source of truth for release binaries. Make the binary executable and place it on your `PATH`.
-
-> [!NOTE]
-> Homebrew package is published once `homebrew/core` formula is merged, for up-to-date packages, prefer downloading from **nix** or **GitHub Releases**
+**Homebrew**: install from the `morshoto/agenthub` tap <br>
+**Nix**: install directly from this repository using a flake <br>
+**GitHub Releases**: download the binary that matches your platform from the latest release and place it on your `PATH`
 
 ```bash
 # Install with Homebrew
 brew tap morshoto/agenthub && brew install agenthub
 # Install directly from this repository
 nix profile install github:morshoto/agenthub
+
 # Run it without installing
 nix run github:morshoto/agenthub -- version
+
 # macOS arm64 binary from the latest release
 gh release download latest --pattern 'agenthub_*_darwin_arm64'
+
 # Linux amd64 binary from the latest release
 gh release download latest --pattern 'agenthub_*_linux_amd64'
 ```
+
+Release binaries remain the source of truth for manual downloads.
+The Homebrew tap is published separately at `https://github.com/morshoto/homebrew-agenthub`.
 
 ### Supported OS / arch
 
 - Linux `amd64`
 - macOS `arm64`
 - Nix on the same systems supported by nixpkgs
+- Homebrew on the same systems supported by the tap
 
 ### Common Commands
 
@@ -56,3 +60,10 @@ agenthub --version
 ```bash
 go test ./... -v
 ```
+
+### Publishing
+
+- Release builds are created by `.github/workflows/publish.yml`.
+- The workflow also updates the `morshoto/homebrew-agenthub` tap.
+- Set the `HOMEBREW_TAP_TOKEN` repository secret on `morshoto/agenthub` so the tap push step can authenticate.
+- `go-ci` runs a dry-run publish check against a temporary Homebrew tap before release jobs run.
