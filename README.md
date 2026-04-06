@@ -10,23 +10,17 @@
 
 ### Install
 
-**Homebrew**:
-**nix**:
-**GitHub Releases**: remain the source of truth for release binaries.
+**Homebrew**: Homebrew package once the `homebrew/core` formula is merged <br>
+**nix**: Install directory freom this repository using nix <br>
+**GitHub Releases**: Download the binary that matches your platform from the latest GitHub Release. Remain the source of truth for release binaries. Make the binary executable and place it on your `PATH`.
 
-  1. Download the binary that matches your platform from the latest GitHub Release.
-  2. Make the binary executable and place it on your `PATH`.
-  3. Verify the release checksum if you mirror or cache the archive.
-
-> INFO
-> Release artifacts are published as:
-> `agenthub_<version>_linux_amd64`
-> `agenthub_<version>_darwin_arm64`
+> [!NOTE]
+> Homebrew package is published once `homebrew/core` formula is merged, for up-to-date packages, prefer downloading from **nix** or **GitHub Releases**
 
 ```bash
-# Install with Homebrew once the `homebrew/core` formula is merged:
+# Install with Homebrew
 brew install agenthub
-# Install directly from this repository:
+# Install directly from this repository
 nix profile install github:morshoto/agenthub
 # Run it without installing
 nix run github:morshoto/agenthub -- version
