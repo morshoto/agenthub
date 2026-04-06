@@ -30,7 +30,7 @@ func newInfraCreateCommand(app *App) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "create",
-		Short: "Create AWS infrastructure with Terraform",
+		Short: "Create cloud infrastructure with Terraform",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(app.opts.ConfigPath) == "" {
 				return errors.New("config file is required: pass --config <path>")
@@ -69,9 +69,9 @@ func newInfraCreateCommand(app *App) *cobra.Command {
 				return wrapUserFacingError(
 					"infra create failed",
 					err,
-					"the AWS provider rejected the request or the selected region lacks capacity",
-					"check the AWS error above",
-					"run "+commandRef(cmd.OutOrStdout(), "agenthub", "quota", "check", "--platform", "aws", "--region", cfg.Region.Name, "--instance-family", cfg.Instance.Type)+" before retrying",
+					"the selected cloud provider rejected the request or the selected region lacks capacity",
+					"check the cloud error above",
+					"re-run after checking provider credentials, quotas, and region capacity",
 				)
 			}
 			return nil

@@ -638,16 +638,6 @@ func defaultRegion(platform string, existing *config.Config, regions []string) s
 			return value
 		}
 	}
-	if len(regions) == 0 {
-		switch strings.ToLower(strings.TrimSpace(platform)) {
-		case config.PlatformGCP:
-			return "us-central1"
-		case config.PlatformAzure:
-			return "japaneast"
-		default:
-			return "us-east-1"
-		}
-	}
 	switch strings.ToLower(strings.TrimSpace(platform)) {
 	case config.PlatformGCP:
 		for _, preferred := range []string{"us-central1", "us-east1", "asia-northeast1"} {
@@ -655,11 +645,17 @@ func defaultRegion(platform string, existing *config.Config, regions []string) s
 				return preferred
 			}
 		}
+		if len(regions) == 0 {
+			return "us-central1"
+		}
 	case config.PlatformAzure:
 		for _, preferred := range []string{"japaneast", "eastus", "westeurope"} {
 			if slices.Contains(regions, preferred) {
 				return preferred
 			}
+		}
+		if len(regions) == 0 {
+			return "japaneast"
 		}
 	default:
 		for _, preferred := range []string{"us-east-1", "us-west-2", "ap-northeast-1"} {
@@ -667,8 +663,14 @@ func defaultRegion(platform string, existing *config.Config, regions []string) s
 				return preferred
 			}
 		}
+		if len(regions) == 0 {
+			return "us-east-1"
+		}
 	}
-	return regions[0]
+	if len(regions) > 0 {
+		return regions[0]
+	}
+	return ""
 }
 
 func defaultNetworkMode(computeClass string) string {

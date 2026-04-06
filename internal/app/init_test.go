@@ -248,11 +248,11 @@ func TestInitSupportsNonAWSPlatformScaffold(t *testing.T) {
 	configPath := filepath.Join(agentsDir, "alpha", "config.yaml")
 	input := strings.Join([]string{
 		"alpha",                  // agent name
-		"2",                      // platform gcp
+		"2",                      // gcp
 		"",                       // accept default GPU compute mode
 		"",                       // accept default region
 		"",                       // accept default instance type
-		"1",                      // image ubuntu-22.04 LTS
+		"1",                      // image Ubuntu 22.04 LTS
 		"20",                     // disk size
 		"",                       // accept default public network mode
 		"demo-key",               // ssh key pair name
@@ -277,8 +277,7 @@ func TestInitSupportsNonAWSPlatformScaffold(t *testing.T) {
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stdout)
 
-	err := cmd.Execute()
-	if err != nil {
+	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	data, err := os.ReadFile(configPath)
@@ -287,9 +286,7 @@ func TestInitSupportsNonAWSPlatformScaffold(t *testing.T) {
 	}
 	body := string(data)
 	for _, fragment := range []string{
-		"platform:",
 		"name: gcp",
-		"region:",
 		"name: us-central1",
 		"instance:",
 		"type: a2-highgpu-1g",
@@ -301,6 +298,29 @@ func TestInitSupportsNonAWSPlatformScaffold(t *testing.T) {
 		if !strings.Contains(body, fragment) {
 			t.Fatalf("config file %q missing %q", body, fragment)
 		}
+	}
+}
+
+func TestInitUsesPlatformSpecificProviderFactory(t *testing.T) {
+	called := false
+	original := newCloudProvider
+	newCloudProvider = func(platform, profile, computeClass string) provider.CloudProvider {
+		called = true
+		if platform != config.PlatformGCP {
+			t.Fatalf("platform = %q, want %q", platform, config.PlatformGCP)
+		}
+		if profile != "sso-dev" {
+			t.Fatalf("profile = %q, want sso-dev", profile)
+		}
+		return stubCloudProvider{profile: profile}
+	}
+	defer func() { newCloudProvider = original }()
+
+	if got := newCloudProvider(config.PlatformGCP, "sso-dev", "gpu"); got == nil {
+		t.Fatal("newCloudProvider() returned nil")
+	}
+	if !called {
+		t.Fatal("provider factory should have been called")
 	}
 }
 

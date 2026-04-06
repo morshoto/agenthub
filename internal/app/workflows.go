@@ -334,10 +334,6 @@ func buildTerraformInputs(ctx context.Context, profile string, cfg *config.Confi
 	if err != nil {
 		return terraformInputs{}, err
 	}
-	sourceURL, _, err := resolveSourceArchiveURLFunc(ctx, profile, cfg.Region.Name)
-	if err != nil {
-		return terraformInputs{}, err
-	}
 	runtimePort := cfg.Runtime.Port
 	if runtimePort <= 0 {
 		runtimePort = 8080
@@ -369,7 +365,7 @@ func buildTerraformInputs(ctx context.Context, profile string, cfg *config.Confi
 		GitHubTokenSecretARN:      strings.TrimSpace(cfg.GitHub.TokenSecretARN),
 		SSHCIDR:                   sshCIDR,
 		SSHUser:                   sshUser,
-		SourceURL:                 sourceURL,
+		SourceURL:                 "",
 		Owner:                     owner,
 		AgentName:                 agentName,
 		Environment:               environment,
