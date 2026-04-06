@@ -305,6 +305,12 @@ func buildTerraformInputs(ctx context.Context, profile string, cfg *config.Confi
 	if cfg == nil {
 		return terraformInputs{}, errors.New("config is required")
 	}
+	switch strings.ToLower(strings.TrimSpace(cfg.Platform.Name)) {
+	case config.PlatformAWS:
+		// AWS remains the only platform wired for provisioning in this build.
+	default:
+		return terraformInputs{}, fmt.Errorf("provisioning is only wired for aws right now; platform %q is supported for configuration scaffolding only", cfg.Platform.Name)
+	}
 
 	networkMode := effectiveNetworkMode(cfg)
 	if networkMode == "" {
@@ -325,10 +331,6 @@ func buildTerraformInputs(ctx context.Context, profile string, cfg *config.Confi
 		return terraformInputs{}, errors.New("ssh private key path is required for public networking")
 	}
 	sshPublicKey, err := deriveSSHPublicKeyFunc(ctx, sshKeyPath)
-	if err != nil {
-		return terraformInputs{}, err
-	}
-	sourceURL, _, err := resolveSourceArchiveURLFunc(ctx, profile, cfg.Region.Name)
 	if err != nil {
 		return terraformInputs{}, err
 	}
@@ -363,7 +365,7 @@ func buildTerraformInputs(ctx context.Context, profile string, cfg *config.Confi
 		GitHubTokenSecretARN:      strings.TrimSpace(cfg.GitHub.TokenSecretARN),
 		SSHCIDR:                   sshCIDR,
 		SSHUser:                   sshUser,
-		SourceURL:                 sourceURL,
+		SourceURL:                 "",
 		Owner:                     owner,
 		AgentName:                 agentName,
 		Environment:               environment,
@@ -842,7 +844,10 @@ func resolveTerraformModuleDir(cfg *config.Config) (string, error) {
 	}
 	moduleDir := strings.TrimSpace(cfg.Infra.ModuleDir)
 	if moduleDir == "" {
-		moduleDir = filepath.Join("infra", "aws", "ec2")
+		moduleDir = defaultTerraformModuleDirForPlatform(cfg.Platform.Name)
+		if moduleDir == "" {
+			return "", fmt.Errorf("unsupported platform %q", cfg.Platform.Name)
+		}
 	}
 	if !filepath.IsAbs(moduleDir) {
 		abs, err := filepath.Abs(moduleDir)
@@ -852,6 +857,19 @@ func resolveTerraformModuleDir(cfg *config.Config) (string, error) {
 		moduleDir = abs
 	}
 	return moduleDir, nil
+}
+
+func defaultTerraformModuleDirForPlatform(platform string) string {
+	switch strings.ToLower(strings.TrimSpace(platform)) {
+	case config.PlatformAWS:
+		return filepath.Join("infra", "aws", "ec2")
+	case config.PlatformGCP:
+		return filepath.Join("infra", "gcp", "vm")
+	case config.PlatformAzure:
+		return filepath.Join("infra", "azure", "vm")
+	default:
+		return ""
+	}
 }
 
 func writeTerraformVars(workdir string, vars terraformVars) (string, error) {

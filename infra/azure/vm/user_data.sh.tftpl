@@ -1,0 +1,17 @@
+#!/bin/bash
+set -euo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y ca-certificates git openssh-client
+
+install -d -m 0755 /opt/agenthub/src
+install -d -m 0755 /opt/agenthub
+install -d -m 0700 /home/ubuntu/.ssh
+chown ubuntu:ubuntu /home/ubuntu/.ssh
+
+cat > /opt/agenthub/runtime.yaml <<'EOF'
+${runtime_config_yaml}
+EOF
+
+touch /opt/agenthub/bootstrap.done

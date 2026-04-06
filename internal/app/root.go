@@ -16,6 +16,7 @@ import (
 	"agenthub/internal/prompt"
 	"agenthub/internal/provider"
 	awsprovider "agenthub/internal/provider/aws"
+	staticprovider "agenthub/internal/provider/static"
 	"agenthub/internal/runtime"
 	"agenthub/internal/setup"
 )
@@ -159,10 +160,7 @@ func newInitCommand(app *App) *cobra.Command {
 			session := prompt.NewSession(cmd.InOrStdin(), cmd.OutOrStdout())
 			wizard := setup.NewWizard(session, cmd.OutOrStdout(), nil, existing)
 			wizard.ProviderFactory = func(platform, computeClass string) provider.CloudProvider {
-				if platform != config.PlatformAWS {
-					return nil
-				}
-				return newAWSProvider(wizard.AWSProfile, computeClass)
+				return newCloudProvider(platform, wizard.AWSProfile, computeClass)
 			}
 			wizard.AWSProfile = app.opts.Profile
 			cfg, err := wizard.Run(cmd.Context())
@@ -295,6 +293,17 @@ func newQuotaCheckCommand(app *App) *cobra.Command {
 
 var newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
 	return awsprovider.New(awsprovider.Config{Profile: profile, ComputeClass: computeClass})
+}
+
+var newCloudProvider = func(platform, profile, computeClass string) provider.CloudProvider {
+	switch strings.ToLower(strings.TrimSpace(platform)) {
+	case config.PlatformAWS:
+		return newAWSProvider(profile, computeClass)
+	case config.PlatformGCP, config.PlatformAzure:
+		return staticprovider.New(platform, profile, computeClass)
+	default:
+		return nil
+	}
 }
 
 func existingConfig(path string) (*config.Config, error) {

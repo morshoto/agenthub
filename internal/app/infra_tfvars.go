@@ -27,7 +27,7 @@ func newInfraTFVarsCommand(app *App) *cobra.Command {
 		Short: "Generate deploy-ready terraform.tfvars from a configuration file",
 		Long: strings.TrimSpace(`Generate a deploy-ready terraform.tfvars file from an AgentHub config.
 
-This command resolves the active AWS profile, derives the SSH public key from the configured private key path, records any GitHub auth secret ARN for the host role, and stages the current working tree as a bootstrap archive URL. It is intended for deploy-time use and can fail if the local git state, SSH key, or AWS environment is not ready.`),
+This command resolves the active AWS profile, derives the SSH public key from the configured private key path, records any GitHub auth secret ARN for the host role, and writes deploy-time Terraform variables. It is intended for deploy-time use and can fail if the local git state or SSH key is not ready.`),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(app.opts.ConfigPath) == "" {
 				return errors.New("config file is required: pass --config <path>")

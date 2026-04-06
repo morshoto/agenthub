@@ -238,18 +238,37 @@ func TestInitSupportsCPUComputeMode(t *testing.T) {
 	}
 }
 
-func TestInitRejectsNonAWSPlatform(t *testing.T) {
+func TestInitSupportsNonAWSPlatformScaffold(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()
+	stubGitHubSSHSetup(t)
 
+	dir := t.TempDir()
+	agentsDir := filepath.Join(dir, "agents")
+	configPath := filepath.Join(agentsDir, "alpha", "config.yaml")
 	input := strings.Join([]string{
-		"alpha", // agent name
-		"2",     // gcp
+		"alpha",                  // agent name
+		"2",                      // gcp
+		"",                       // accept default GPU compute mode
+		"",                       // accept default region
+		"",                       // accept default instance type
+		"1",                      // image Ubuntu 22.04 LTS
+		"20",                     // disk size
+		"",                       // accept default public network mode
+		"demo-key",               // ssh key pair name
+		"/tmp/demo.pem",          // ssh private key
+		"203.0.113.0/24",         // ssh cidr
+		"ubuntu",                 // ssh user
+		"",                       // authenticate Git with your GitHub credentials
+		"y",                      // use NemoClaw
+		"1",                      // provider codex
+		"http://localhost:11434", // endpoint
+		"y",                      // confirm summary
 	}, "\n") + "\n"
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", filepath.Join(t.TempDir(), "agents")}
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", agentsDir}
 
 	app := New()
 	cmd := newRootCommand(app)
@@ -258,49 +277,50 @@ func TestInitRejectsNonAWSPlatform(t *testing.T) {
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stdout)
 
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("Execute() error = nil")
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "not implemented yet") {
-		t.Fatalf("error = %v, want not implemented", err)
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	body := string(data)
+	for _, fragment := range []string{
+		"name: gcp",
+		"name: us-central1",
+		"instance:",
+		"type: a2-highgpu-1g",
+		"image:",
+		"name: Ubuntu 22.04 LTS",
+		"backend: terraform",
+		"module_dir: infra/gcp/vm",
+	} {
+		if !strings.Contains(body, fragment) {
+			t.Fatalf("config file %q missing %q", body, fragment)
+		}
 	}
 }
 
-func TestInitDoesNotCreateAWSProviderBeforePlatformSelection(t *testing.T) {
+func TestInitUsesPlatformSpecificProviderFactory(t *testing.T) {
 	called := false
-	original := newAWSProvider
-	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+	original := newCloudProvider
+	newCloudProvider = func(platform, profile, computeClass string) provider.CloudProvider {
 		called = true
+		if platform != config.PlatformGCP {
+			t.Fatalf("platform = %q, want %q", platform, config.PlatformGCP)
+		}
+		if profile != "sso-dev" {
+			t.Fatalf("profile = %q, want sso-dev", profile)
+		}
 		return stubCloudProvider{profile: profile}
 	}
-	defer func() { newAWSProvider = original }()
+	defer func() { newCloudProvider = original }()
 
-	input := strings.Join([]string{
-		"alpha", // agent name
-		"2",     // gcp
-	}, "\n") + "\n"
-
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"agenthub", "--profile", "sso-dev", "init", "--agents-dir", filepath.Join(t.TempDir(), "agents")}
-
-	app := New()
-	cmd := newRootCommand(app)
-	cmd.SetIn(strings.NewReader(input))
-	var stdout bytes.Buffer
-	cmd.SetOut(&stdout)
-	cmd.SetErr(&stdout)
-
-	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("Execute() error = nil")
+	if got := newCloudProvider(config.PlatformGCP, "sso-dev", "gpu"); got == nil {
+		t.Fatal("newCloudProvider() returned nil")
 	}
-	if !strings.Contains(err.Error(), "not implemented yet") {
-		t.Fatalf("error = %v, want not implemented", err)
-	}
-	if called {
-		t.Fatal("AWS provider should not be created before platform selection")
+	if !called {
+		t.Fatal("provider factory should have been called")
 	}
 }
 

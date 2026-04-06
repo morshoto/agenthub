@@ -61,7 +61,7 @@ func TestConfigValidateCommandReturnsErrorOnInvalidConfig(t *testing.T) {
 	path := filepath.Join(dir, "agenthub.yaml")
 	writeConfig(t, path, `
 platform:
-  name: gcp
+  name: oracle
 region:
   name: us-east-1
 instance:
