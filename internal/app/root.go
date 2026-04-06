@@ -23,9 +23,11 @@ import (
 
 func newRootCommand(app *App) *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:   "agenthub",
-		Short: "AgentHub CLI",
+		Use:     "agenthub",
+		Short:   "AgentHub CLI",
+		Version: app.versionString(),
 	}
+	rootCmd.SetVersionTemplate("{{.Version}}\n")
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		ctx := app.applyRuntime(cmd.Context())
