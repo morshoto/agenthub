@@ -27,8 +27,9 @@
             pname = "agenthub";
             inherit version;
             src = ./.;
+            go = pkgs.go_1_25;
             subPackages = [ "cmd/agenthub" ];
-            vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+            vendorHash = "sha256-4RbjcnuvQhdOJRytWpK5iGHLcmRSTNX7WSIHrn9bzcQ=";
             ldflags = [
               "-s"
               "-w"
