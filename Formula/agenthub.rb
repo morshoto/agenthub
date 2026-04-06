@@ -21,7 +21,9 @@ class Agenthub < Formula
       -X agenthub/internal/app.BuildDate=unknown
     ].join(" ")
 
-    system "go", "build", *std_go_args(ldflags: ldflags), "./cmd/agenthub"
+    cd buildpath do
+      system "go", "build", *std_go_args(ldflags: ldflags), "./cmd/agenthub"
+    end
   end
 
   test do
