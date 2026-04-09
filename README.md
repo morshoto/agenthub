@@ -62,11 +62,20 @@ Notes:
 - `agenthub init` now always writes public networking so the generated config is ready for `agenthub create`.
 - `agenthub slack deploy` uses `infra.instance_id` from the config created by `agenthub create`; pass `--target` if you want to override it.
 
-### Running Tests
+### Local Validation
 
 ```bash
-go test ./... -v
+# Run the standard local validation flow
+make validate
+
+# Run individual checks
+make build
+make fmt-check
+make vet
+make test
 ```
+
+The canonical build entrypoint is `./cmd/agenthub`. Local builds, CI, packaging, and runtime install flows all build from that path.
 
 ### Publishing
 
