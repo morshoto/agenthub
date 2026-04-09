@@ -47,6 +47,8 @@ The Homebrew tap is published separately at `https://github.com/morshoto/homebre
 agenthub init
 # Create instances from a config file
 agenthub create --config agenthub.yaml
+# Re-apply runtime deployment to an existing host
+agenthub redeploy --config agenthub.yaml
 # Deploy Slack integration
 agenthub slack deploy --config agenthub.yaml
 # Show merged agent config status under `agents/`
