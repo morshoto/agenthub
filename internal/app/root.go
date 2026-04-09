@@ -129,6 +129,7 @@ func newConfigCommand(app *App) *cobra.Command {
 		GroupID: "setup",
 	}
 	cmd.AddCommand(newConfigValidateCommand(app))
+	cmd.AddCommand(newConfigUpdateCommand(app))
 	return cmd
 }
 
