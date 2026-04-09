@@ -54,6 +54,7 @@ func newRootCommand(app *App) *cobra.Command {
 	rootCmd.AddCommand(newSlackCommand(app))
 	rootCmd.AddCommand(newInitCommand(app))
 	rootCmd.AddCommand(newCreateCommand(app))
+	rootCmd.AddCommand(newDeleteCommand(app))
 	rootCmd.AddCommand(newServeCommand(app))
 	rootCmd.AddCommand(newInfraCommand(app))
 	rootCmd.AddCommand(newInstallCommand(app))
