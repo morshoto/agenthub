@@ -98,7 +98,11 @@ func runtimeGeneratorForConfig(ctx context.Context, runtimeCfg *runtimeinstall.R
 }
 
 func runRuntimeServer(ctx context.Context, addr, runtimeConfigPath string, runtimeCfg *runtimeinstall.RuntimeConfig, generator runtimeGenerator, idleTimeout time.Duration, idleShutdownCommand string) error {
-	state := newRuntimeServerState(runtimeConfigPath, addr, runtimeCfg, generator)
+	executor := newLocalRuntimeCommandExecutor(runtimeConfigPath, runtimeCfg)
+	if err := executor.ensureWorkspace(); err != nil {
+		return fmt.Errorf("prepare runtime workspace: %w", err)
+	}
+	state := newRuntimeServerState(runtimeConfigPath, addr, runtimeCfg, generator, executor)
 	mux := newRuntimeServerMux(state)
 	server := &http.Server{
 		Addr:    addr,
