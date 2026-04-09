@@ -84,7 +84,7 @@ Notes:
 ### Local Validation
 
 ```bash
-# Run the standard local validation flow
+# Fast inner-loop validation
 make validate
 
 # Run individual checks
@@ -92,7 +92,13 @@ make build
 make fmt-check
 make vet
 make test
+
+# Slower deep validation
+make test-race
+make validate-deep
 ```
+
+Use `make validate` for the normal local feedback loop. Run `make test-race` when touching concurrency-sensitive paths or when you want extra confidence from the Go race detector, and use `make validate-deep` when you want the fast checks plus the slower race pass in one command.
 
 The canonical build entrypoint is `./cmd/agenthub`. Local builds, CI, packaging, and runtime install flows all build from that path.
 
