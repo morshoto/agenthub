@@ -33,7 +33,10 @@ func stubLatestReleaseVersion(t *testing.T, latest string, err error) {
 
 func TestConfigValidateCommandAcceptsConfigFlagAfterSubcommand(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "agenthub.yaml")
+	path := filepath.Join(dir, "agents", "default", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
 	writeConfig(t, path, `
 platform:
   name: aws
@@ -71,7 +74,10 @@ sandbox:
 
 func TestConfigValidateCommandReturnsErrorOnInvalidConfig(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "agenthub.yaml")
+	path := filepath.Join(dir, "agents", "default", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
 	writeConfig(t, path, `
 platform:
   name: oracle
@@ -599,6 +605,155 @@ sandbox:
 	}
 }
 
+func TestRedeployCommandOutputsSummaryAndVerification(t *testing.T) {
+	restore := stubAWSProviderFactory()
+	defer restore()
+
+	originalBuildRuntimeBinary := runtimeinstall.BuildRuntimeBinaryFunc
+	runtimeinstall.BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "agenthub")
+		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
+			return "", err
+		}
+		return path, nil
+	}
+	defer func() { runtimeinstall.BuildRuntimeBinaryFunc = originalBuildRuntimeBinary }()
+
+	originalExecutor := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return flexibleExecutor{
+			run: func(command string, args ...string) (host.CommandResult, error) {
+				switch {
+				case command == "test" && strings.Join(args, " ") == "-s /opt/agenthub/runtime.yaml":
+					return host.CommandResult{}, nil
+				case command == "cat" && strings.Join(args, " ") == "/opt/agenthub/runtime.yaml":
+					return host.CommandResult{Stdout: strings.Join([]string{
+						"use_nemoclaw: false",
+						"nim_endpoint: http://localhost:11434",
+						"model: llama3.2",
+						"port: 8080",
+						"sandbox:",
+						"  enabled: false",
+						"  network_mode: public",
+						"",
+					}, "\n")}, nil
+				default:
+					return host.CommandResult{}, errors.New("unexpected command: " + command + " " + strings.Join(args, " "))
+				}
+			},
+		}
+	}
+	defer func() { newSSHExecutor = originalExecutor }()
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "demo.pem")
+	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+	path := filepath.Join(dir, "agenthub.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+ssh:
+  private_key_path: `+keyPath+`
+  user: ubuntu
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+  network_mode: public
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+  port: 8080
+infra:
+  instance_id: i-0123456789abcdef0
+sandbox:
+  enabled: false
+  network_mode: public
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--config", path, "redeploy", "--working-dir", "/opt/agenthub", "--ssh-user", "ubuntu", "--ssh-key", keyPath}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	got := stdout.String()
+	for _, fragment := range []string{
+		"running redeploy workflow...",
+		"agent: default",
+		"deployment target: 203.0.113.10",
+		"will update",
+		"- runtime binary: /opt/agenthub/bin/agenthub",
+		"install workflow completed",
+		"verification summary",
+		"all required checks passed",
+	} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("stdout = %q, want %q", got, fragment)
+		}
+	}
+}
+
+func TestRedeployCommandRequiresTargetWhenConfigHasNoInstanceID(t *testing.T) {
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "demo.pem")
+	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+	path := filepath.Join(dir, "agenthub.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+ssh:
+  private_key_path: `+keyPath+`
+  user: ubuntu
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: false
+  network_mode: public
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--config", path, "redeploy"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil")
+	}
+	if !strings.Contains(err.Error(), "target is required") {
+		t.Fatalf("error = %q, want target requirement", err)
+	}
+}
+
 func TestVerifyCommandReportsSuccess(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()
@@ -663,6 +818,95 @@ runtime:
 		if !strings.Contains(got, fragment) {
 			t.Fatalf("stdout = %q, want %q", got, fragment)
 		}
+	}
+}
+
+func TestRunRedeployWorkflowFailsWhenVerificationFails(t *testing.T) {
+	originalBuildRuntimeBinary := runtimeinstall.BuildRuntimeBinaryFunc
+	runtimeinstall.BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "agenthub")
+		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
+			return "", err
+		}
+		return path, nil
+	}
+	defer func() { runtimeinstall.BuildRuntimeBinaryFunc = originalBuildRuntimeBinary }()
+
+	originalExecutor := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return flexibleExecutor{
+			run: func(command string, args ...string) (host.CommandResult, error) {
+				switch {
+				case command == "test" && strings.Join(args, " ") == "-s /opt/agenthub/runtime.yaml":
+					return host.CommandResult{}, nil
+				case command == "cat" && strings.Join(args, " ") == "/opt/agenthub/runtime.yaml":
+					return host.CommandResult{Stdout: strings.Join([]string{
+						"use_nemoclaw: false",
+						"nim_endpoint: http://localhost:11434",
+						"model: wrong-model",
+						"port: 8080",
+						"sandbox:",
+						"  enabled: false",
+						"  network_mode: public",
+						"",
+					}, "\n")}, nil
+				default:
+					return host.CommandResult{}, errors.New("unexpected command: " + command + " " + strings.Join(args, " "))
+				}
+			},
+		}
+	}
+	defer func() { newSSHExecutor = originalExecutor }()
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "demo.pem")
+	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+	cfg := mustLoadConfigFromString(t, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+ssh:
+  private_key_path: `+keyPath+`
+  user: ubuntu
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+  network_mode: public
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+  port: 8080
+sandbox:
+  enabled: false
+  network_mode: public
+`)
+
+	installResult, verifyReport, resolvedTarget, err := runRedeployWorkflow(context.Background(), "", cfg, installOptions{
+		Target:     "203.0.113.10",
+		SSHUser:    "ubuntu",
+		SSHKey:     keyPath,
+		WorkingDir: "/opt/agenthub",
+	})
+	if err == nil {
+		t.Fatal("runRedeployWorkflow() error = nil")
+	}
+	if !strings.Contains(err.Error(), "required checks failed") {
+		t.Fatalf("error = %q, want verification failure", err)
+	}
+	if resolvedTarget != "203.0.113.10" {
+		t.Fatalf("resolvedTarget = %q, want 203.0.113.10", resolvedTarget)
+	}
+	if strings.TrimSpace(installResult.ConfigPath) != "/opt/agenthub/runtime.yaml" {
+		t.Fatalf("installResult.ConfigPath = %q, want runtime config path", installResult.ConfigPath)
+	}
+	if !verifyReport.Failed() {
+		t.Fatal("verifyReport.Failed() = false, want true")
 	}
 }
 
@@ -1954,4 +2198,16 @@ func writeConfig(t *testing.T, path, contents string) {
 	if err := os.WriteFile(path, []byte(strings.TrimSpace(contents)+"\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
+}
+
+func mustLoadConfigFromString(t *testing.T, contents string) *config.Config {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agenthub.yaml")
+	writeConfig(t, path, contents)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	return cfg
 }

@@ -301,6 +301,35 @@ func runInstallWorkflow(ctx context.Context, profile string, cfg *config.Config,
 	return result, resolvedTarget, err
 }
 
+func runRedeployWorkflow(ctx context.Context, profile string, cfg *config.Config, opts installOptions) (runtimeinstall.Result, verify.Report, string, error) {
+	if cfg == nil {
+		return runtimeinstall.Result{}, verify.Report{}, "", errors.New("config is required")
+	}
+	if strings.TrimSpace(opts.Target) == "" {
+		return runtimeinstall.Result{}, verify.Report{}, "", errors.New("target is required")
+	}
+
+	installResult, resolvedTarget, err := runInstallWorkflow(ctx, profile, cfg, opts)
+	if err != nil {
+		return installResult, verify.Report{}, resolvedTarget, err
+	}
+
+	verifyReport, _, err := runVerifyWorkflow(ctx, profile, cfg, verifyOptions{
+		Target:            resolvedTarget,
+		SSHUser:           opts.SSHUser,
+		SSHKey:            opts.SSHKey,
+		SSHPort:           opts.SSHPort,
+		RuntimeConfigPath: installResult.ConfigPath,
+	})
+	if err != nil {
+		return installResult, verifyReport, resolvedTarget, err
+	}
+	if verifyReport.Failed() {
+		return installResult, verifyReport, resolvedTarget, errors.New(fmt.Sprintf("%d required checks failed", verifyReport.RequiredFailures()))
+	}
+	return installResult, verifyReport, resolvedTarget, nil
+}
+
 func buildTerraformInputs(ctx context.Context, profile string, cfg *config.Config, opts createOptions) (terraformInputs, error) {
 	if cfg == nil {
 		return terraformInputs{}, errors.New("config is required")

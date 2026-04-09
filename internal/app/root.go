@@ -57,6 +57,7 @@ func newRootCommand(app *App) *cobra.Command {
 	rootCmd.AddCommand(newServeCommand(app))
 	rootCmd.AddCommand(newInfraCommand(app))
 	rootCmd.AddCommand(newInstallCommand(app))
+	rootCmd.AddCommand(newRedeployCommand(app))
 	rootCmd.AddCommand(newVerifyCommand(app))
 
 	return rootCmd
