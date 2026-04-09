@@ -40,6 +40,7 @@ type runtimeServerState struct {
 	listenAddr        string
 	runtimeCfg        *runtimeinstall.RuntimeConfig
 	generator         runtimeGenerator
+	executor          runtimeCommandExecutor
 	tracker           *runtimeActivityTracker
 
 	mu           sync.Mutex
@@ -114,12 +115,13 @@ func (t *runtimeActivityTracker) Snapshot() runtimeStatusResponse {
 	}
 }
 
-func newRuntimeServerState(runtimeConfigPath, listenAddr string, runtimeCfg *runtimeinstall.RuntimeConfig, generator runtimeGenerator) *runtimeServerState {
+func newRuntimeServerState(runtimeConfigPath, listenAddr string, runtimeCfg *runtimeinstall.RuntimeConfig, generator runtimeGenerator, executor runtimeCommandExecutor) *runtimeServerState {
 	return &runtimeServerState{
 		runtimeConfigPath: runtimeConfigPath,
 		listenAddr:        listenAddr,
 		runtimeCfg:        runtimeCfg,
 		generator:         generator,
+		executor:          executor,
 		tracker:           newRuntimeActivityTracker(),
 		lastActivity:      time.Now(),
 	}
@@ -144,6 +146,7 @@ func (s *runtimeServerState) healthPayload() map[string]any {
 		"runtime_config":   s.runtimeConfigPath,
 		"listen":           s.listenAddr,
 		"configured_port":  0,
+		"workspace_root":   defaultRuntimeWorkspace(s.runtimeConfigPath),
 		"sandbox_enabled":  false,
 		"sandbox_network":  "",
 		"filesystem_allow": []string(nil),
@@ -173,7 +176,7 @@ func (s *runtimeServerState) statusPayload() runtimeStatusResponse {
 func newRuntimeServerMux(state *runtimeServerState) *http.ServeMux {
 	mux := http.NewServeMux()
 	if state == nil {
-		state = newRuntimeServerState("", "", nil, nil)
+		state = newRuntimeServerState("", "", nil, nil, nil)
 	}
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -223,6 +226,37 @@ func newRuntimeServerMux(state *runtimeServerState) *http.ServeMux {
 			"model":    state.runtimeCfg.Model,
 			"output":   output,
 		})
+	})
+	mux.HandleFunc("/v1/execute", func(w http.ResponseWriter, r *http.Request) {
+		state.touch()
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if state.executor == nil {
+			http.Error(w, "runtime executor is not configured", http.StatusServiceUnavailable)
+			return
+		}
+		var req runtimeExecuteRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, fmt.Sprintf("parse request: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		task := "executing command"
+		if command := strings.TrimSpace(req.Command); command != "" {
+			task = "executing " + command
+		}
+		agentID := state.tracker.Start(task, "")
+		defer state.tracker.Finish(agentID)
+
+		response, err := state.executor.Execute(r.Context(), req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(response)
 	})
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
 		state.touch()
