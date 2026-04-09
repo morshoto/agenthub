@@ -38,6 +38,10 @@ sandbox:
 		t.Fatalf("WriteFile(override) error = %v", err)
 	}
 
+	originalInteractive := detectInteractiveInput
+	detectInteractiveInput = func(io.Reader) bool { return true }
+	t.Cleanup(func() { detectInteractiveInput = originalInteractive })
+
 	stdout, err := runDeleteCommand(t, []string{"agenthub", "delete", "alpha", "--agents-dir", agentsDir}, "y\n")
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -114,6 +118,10 @@ func TestDeleteCommandCancelsWhenConfirmationDeclined(t *testing.T) {
 	if err := os.MkdirAll(agentDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(agent) error = %v", err)
 	}
+
+	originalInteractive := detectInteractiveInput
+	detectInteractiveInput = func(io.Reader) bool { return true }
+	t.Cleanup(func() { detectInteractiveInput = originalInteractive })
 
 	stdout, err := runDeleteCommand(t, []string{"agenthub", "delete", "alpha", "--agents-dir", agentsDir}, "n\n")
 	if err != nil {
