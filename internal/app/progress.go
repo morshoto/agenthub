@@ -6,7 +6,6 @@ import (
 	"io"
 	"strings"
 	"sync"
-	"time"
 )
 
 type stageRunner interface {
@@ -57,24 +56,19 @@ func (p *progressRenderer) Run(ctx context.Context, title string, fn func(contex
 	go func() {
 		errCh <- fn(ctx)
 	}()
-
-	frames := []string{"|", "/", "-", "\\"}
-	ticker := time.NewTicker(120 * time.Millisecond)
-	defer ticker.Stop()
-	frame := 0
+	fmt.Fprintf(p.out, "%s ...\n", title)
 
 	for {
 		select {
 		case <-ctx.Done():
-			p.clearLine()
+			fmt.Fprintf(p.out, "failed: %s: %v\n", title, ctx.Err())
 			return ctx.Err()
 		case err := <-errCh:
-			p.clearLine()
 			if err != nil {
 				fmt.Fprintf(p.out, "x %s: %v\n", title, err)
 				return err
 			}
-			fmt.Fprintf(p.out, "ok %s\n", title)
+			fmt.Fprintf(p.out, "done: %s\n", title)
 			return nil
 		case <-ticker.C:
 			p.lock.Lock()
@@ -83,10 +77,4 @@ func (p *progressRenderer) Run(ctx context.Context, title string, fn func(contex
 			frame++
 		}
 	}
-}
-
-func (p *progressRenderer) clearLine() {
-	p.lock.Lock()
-	defer p.lock.Unlock()
-	fmt.Fprint(p.out, "\r\033[2K")
 }
