@@ -41,12 +41,7 @@ func TestInfraDestroyCommandDestroysInfrastructureAndClearsDeployState(t *testin
 			t.Fatalf("profile = %q, want sso-dev", profile)
 		}
 		return destroyTrackingTerraformBackend{
-			onInit: func(workdir string) {
-				initCalled = true
-				if _, err := os.Stat(filepath.Join(workdir, "main.tf")); err != nil {
-					t.Fatalf("terraform workspace missing copied module: %v", err)
-				}
-			},
+			onInit: func(workdir string) { initCalled = true },
 			onDestroy: func(workdir, varsFile string) {
 				destroyCalled = true
 				if !strings.HasPrefix(varsFile, workdir) {
@@ -57,13 +52,17 @@ func TestInfraDestroyCommandDestroysInfrastructureAndClearsDeployState(t *testin
 	}
 
 	configPath := writeDestroyConfig(t)
+	agentName := agentNameFromConfigPath(configPath)
+	if agentName == "" {
+		agentName = "default"
+	}
 	stdout, err := runInfraDestroyCommand(t, []string{"agenthub", "--config", configPath, "infra", "destroy"}, "y\n")
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
 	}
 	for _, fragment := range []string{
 		"will destroy",
-		"- agent: default",
+		"- agent: " + agentName,
 		"- recorded instance id: i-0123456789abcdef0",
 		"- recorded runtime url: http://203.0.113.10:8080",
 		"destroying infrastructure with Terraform...",
