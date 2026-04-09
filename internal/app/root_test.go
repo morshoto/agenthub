@@ -115,6 +115,335 @@ runtime:
 	}
 }
 
+func TestConfigUpdateCommandAppliesTypedUpdates(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "default", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: t3.medium
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: false
+  network_mode: public
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{
+		"agenthub", "config", "update",
+		"--config", path,
+		"--set", "runtime.model=gpt-5.4",
+		"--set", "runtime.port=8080",
+		"--set", "sandbox.enabled=true",
+		"--set", `slack.allowed_channels=["C123","C456"]`,
+	}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	if got := cfg.Runtime.Model; got != "gpt-5.4" {
+		t.Fatalf("cfg.Runtime.Model = %q, want gpt-5.4", got)
+	}
+	if got := cfg.Runtime.Port; got != 8080 {
+		t.Fatalf("cfg.Runtime.Port = %d, want 8080", got)
+	}
+	if !cfg.Sandbox.Enabled {
+		t.Fatalf("cfg.Sandbox.Enabled = false, want true")
+	}
+	if got := cfg.Slack.AllowedChannels; !slices.Equal(got, []string{"C123", "C456"}) {
+		t.Fatalf("cfg.Slack.AllowedChannels = %v, want [C123 C456]", got)
+	}
+
+	output := stdout.String()
+	for _, fragment := range []string{
+		"configuration updated:",
+		"changes:",
+		"sandbox.enabled: false -> true",
+		"runtime.model: llama3.2 -> gpt-5.4",
+		"runtime.port: 0 -> 8080",
+		"slack.allowed_channels: [] ->",
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("stdout = %q, want %q", output, fragment)
+		}
+	}
+}
+
+func TestConfigUpdateCommandRequiresSetFlag(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "default", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: t3.medium
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: false
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "config", "update", "--config", path}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "at least one --set key=value update is required") {
+		t.Fatalf("error = %q, want missing --set message", got)
+	}
+}
+
+func TestConfigUpdateCommandRejectsMalformedAssignment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "default", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: t3.medium
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: false
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "config", "update", "--config", path, "--set", "runtime.model"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "expected key=value") {
+		t.Fatalf("error = %q, want malformed assignment message", got)
+	}
+}
+
+func TestConfigUpdateCommandRejectsUnknownField(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "default", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: t3.medium
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: false
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "config", "update", "--config", path, "--set", "runtime.unknown=123"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil")
+	}
+	if got := err.Error(); !strings.Contains(got, `unknown config field "runtime.unknown"`) {
+		t.Fatalf("error = %q, want unknown field message", got)
+	}
+}
+
+func TestConfigUpdateCommandRejectsInvalidYAMLValue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "default", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: t3.medium
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: false
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "config", "update", "--config", path, "--set", "slack.allowed_channels=["}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "decode value") {
+		t.Fatalf("error = %q, want YAML decode message", got)
+	}
+}
+
+func TestConfigUpdateCommandRejectsTypeMismatch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "default", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: t3.medium
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: false
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "config", "update", "--config", path, "--set", "sandbox.enabled=not-bool"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "sandbox.enabled: decode value") {
+		t.Fatalf("error = %q, want type mismatch message", got)
+	}
+}
+
+func TestConfigUpdateCommandRejectsInvalidFinalConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "default", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: t3.medium
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: false
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "config", "update", "--config", path, "--set", "instance.disk_size_gb=0"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "instance.disk_size_gb") {
+		t.Fatalf("error = %q, want validation failure", got)
+	}
+}
+
 func TestVersionFlagPrintsVersionInformation(t *testing.T) {
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
