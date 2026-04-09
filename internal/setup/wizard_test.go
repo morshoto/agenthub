@@ -402,7 +402,6 @@ func TestWizardRunsAWSLoginForSSOProfiles(t *testing.T) {
 		"",
 		"",
 		"",
-		"",  // skip GitHub access
 		"y", // use NemoClaw
 		"1", // provider codex
 		"http://localhost:11434",
@@ -740,9 +739,10 @@ func TestWizardConfiguresGitHubUserAuthFromRepoOrigin(t *testing.T) {
 		"",  // accept default instance type
 		"1", // base image
 		"20",
-		"1",
-		"y",
-		"1",
+		"",
+		"",
+		"",
+		"",
 		"y", // configure GitHub access
 		"1", // select user auth
 		"y", // use NemoClaw

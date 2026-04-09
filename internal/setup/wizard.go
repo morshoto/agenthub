@@ -185,11 +185,8 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		return nil, err
 	}
 
-	render("Environment check", 6, "Access", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), "", "", "", false, false)
-	networkMode, err := w.Prompter.Select("Select network mode", []string{"private", "public"}, defaultNetworkMode(computeClass))
-	if err != nil {
-		return nil, err
-	}
+	networkMode := "public"
+	accessSummary := networkMode
 
 	sshKeyName := ""
 	sshPrivateKeyPath := defaultSSHPrivateKeyPath()
@@ -206,42 +203,33 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if sshKeyName == "" {
 		sshKeyName = defaultSSHKeyName()
 	}
-	accessSummary := networkMode
-	render("Environment check", 6, "Access", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), accessSummary, "", "", networkMode == "public", false)
-	if networkMode == "public" {
-		sshKeyName, err = w.Prompter.Text("SSH key pair name", sshKeyName)
-		if err != nil {
-			return nil, err
-		}
-		if sshCIDR == "" {
-			if detected, detectErr := detectInitSSHCIDR(ctx); detectErr == nil {
-				sshCIDR = detected
-			}
-		}
-		sshPrivateKeyPath, err = w.Prompter.Text("SSH private key path", sshPrivateKeyPath)
-		if err != nil {
-			return nil, err
-		}
-		sshCIDR, err = w.Prompter.Text("SSH CIDR", sshCIDR)
-		if err != nil {
-			return nil, err
-		}
-		sshUserDefault := sshUser
-		if sshUserDefault == "" {
-			sshUserDefault = sshUsernameForImage(image.Name, image.ID)
-		}
-		sshUser, err = w.Prompter.Text("SSH user", sshUserDefault)
-		if err != nil {
-			return nil, err
-		}
-		accessSummary = compact(networkMode, sshKeyName, sshCIDR, sshUser)
-	} else {
-		sshKeyName = ""
-		sshPrivateKeyPath = ""
-		sshCIDR = ""
-		sshUser = ""
-		accessSummary = networkMode
+	render("Environment check", 6, "Access", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), accessSummary, "", "", true, false)
+	sshKeyName, err = w.Prompter.Text("SSH key pair name", sshKeyName)
+	if err != nil {
+		return nil, err
 	}
+	if sshCIDR == "" {
+		if detected, detectErr := detectInitSSHCIDR(ctx); detectErr == nil {
+			sshCIDR = detected
+		}
+	}
+	sshPrivateKeyPath, err = w.Prompter.Text("SSH private key path", sshPrivateKeyPath)
+	if err != nil {
+		return nil, err
+	}
+	sshCIDR, err = w.Prompter.Text("SSH CIDR", sshCIDR)
+	if err != nil {
+		return nil, err
+	}
+	sshUserDefault := sshUser
+	if sshUserDefault == "" {
+		sshUserDefault = sshUsernameForImage(image.Name, image.ID)
+	}
+	sshUser, err = w.Prompter.Text("SSH user", sshUserDefault)
+	if err != nil {
+		return nil, err
+	}
+	accessSummary = compact(networkMode, sshKeyName, sshCIDR, sshUser)
 
 	render("Environment check", 6, "Access", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), compact(networkMode, sshKeyName, sshCIDR, sshUser), "", "", false, false)
 	repoSlug, err := detectGitHubRepoSlug(ctx)
@@ -703,10 +691,6 @@ func defaultRegion(platform string, existing *config.Config, regions []string) s
 		return regions[0]
 	}
 	return ""
-}
-
-func defaultNetworkMode(computeClass string) string {
-	return "public"
 }
 
 func defaultEndpoint(computeClass string) string {

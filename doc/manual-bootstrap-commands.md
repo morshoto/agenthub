@@ -34,6 +34,7 @@ Treat it as a deploy helper rather than a pure formatter: it depends on a usable
 
 The same AWS profile requirement applies to `agenthub init` and `agenthub create`. If the selected profile uses AWS SSO, run the browser-based login flow from a local terminal before provisioning.
 If only one AWS profile is available locally, the CLI will auto-select it and skip the prompt.
+`agenthub init` now defaults to public networking so the generated config can move straight into `agenthub create`.
 
 ## 3. Create the Terraform infrastructure
 

@@ -59,6 +59,7 @@ Notes:
 
 - `agenthub init` and `agenthub create` both require a usable AWS profile. Pass `--profile` or set `AWS_PROFILE` before running them.
 - If only one AWS profile is discovered locally, `agenthub` will auto-select it instead of asking.
+- `agenthub init` now always writes public networking so the generated config is ready for `agenthub create`.
 - `agenthub slack deploy` uses `infra.instance_id` from the config created by `agenthub create`; pass `--target` if you want to override it.
 
 ### Running Tests
