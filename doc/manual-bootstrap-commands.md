@@ -104,6 +104,7 @@ Once bootstrap is ready, verify the machine:
 docker info
 docker ps --filter name='^/agenthub$'
 curl -fsS http://127.0.0.1:8080/healthz
+curl -fsS -X POST http://127.0.0.1:8080/v1/execute -H 'Content-Type: application/json' -d '{"command":"pwd"}'
 ```
 
 For a GPU host, also check:
@@ -119,3 +120,4 @@ nvidia-smi
 - If you regenerate `terraform.tfvars` with a different AWS profile, the `aws_profile` value in the file changes too.
 - If you are rebuilding often, keep the generated `terraform.tfvars` file around and regenerate it only when the YAML changes.
 - `runtime_cidr` defaults to `0.0.0.0/0`, which keeps the runtime health endpoint publicly reachable for external verification.
+- Runtime command execution defaults to `/opt/agenthub/workspace`; if you send a `cwd`, it must stay within that workspace or another configured sandbox allow-list path.
