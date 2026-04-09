@@ -20,6 +20,17 @@ import (
 	"agenthub/internal/setup"
 )
 
+func stubLatestReleaseVersion(t *testing.T, latest string, err error) {
+	t.Helper()
+	original := fetchLatestReleaseVersion
+	fetchLatestReleaseVersion = func(ctx context.Context) (string, error) {
+		return latest, err
+	}
+	t.Cleanup(func() {
+		fetchLatestReleaseVersion = original
+	})
+}
+
 func TestConfigValidateCommandAcceptsConfigFlagAfterSubcommand(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agenthub.yaml")
@@ -117,6 +128,64 @@ func TestVersionFlagPrintsVersionInformation(t *testing.T) {
 		if !strings.Contains(got, fragment) {
 			t.Fatalf("stdout = %q, want %q", got, fragment)
 		}
+	}
+}
+
+func TestOutdatedVersionPrintsUpdateNotice(t *testing.T) {
+	oldVersion := Version
+	Version = "v1.2.3"
+	t.Cleanup(func() { Version = oldVersion })
+	stubLatestReleaseVersion(t, "v1.2.4", nil)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "doctor"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stdout.String()
+	for _, fragment := range []string{
+		"Update available: agenthub v1.2.3 is out of date. Latest is v1.2.4.",
+		"brew upgrade agenthub",
+		"nix profile upgrade github:morshoto/agenthub",
+		"https://github.com/morshoto/agenthub/releases/latest",
+	} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("stdout = %q, want %q", got, fragment)
+		}
+	}
+}
+
+func TestCurrentVersionSkipsUpdateNotice(t *testing.T) {
+	oldVersion := Version
+	Version = "v1.2.3"
+	t.Cleanup(func() { Version = oldVersion })
+	stubLatestReleaseVersion(t, "v1.2.3", nil)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "doctor"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	if got := stdout.String(); strings.Contains(got, "Update available:") {
+		t.Fatalf("stdout = %q, want no update notice", got)
 	}
 }
 

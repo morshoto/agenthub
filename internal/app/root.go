@@ -33,6 +33,7 @@ func newRootCommand(app *App) *cobra.Command {
 		ctx := app.applyRuntime(cmd.Context())
 		cmd.SetContext(ctx)
 		rootCmd.SetContext(ctx)
+		app.maybePrintUpdateNotice(ctx, cmd.ErrOrStderr())
 		return nil
 	}
 
