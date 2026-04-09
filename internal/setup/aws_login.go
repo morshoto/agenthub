@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 var RunAWSLoginFunc = defaultRunAWSLogin
 var AWSProfileUsesSSOFunc = defaultAWSProfileUsesSSO
+var listAWSProfilesFunc = defaultListAWSProfiles
 
 func RecoverAWSAuth(ctx context.Context, prov provider.CloudProvider, profile string, interactive bool) (provider.AuthStatus, bool, error) {
 	if prov == nil {
@@ -65,7 +67,7 @@ func defaultRunAWSLogin(ctx context.Context, profile string) error {
 	cmd := exec.Command("aws", "sso", "login", "--profile", profile)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = io.Discard
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("run aws sso login: %w", err)
 	}
@@ -93,4 +95,22 @@ func awsConfigureGet(ctx context.Context, profile, key string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func defaultListAWSProfiles(ctx context.Context) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "aws", "configure", "list-profiles")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("list AWS profiles: %w", err)
+	}
+	lines := strings.Split(string(out), "\n")
+	profiles := make([]string, 0, len(lines))
+	for _, line := range lines {
+		profile := strings.TrimSpace(line)
+		if profile == "" {
+			continue
+		}
+		profiles = append(profiles, profile)
+	}
+	return profiles, nil
 }

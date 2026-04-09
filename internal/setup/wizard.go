@@ -72,6 +72,16 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		}
 		return strings.Join(filtered, " / ")
 	}
+
+	profile, _, err := w.selectAWSProfile(ctx)
+	if err != nil {
+		return nil, err
+	}
+	w.AWSProfile = profile
+	if profile == "" {
+		return nil, errors.New("AWS profile is required: pass --profile, set AWS_PROFILE, or run interactively")
+	}
+
 	render := func(phase string, step int, current string, agentName, platform, computeClass, region, instanceSummary, accessSummary, runtimeSummary, reviewSummary string, accessPending, runtimePending bool) {
 		items := []wizardProgressItem{
 			{Label: "Agent name", Value: agentName},
@@ -108,15 +118,6 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	computeClass, err = w.Prompter.Select("Select compute mode", []string{config.ComputeClassCPU, config.ComputeClassGPU}, computeClass)
 	if err != nil {
 		return nil, err
-	}
-
-	profile, _, err := w.selectAWSProfile()
-	if err != nil {
-		return nil, err
-	}
-	w.AWSProfile = profile
-	if profile == "" {
-		return nil, errors.New("AWS profile is required")
 	}
 
 	if w.Provider == nil && w.ProviderFactory != nil {
@@ -499,7 +500,7 @@ func defaultRuntimeModel(provider string) string {
 	}
 }
 
-func (w *Wizard) selectAWSProfile() (string, bool, error) {
+func (w *Wizard) selectAWSProfile(ctx context.Context) (string, bool, error) {
 	profile := strings.TrimSpace(w.AWSProfile)
 	if profile == "" {
 		profile = strings.TrimSpace(os.Getenv("AWS_PROFILE"))
@@ -510,9 +511,24 @@ func (w *Wizard) selectAWSProfile() (string, bool, error) {
 	if profile != "" {
 		return profile, false, nil
 	}
+
+	profiles, err := listAWSProfilesFunc(ctx)
+	if err == nil && len(profiles) == 1 {
+		return profiles[0], false, nil
+	}
+
 	if !w.Prompter.Interactive {
 		return "", false, errors.New("AWS profile is required: pass --profile, set AWS_PROFILE, or run interactively")
 	}
+
+	if err == nil && len(profiles) > 1 {
+		value, promptErr := w.Prompter.Select("Select AWS profile", profiles, profiles[0])
+		if promptErr != nil {
+			return "", false, promptErr
+		}
+		return strings.TrimSpace(value), true, nil
+	}
+
 	value, err := w.Prompter.Text("AWS profile", "")
 	if err != nil {
 		return "", false, err

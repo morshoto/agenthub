@@ -330,6 +330,48 @@ func TestRecoverAWSAuthSkipsLoginWhenNoninteractive(t *testing.T) {
 	}
 }
 
+func TestWizardSelectAWSProfileUsesSingleDiscoveredProfile(t *testing.T) {
+	originalList := listAWSProfilesFunc
+	listAWSProfilesFunc = func(ctx context.Context) ([]string, error) {
+		return []string{"sso-dev"}, nil
+	}
+	defer func() { listAWSProfilesFunc = originalList }()
+
+	wizard := NewWizard(prompt.NewSession(strings.NewReader(""), &bytes.Buffer{}), &bytes.Buffer{}, nil, &config.Config{})
+	profile, prompted, err := wizard.selectAWSProfile(context.Background())
+	if err != nil {
+		t.Fatalf("selectAWSProfile() error = %v", err)
+	}
+	if prompted {
+		t.Fatal("selectAWSProfile() prompted = true, want false")
+	}
+	if profile != "sso-dev" {
+		t.Fatalf("selectAWSProfile() profile = %q, want sso-dev", profile)
+	}
+}
+
+func TestWizardRequiresAWSProfileBeforeOtherPrompts(t *testing.T) {
+	originalList := listAWSProfilesFunc
+	listAWSProfilesFunc = func(ctx context.Context) ([]string, error) {
+		return []string{"dev-a", "dev-b"}, nil
+	}
+	defer func() { listAWSProfilesFunc = originalList }()
+	t.Setenv("AWS_PROFILE", "")
+	t.Setenv("AWS_DEFAULT_PROFILE", "")
+
+	wizard := NewWizard(prompt.NewSession(strings.NewReader(""), &bytes.Buffer{}), &bytes.Buffer{}, nil, &config.Config{})
+	wizard.Prompter.Interactive = false
+
+	_, _, err := wizard.selectAWSProfile(context.Background())
+	if err == nil {
+		t.Fatal("selectAWSProfile() error = nil, want AWS profile failure")
+	}
+	want := "AWS profile is required: pass --profile, set AWS_PROFILE, or run interactively"
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("selectAWSProfile() error = %v, want %q", err, want)
+	}
+}
+
 func TestWizardRunsAWSLoginForSSOProfiles(t *testing.T) {
 	originalLogin := RunAWSLoginFunc
 	originalDetect := AWSProfileUsesSSOFunc
@@ -351,7 +393,6 @@ func TestWizardRunsAWSLoginForSSOProfiles(t *testing.T) {
 		"alpha",
 		"1", // platform aws
 		"",  // accept default GPU compute mode
-		"sso-dev",
 		"1", // region
 		"",  // accept default instance type
 		"1", // base image
@@ -386,6 +427,7 @@ func TestWizardRunsAWSLoginForSSOProfiles(t *testing.T) {
 		},
 		&config.Config{},
 	)
+	wizard.AWSProfile = "sso-dev"
 	wizard.Interactive = true
 
 	cfg, err := wizard.Run(context.Background())

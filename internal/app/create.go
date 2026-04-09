@@ -56,7 +56,13 @@ func newCreateCommand(app *App) *cobra.Command {
 			}
 			app.opts.Profile = profile
 			if _, _, err := setup.RecoverAWSAuth(cmd.Context(), newAWSProvider(profile, ""), profile, detectInteractiveInput(cmd.InOrStdin())); err != nil {
-				return err
+				return wrapUserFacingError(
+					"AWS authentication failed",
+					errors.New("the selected AWS profile has no usable credentials"),
+					"the selected profile needs valid AWS credentials before provisioning can continue",
+					"set --profile or AWS_PROFILE to a profile that already has credentials, then rerun "+commandRef(cmd.OutOrStdout(), "agenthub", "create"),
+					"if the profile uses AWS SSO, run "+commandRef(cmd.OutOrStdout(), "aws", "sso", "login", "--profile", profile)+" from a local terminal with browser access and retry",
+				)
 			}
 			refreshedSSHCIDR, err := refreshCreateSSHCIDR(cmd.Context(), cfg, sshCIDR)
 			if err != nil {
@@ -159,15 +165,12 @@ func selectCreateAWSProfile(ctx context.Context, in io.Reader, out io.Writer, ex
 		return profile, nil
 	}
 
-	defaultProfile := strings.TrimSpace(os.Getenv("AWS_PROFILE"))
-	if defaultProfile == "" {
-		defaultProfile = strings.TrimSpace(os.Getenv("AWS_DEFAULT_PROFILE"))
+	if envProfile := firstNonEmpty(strings.TrimSpace(os.Getenv("AWS_PROFILE")), strings.TrimSpace(os.Getenv("AWS_DEFAULT_PROFILE"))); envProfile != "" {
+		return envProfile, nil
 	}
+
 	profiles, err := listAWSProfilesFunc(ctx)
 	if err != nil {
-		if defaultProfile != "" {
-			return defaultProfile, nil
-		}
 		session := prompt.NewSession(in, out)
 		value, promptErr := session.Text("AWS profile", "")
 		if promptErr != nil {
@@ -176,18 +179,19 @@ func selectCreateAWSProfile(ctx context.Context, in io.Reader, out io.Writer, ex
 		return strings.TrimSpace(value), nil
 	}
 
+	if len(profiles) == 1 {
+		return profiles[0], nil
+	}
+
 	session := prompt.NewSession(in, out)
 	if len(profiles) == 0 {
-		value, err := session.Text("AWS profile", defaultProfile)
+		value, err := session.Text("AWS profile", "")
 		if err != nil {
 			return "", err
 		}
 		return strings.TrimSpace(value), nil
 	}
-	if defaultProfile == "" && len(profiles) > 0 {
-		defaultProfile = profiles[0]
-	}
-	value, err := session.Select("Select AWS profile", profiles, defaultProfile)
+	value, err := session.Select("Select AWS profile", profiles, profiles[0])
 	if err != nil {
 		return "", err
 	}

@@ -1485,6 +1485,106 @@ sandbox:
 	}
 }
 
+func TestSelectCreateAWSProfileUsesSingleDiscoveredProfile(t *testing.T) {
+	originalList := listAWSProfilesFunc
+	listAWSProfilesFunc = func(ctx context.Context) ([]string, error) {
+		return []string{"sso-dev"}, nil
+	}
+	defer func() { listAWSProfilesFunc = originalList }()
+
+	profile, err := selectCreateAWSProfile(context.Background(), strings.NewReader(""), io.Discard, "")
+	if err != nil {
+		t.Fatalf("selectCreateAWSProfile() error = %v", err)
+	}
+	if profile != "sso-dev" {
+		t.Fatalf("selectCreateAWSProfile() profile = %q, want sso-dev", profile)
+	}
+}
+
+func TestCreateCommandReportsAWSAuthFailureWithGuidance(t *testing.T) {
+	originalProvider := newAWSProvider
+	originalLogin := setup.RunAWSLoginFunc
+	originalDetect := setup.AWSProfileUsesSSOFunc
+	originalInteractive := detectInteractiveInput
+	defer func() {
+		newAWSProvider = originalProvider
+		setup.RunAWSLoginFunc = originalLogin
+		setup.AWSProfileUsesSSOFunc = originalDetect
+		detectInteractiveInput = originalInteractive
+	}()
+
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+		return authFailingCloudProvider{
+			stubCloudProvider: stubCloudProvider{profile: profile},
+			authErr: &awsprovider.AuthError{
+				Kind:    "no_credentials",
+				Profile: profile,
+				Stage:   "credentials",
+				Cause:   errors.New("no valid credential sources"),
+			},
+		}
+	}
+	setup.RunAWSLoginFunc = func(ctx context.Context, profile string) error {
+		return nil
+	}
+	setup.AWSProfileUsesSSOFunc = func(ctx context.Context, profile string) bool {
+		return true
+	}
+	detectInteractiveInput = func(in io.Reader) bool { return true }
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agenthub.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: g5.xlarge
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  provider: codex
+sandbox:
+  enabled: true
+  network_mode: public
+  use_nemoclaw: true
+infra:
+  aws_profile: sso-dev
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--config", path, "--profile", "sso-dev", "create"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil, want AWS auth failure")
+	}
+	msg := err.Error()
+	for _, fragment := range []string{
+		"AWS authentication failed",
+		"the selected AWS profile has no usable credentials",
+		"set --profile or AWS_PROFILE to a profile that already has credentials",
+		"aws sso login --profile sso-dev",
+	} {
+		if !strings.Contains(msg, fragment) {
+			t.Fatalf("error = %q, want %q", msg, fragment)
+		}
+	}
+	if strings.Contains(msg, "use-device-code") {
+		t.Fatalf("error = %q, want no device-code guidance", msg)
+	}
+}
+
 func stubAWSProviderFactory() func() {
 	original := newAWSProvider
 	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {

@@ -32,6 +32,9 @@ If GitHub App auth is configured, it carries the project-owned Secrets Manager A
 The generated file includes deploy-time values such as `aws_profile`, `runtime_port`, `runtime_cidr`, and `source_archive_url`, so Terraform can create the EC2 instance and leave runtime installation to the SSH-based `install` stage.
 Treat it as a deploy helper rather than a pure formatter: it depends on a usable SSH private key path, a resolvable AWS profile, the current git worktree state, and a GitHub App secret ARN if you want the host to clone private repositories.
 
+The same AWS profile requirement applies to `agenthub init` and `agenthub create`. If the selected profile uses AWS SSO, run the browser-based login flow from a local terminal before provisioning.
+If only one AWS profile is available locally, the CLI will auto-select it and skip the prompt.
+
 ## 3. Create the Terraform infrastructure
 
 ```bash
@@ -57,6 +60,8 @@ ssh -i ~/.ssh/id_ed25519 ubuntu@<public-ip>
 ```
 
 If the instance is private, connect from a bastion or SSM session instead.
+
+`agenthub slack deploy` uses the recorded `infra.instance_id` from `agenthub create`. If you are deploying against a different host, pass `--target` explicitly.
 
 ## 5. Wait for bootstrap
 

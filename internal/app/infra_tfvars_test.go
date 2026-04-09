@@ -3,11 +3,28 @@ package app
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestSelectAWSProfileUsesSingleDiscoveredProfile(t *testing.T) {
+	originalList := listAWSProfilesFunc
+	listAWSProfilesFunc = func(ctx context.Context) ([]string, error) {
+		return []string{"sso-dev"}, nil
+	}
+	defer func() { listAWSProfilesFunc = originalList }()
+
+	profile, err := selectAWSProfile(context.Background(), strings.NewReader(""), io.Discard, "")
+	if err != nil {
+		t.Fatalf("selectAWSProfile() error = %v", err)
+	}
+	if profile != "sso-dev" {
+		t.Fatalf("selectAWSProfile() profile = %q, want sso-dev", profile)
+	}
+}
 
 func TestInfraTFVarsCommandWritesTerraformVars(t *testing.T) {
 	originalResolveSourceArchiveURL := resolveSourceArchiveURLFunc
