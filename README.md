@@ -47,6 +47,8 @@ The Homebrew tap is published separately at `https://github.com/morshoto/homebre
 agenthub init
 # Create instances from a config file
 agenthub create --config agenthub.yaml
+# Destroy infrastructure for one deployed agent
+agenthub infra destroy --config agenthub.yaml
 # Re-apply runtime deployment to an existing host
 agenthub redeploy --config agenthub.yaml
 # Deploy Slack integration
@@ -81,6 +83,7 @@ Notes:
 - `agenthub init` and `agenthub create` both require a usable AWS profile. Pass `--profile` or set `AWS_PROFILE` before running them.
 - If only one AWS profile is discovered locally, `agenthub` will auto-select it instead of asking.
 - `agenthub init` now always writes public networking so the generated config is ready for `agenthub create`.
+- `agenthub infra destroy` is the supported teardown path for one deployed agent; it preserves the local config and clears stale deployment state after a successful destroy.
 - `agenthub slack deploy` uses `infra.instance_id` from the config created by `agenthub create`; pass `--target` if you want to override it.
 
 ### Local Validation

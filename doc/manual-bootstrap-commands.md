@@ -49,8 +49,10 @@ terraform -chdir=infra/aws/ec2 apply -var-file=terraform.tfvars
 If you want to tear everything down and rebuild it:
 
 ```bash
-terraform -chdir=infra/aws/ec2 destroy -var-file=terraform.tfvars
+agenthub infra destroy --config agenthub.yaml
 ```
+
+This is the supported teardown path for one deployed agent. It confirms the target before destruction unless you pass `--force` for automation, and it preserves the local config while clearing stale deploy-time fields such as `infra.instance_id` and `slack.runtime_url`.
 
 ## 4. Connect to the instance
 

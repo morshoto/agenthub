@@ -1050,7 +1050,7 @@ func printWorkflowSuccess(out io.Writer, instance *provider.Instance, installRes
 		}
 	}
 	if createMode {
-		fmt.Fprintln(out, "- destroy: terraform -chdir=infra/aws/ec2 destroy -var-file=terraform.tfvars")
+		fmt.Fprintf(out, "- destroy: %s\n", commandRef(out, "agenthub", "infra", "destroy", "--config", cfgPath))
 	}
 	fmt.Fprintln(out, "- keep the runtime config and SSH target handy for future verify runs")
 }
@@ -1184,7 +1184,9 @@ func printSuccessNextSteps(out io.Writer, cfgPath, target string, includeInstall
 	if includeInstall && strings.TrimSpace(target) != "" && strings.TrimSpace(cfgPath) != "" {
 		fmt.Fprintf(out, "- install: %s\n", commandRef(out, "agenthub", "install", "--config", cfgPath, "--target", target))
 	}
-	fmt.Fprintln(out, "- destroy: not implemented yet")
+	if strings.TrimSpace(cfgPath) != "" {
+		fmt.Fprintf(out, "- destroy: %s\n", commandRef(out, "agenthub", "infra", "destroy", "--config", cfgPath))
+	}
 }
 
 func wrapUserFacingError(action string, err error, likelyCause string, nextSteps ...string) error {

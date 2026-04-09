@@ -20,6 +20,7 @@ func newInfraCommand(app *App) *cobra.Command {
 		GroupID: "provision",
 	}
 	cmd.AddCommand(newInfraCreateCommand(app))
+	cmd.AddCommand(newInfraDestroyCommand(app))
 	cmd.AddCommand(newInfraTFVarsCommand(app))
 	return cmd
 }
