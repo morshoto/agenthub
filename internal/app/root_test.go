@@ -1512,7 +1512,7 @@ sandbox:
 		"verification summary",
 		"all required checks passed",
 		"health url: http://203.0.113.10:8080/healthz",
-		"destroy: terraform -chdir=infra/aws/ec2 destroy -var-file=terraform.tfvars",
+		"destroy: agenthub infra destroy --config ",
 	} {
 		if !strings.Contains(got, fragment) {
 			t.Fatalf("stdout = %q, want %q", got, fragment)
