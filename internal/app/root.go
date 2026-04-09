@@ -129,12 +129,7 @@ func newConfigCommand(app *App) *cobra.Command {
 		GroupID: "setup",
 	}
 	cmd.AddCommand(newConfigValidateCommand(app))
-	updateCmd := newConfigUpdateCommand(app)
-	updateCmd.Flags().StringArray("set", nil, "update a config field with key=value; value is parsed as YAML")
-	updateCmd.Flags().String("agents-dir", "agents", "path to the agents directory")
-	updateCmd.RunE = func(cmd *cobra.Command, args []string) error {
-		return nil
-	}
+	cmd.AddCommand(newConfigUpdateCommand(app))
 	return cmd
 }
 

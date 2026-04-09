@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"slices"
 	"strings"
@@ -25,7 +26,7 @@ func newConfigUpdateCommand(app *App) *cobra.Command {
 	var setValues []string
 	var agentsDir string
 
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "update",
 		Short: "Update an existing configuration file",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -69,10 +70,9 @@ func newConfigUpdateCommand(app *App) *cobra.Command {
 			return nil
 		},
 	}
-}
-
-func init() {
-	// Kept here to keep the command constructor compact.
+	cmd.Flags().StringArrayVar(&setValues, "set", nil, "update a config field with key=value; value is parsed as YAML")
+	cmd.Flags().StringVar(&agentsDir, "agents-dir", "agents", "path to the agents directory")
+	return cmd
 }
 
 func applyConfigUpdates(cfg *config.Config, rawAssignments []string) ([]configUpdateChange, error) {
@@ -201,7 +201,7 @@ func formatConfigUpdateValue(value any) string {
 	return strings.TrimSpace(string(bytes.TrimSpace(data)))
 }
 
-func printConfigUpdateChanges(out interface{ Write([]byte) (int, error) }, changes []configUpdateChange) {
+func printConfigUpdateChanges(out io.Writer, changes []configUpdateChange) {
 	fmt.Fprintln(out, "changes:")
 	for _, change := range changes {
 		fmt.Fprintf(out, "- %s: %s -> %s\n", change.Path, change.Before, change.After)
