@@ -29,7 +29,8 @@ func TestRenderWizardProgressShowsCurrentStateWithoutHistoryNoise(t *testing.T) 
 	got := out.String()
 	for _, fragment := range []string{
 		"Setup",
-		"Agent setup  Step 3/8",
+		// Header now uses Docker-style "[+]" active-task prefix.
+		"[+] Agent setup  Step 3/8",
 		"✓ Agent name         default",
 		"✓ Platform           aws",
 		"→ Compute mode       -",
@@ -479,8 +480,9 @@ func TestWizardConfiguresGitHubUserAuthFromRepoOrigin(t *testing.T) {
 	if storedToken != "gho_test_token" {
 		t.Fatalf("store token = %q, want gho_test_token", storedToken)
 	}
-	if !strings.Contains(out.String(), "detected GitHub repo candidate: owner/repo") {
-		t.Fatalf("output = %q, want repo candidate", out.String())
+	// logLine writes "[Access] ! detected GitHub repo candidate: owner/repo"
+	if got := out.String(); !strings.Contains(got, "detected GitHub repo candidate: owner/repo") {
+		t.Fatalf("output = %q, want repo candidate", got)
 	}
 }
 

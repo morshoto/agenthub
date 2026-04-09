@@ -28,6 +28,10 @@ type Wizard struct {
 	Existing        *config.Config
 	AWSProfile      string
 	AgentName       string
+
+	// startedAt is set at the beginning of Run and used to compute the
+	// elapsed-time column in scroll-safe log lines.
+	startedAt time.Time
 }
 
 const initAWSLookupTimeout = 5 * time.Second
@@ -38,7 +42,23 @@ func NewWizard(prompter *prompt.Session, out io.Writer, factory func(platform, c
 	return &Wizard{Prompter: prompter, Out: out, ProviderFactory: factory, Existing: existing}
 }
 
+// logLine writes a single scroll-safe log line with a [phase] context prefix
+// and a right-aligned elapsed timestamp. It is safe to call at any point
+// during Run because each line is self-contained and readable after scrolling.
+//
+//	[Environment check] ! Warning: quota insufficient          3.1s
+//	[Setup]             ⇒ run `aws sso login --profile dev`    0.2s
+func (w *Wizard) logLine(phase, symbol, message string) {
+	elapsed := time.Duration(-1)
+	if !w.startedAt.IsZero() {
+		elapsed = time.Since(w.startedAt)
+	}
+	wizardLogLine(w.Out, phase, symbol, message, elapsed)
+}
+
 func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
+	w.startedAt = time.Now()
+
 	compact := func(parts ...string) string {
 		filtered := make([]string, 0, len(parts))
 		for _, part := range parts {
@@ -98,8 +118,8 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		return nil, errors.New("AWS profile is required")
 	}
 	if prompted {
-		fmt.Fprintf(w.Out, "! This profile uses AWS SSO\n")
-		fmt.Fprintf(w.Out, "Run `aws sso login --profile %s` if needed\n", profile)
+		w.logLine("Setup", "!", "This profile uses AWS SSO")
+		w.logLine("Setup", "⇒", fmt.Sprintf("run `aws sso login --profile %s` if needed", profile))
 		ready, err := w.Prompter.Confirm("Continue after AWS SSO login", true)
 		if err != nil {
 			return nil, err
@@ -118,7 +138,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 			cancel()
 			var authErr *awsprovider.AuthError
 			if errors.As(err, &authErr) {
-				fmt.Fprintln(w.Out, "Warning: AWS auth check unavailable; continuing.")
+				w.logLine("Setup", "!", "Warning: AWS auth check unavailable; continuing.")
 			} else {
 				return nil, err
 			}
@@ -153,7 +173,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 
 	images, err := w.listImages(ctx, region, computeClass)
 	if err != nil {
-		fmt.Fprintln(w.Out, "Warning: AWS image lookup unavailable; using bundled fallback images.")
+		w.logLine("Environment check", "!", "Warning: AWS image lookup unavailable; using bundled fallback images.")
 		images = fallbackAWSBaseImages(region, computeClass)
 	}
 	render("Environment check", 5, "Instance", agentName, platform, computeClass, region, compact(instanceType), "", "", "", false, false)
@@ -229,7 +249,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	render("Environment check", 6, "Access", agentName, platform, computeClass, region, compact(instanceType, image.Name, fmt.Sprintf("%d GB", diskSize)), compact(networkMode, sshKeyName, sshCIDR, sshUser), "", "", false, false)
 	repoSlug, err := detectGitHubRepoSlug(ctx)
 	if err == nil && strings.TrimSpace(repoSlug) != "" {
-		fmt.Fprintf(w.Out, "! detected GitHub repo candidate: %s\n", repoSlug)
+		w.logLine("Access", "!", fmt.Sprintf("detected GitHub repo candidate: %s", repoSlug))
 	}
 	githubCfg := config.GitHubConfig{}
 	if w.Existing != nil {
@@ -288,8 +308,8 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	}
 
 	if runtimeProvider == "codex" {
-		fmt.Fprintln(w.Out, "Codex auth uses the local browser login flow or existing signed-in state.")
-		fmt.Fprintln(w.Out, "If you are not already authenticated, run `agenthub onboard --auth-choice openai-codex` before provisioning.")
+		w.logLine("Runtime", "⇒", "Codex auth uses the local browser login flow or existing signed-in state.")
+		w.logLine("Runtime", "⇒", "If not already authenticated, run `agenthub onboard --auth-choice openai-codex` before provisioning.")
 	}
 
 	runtimePublicCIDR := "0.0.0.0/0"
@@ -510,11 +530,11 @@ func (w *Wizard) listRegions(ctx context.Context) ([]string, error) {
 	}
 	regions, err := w.Provider.ListRegions(ctx)
 	if err != nil {
-		fmt.Fprintln(w.Out, "Warning: AWS region lookup unavailable; using bundled fallback regions.")
+		w.logLine("Environment check", "!", "Warning: AWS region lookup unavailable; using bundled fallback regions.")
 		return fallbackAWSRegions(), nil
 	}
 	if len(regions) == 0 {
-		fmt.Fprintln(w.Out, "Warning: AWS region lookup returned no regions; using bundled fallback regions.")
+		w.logLine("Environment check", "!", "Warning: AWS region lookup returned no regions; using bundled fallback regions.")
 		return fallbackAWSRegions(), nil
 	}
 	return regions, nil
@@ -526,7 +546,7 @@ func (w *Wizard) listInstanceTypes(ctx context.Context, region, computeClass str
 	}
 	items, err := w.Provider.RecommendInstanceTypes(ctx, region, computeClass)
 	if err != nil {
-		fmt.Fprintln(w.Out, "Warning: AWS instance type lookup unavailable; using bundled fallback instance types.")
+		w.logLine("Environment check", "!", "Warning: AWS instance type lookup unavailable; using bundled fallback instance types.")
 		return fallbackAWSInstanceTypes(computeClass), nil
 	}
 	options := make([]string, 0, len(items))
@@ -534,7 +554,7 @@ func (w *Wizard) listInstanceTypes(ctx context.Context, region, computeClass str
 		options = append(options, item.Name)
 	}
 	if len(options) == 0 {
-		fmt.Fprintln(w.Out, "Warning: AWS instance type lookup returned no options; using bundled fallback instance types.")
+		w.logLine("Environment check", "!", "Warning: AWS instance type lookup returned no options; using bundled fallback instance types.")
 		return fallbackAWSInstanceTypes(computeClass), nil
 	}
 	return options, nil
@@ -564,13 +584,13 @@ func (w *Wizard) warnOnQuota(ctx context.Context, region string) error {
 	defer cancel()
 	report, err := w.Provider.CheckGPUQuota(quotaCtx, region, "g5")
 	if err != nil {
-		fmt.Fprintln(w.Out, "Warning: GPU quota check unavailable; continuing.")
+		w.logLine("Environment check", "!", "Warning: GPU quota check unavailable; continuing.")
 		return nil
 	}
 	if report.Source == "mock" {
-		fmt.Fprintln(w.Out, "Quota check is a mock report; live AWS Service Quotas access is not wired yet.")
+		w.logLine("Environment check", "!", "Quota check is a mock report; live AWS Service Quotas access is not wired yet.")
 		for _, note := range report.Notes {
-			fmt.Fprintf(w.Out, "  - %s\n", note)
+			w.logLine("Environment check", "⇒", note)
 		}
 		return nil
 	}
@@ -578,7 +598,7 @@ func (w *Wizard) warnOnQuota(ctx context.Context, region string) error {
 		return nil
 	}
 
-	fmt.Fprintf(w.Out, "Warning: GPU quota for %s in %s looks insufficient.\n", report.InstanceFamily, report.Region)
+	w.logLine("Environment check", "!", fmt.Sprintf("Warning: GPU quota for %s in %s looks insufficient.", report.InstanceFamily, report.Region))
 	for _, check := range report.Checks {
 		fmt.Fprintf(w.Out, "  %s: limit=%d usage=%s remaining=%d\n", check.QuotaName, check.CurrentLimit, formatUsage(check.CurrentUsage), check.EstimatedRemaining)
 	}

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/term"
 )
@@ -26,14 +27,17 @@ type wizardProgressItem struct {
 }
 
 const (
-	wizardAnsiReset = "\033[0m"
-	wizardAnsiDim   = "\033[2m"
-	wizardAnsiGreen = "\033[32m"
-	wizardAnsiCyan  = "\033[36m"
+	wizardAnsiReset  = "\033[0m"
+	wizardAnsiDim    = "\033[2m"
+	wizardAnsiGreen  = "\033[32m"
+	wizardAnsiCyan   = "\033[36m"
+	wizardAnsiYellow = "\033[33m"
 )
 
 var wizardProgressLineCount sync.Map
 
+// renderWizardProgress redraws the step progress block in-place on a TTY,
+// or appends it line-by-line on non-TTY writers.
 func renderWizardProgress(out io.Writer, phase, title string, step, total int, current string, items []wizardProgressItem) {
 	if out == nil {
 		return
@@ -52,7 +56,6 @@ func renderWizardProgress(out io.Writer, phase, title string, step, total int, c
 		step = 1
 	}
 
-	current = strings.TrimSpace(current)
 	currentIndex := -1
 	if current != "" {
 		for i, item := range items {
@@ -87,7 +90,8 @@ func buildWizardProgressLines(tty bool, phase, title string, step, total, curren
 		lines = append(lines, wizardStyle(tty, wizardAnsiDim, phase))
 	}
 	lines = append(lines, "")
-	lines = append(lines, wizardStyle(tty, wizardAnsiCyan, fmt.Sprintf("%s  Step %d/%d", title, step, total)))
+	// [+] mirrors Docker's active-task prefix so the header reads at a glance.
+	lines = append(lines, wizardStyle(tty, wizardAnsiCyan, fmt.Sprintf("[+] %s  Step %d/%d", title, step, total)))
 	lines = append(lines, "")
 	for i, item := range items {
 		label := strings.TrimSpace(item.Label)
@@ -110,6 +114,52 @@ func buildWizardProgressLines(tty bool, phase, title string, step, total, curren
 		}
 	}
 	return lines
+}
+
+// wizardLogLine writes a single scroll-safe log line.
+//
+// Format (TTY):
+//
+//	[phase] ⇒ message                              1.2s
+//
+// The elapsed time is right-aligned to the terminal width so it mirrors the
+// timing column in `docker compose up` output. On non-TTY writers the
+// elapsed suffix is omitted.
+//
+// Pass elapsed < 0 to suppress the elapsed column entirely.
+func wizardLogLine(out io.Writer, phase, symbol, message string, elapsed time.Duration) {
+	if out == nil {
+		return
+	}
+	tty := isTerminalWriter(out)
+
+	if symbol == "" {
+		symbol = "⇒"
+	}
+
+	// Build the left-hand portion: "[phase] ⇒ message"
+	var left string
+	if phase != "" {
+		phaseTag := "[" + phase + "]"
+		if tty {
+			phaseTag = wizardAnsiDim + phaseTag + wizardAnsiReset
+		}
+		left = fmt.Sprintf("%s %s %s", phaseTag, symbol, message)
+	} else {
+		left = fmt.Sprintf("%s %s", symbol, message)
+	}
+
+	if tty && elapsed >= 0 {
+		elapsedStr := formatWizardElapsed(elapsed)
+		width := termWidth(out)
+		visLen := wizardVisibleLen(left)
+		padding := width - visLen - len(elapsedStr) - 1
+		if padding > 1 {
+			fmt.Fprintf(out, "%s%s%s\n", left, strings.Repeat(" ", padding), wizardAnsiDim+elapsedStr+wizardAnsiReset)
+			return
+		}
+	}
+	fmt.Fprintln(out, left)
 }
 
 func renderWizardPhase(out io.Writer, title string, body ...string) {
@@ -138,6 +188,44 @@ func valueOrDash(value string) string {
 		return "-"
 	}
 	return value
+}
+
+// termWidth returns the terminal column width for right-aligning output.
+// Falls back to 80 for non-TTY writers or when the size cannot be determined.
+func termWidth(out io.Writer) int {
+	if f, ok := out.(*os.File); ok {
+		if w, _, err := term.GetSize(int(f.Fd())); err == nil && w > 0 {
+			return w
+		}
+	}
+	return 80
+}
+
+// wizardVisibleLen returns the printable rune count of s, ignoring ANSI
+// escape sequences. Used to compute right-aligned padding.
+func wizardVisibleLen(s string) int {
+	inEsc := false
+	n := 0
+	for _, r := range s {
+		switch {
+		case r == '\033':
+			inEsc = true
+		case inEsc && r == 'm':
+			inEsc = false
+		case !inEsc:
+			n++
+		}
+	}
+	return n
+}
+
+// formatWizardElapsed formats a duration as "0.0s" (sub-second) or "12s".
+// Matches the compact style in docker compose up output.
+func formatWizardElapsed(d time.Duration) string {
+	if d < time.Second {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	return fmt.Sprintf("%.0fs", d.Seconds())
 }
 
 func isTerminalWriter(w io.Writer) bool {
