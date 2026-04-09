@@ -106,6 +106,9 @@ func (v Verifier) Verify(ctx context.Context, req Request) (Report, error) {
 	} else {
 		report.Checks = append(report.Checks, runAgentHubHealthCheck(ctx, v.Host, port))
 	}
+	if port > 0 {
+		report.Checks = append(report.Checks, runExecutionCheck(ctx, v.Host, port))
+	}
 	if isBedrockProvider(req.Config) {
 		report.Checks = append(report.Checks, runBedrockGenerateCheck(ctx, v.Host, port))
 	}
@@ -420,4 +423,38 @@ exit 127
 		msg = fmt.Sprintf("reachable: %s", endpoint)
 	}
 	return Check{Name: "bedrock generation", Passed: true, Message: msg}
+}
+
+func runExecutionCheck(ctx context.Context, exec host.Executor, port int) Check {
+	if port <= 0 {
+		port = 8080
+	}
+	endpoint := fmt.Sprintf("http://127.0.0.1:%d/v1/execute", port)
+	script := fmt.Sprintf(`
+endpoint=%s
+payload='{"command":"pwd"}'
+if command -v curl >/dev/null 2>&1; then
+  curl --max-time 10 -fsS -X POST -H 'Content-Type: application/json' -d "$payload" "$endpoint" >/dev/null
+  exit $?
+fi
+exit 127
+`, strconv.Quote(endpoint))
+	result, err := exec.Run(ctx, "sh", "-lc", script)
+	if err != nil {
+		msg := strings.TrimSpace(result.Stderr)
+		if msg == "" {
+			msg = err.Error()
+		}
+		return Check{
+			Name:        "runtime execution",
+			Passed:      false,
+			Message:     msg,
+			Remediation: "Ensure the runtime execution endpoint is enabled and the workspace directory is accessible.",
+		}
+	}
+	msg := strings.TrimSpace(result.Stdout)
+	if msg == "" {
+		msg = fmt.Sprintf("reachable: %s", endpoint)
+	}
+	return Check{Name: "runtime execution", Passed: true, Message: msg}
 }
