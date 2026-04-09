@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"sync"
 )
 
 type stageRunner interface {
@@ -14,9 +13,8 @@ type stageRunner interface {
 }
 
 type progressRenderer struct {
-	out  io.Writer
-	tty  bool
-	lock sync.Mutex
+	out io.Writer
+	tty bool
 }
 
 func newProgressRenderer(out io.Writer) *progressRenderer {
@@ -47,24 +45,12 @@ func (p *progressRenderer) Run(ctx context.Context, title string, fn func(contex
 		return nil
 	}
 
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- fn(ctx)
-	}()
 	fmt.Fprintf(p.out, "%s ...\n", title)
-
-	for {
-		select {
-		case <-ctx.Done():
-			fmt.Fprintf(p.out, "failed: %s: %v\n", title, ctx.Err())
-			return ctx.Err()
-		case err := <-errCh:
-			if err != nil {
-				fmt.Fprintf(p.out, "x %s: %v\n", title, err)
-				return err
-			}
-			fmt.Fprintf(p.out, "done: %s\n", title)
-			return nil
-		}
+	err := fn(ctx)
+	if err != nil {
+		fmt.Fprintf(p.out, "failed: %s: %v\n", title, err)
+		return err
 	}
+	fmt.Fprintf(p.out, "done: %s\n", title)
+	return nil
 }

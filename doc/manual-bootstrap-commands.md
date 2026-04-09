@@ -5,7 +5,7 @@ It is written for the AWS path used by this repository.
 
 ## 1. Sign in to AWS
 
-Use your AWS profile first:
+Use your AWS profile first. Interactive `agenthub` commands can now launch this same browser login automatically when they detect that your selected profile has no usable credentials:
 
 ```bash
 aws sso login --profile sso-dev
@@ -25,12 +25,16 @@ agenthub infra tfvars --config agenthub.yaml --output infra/aws/ec2/terraform.tf
 ```
 
 If you want to pin the AWS profile explicitly, pass `--profile sso-dev`.
-If you omit it and run interactively, the CLI will prompt you to choose a profile or type one in.
+If you omit it and run interactively, the CLI will prompt you to choose a profile or type one in, and it can open the AWS SSO browser flow to refresh credentials if the selected profile needs it.
 
 This command reads the YAML config, resolves the SSH public key, stages the current working tree as a bootstrap archive, and writes Terraform-compatible `terraform.tfvars` variables.
 If GitHub App auth is configured, it carries the project-owned Secrets Manager ARN into Terraform so the EC2 instance role can read the private key secret at runtime.
 The generated file includes deploy-time values such as `aws_profile`, `runtime_port`, `runtime_cidr`, and `source_archive_url`, so Terraform can create the EC2 instance and leave runtime installation to the SSH-based `install` stage.
 Treat it as a deploy helper rather than a pure formatter: it depends on a usable SSH private key path, a resolvable AWS profile, the current git worktree state, and a GitHub App secret ARN if you want the host to clone private repositories.
+
+The same AWS profile requirement applies to `agenthub init` and `agenthub create`. If the selected profile uses AWS SSO, run the browser-based login flow from a local terminal before provisioning.
+If only one AWS profile is available locally, the CLI will auto-select it and skip the prompt.
+`agenthub init` now defaults to public networking so the generated config can move straight into `agenthub create`.
 
 ## 3. Create the Terraform infrastructure
 
@@ -57,6 +61,8 @@ ssh -i ~/.ssh/id_ed25519 ubuntu@<public-ip>
 ```
 
 If the instance is private, connect from a bastion or SSM session instead.
+
+`agenthub slack deploy` uses the recorded `infra.instance_id` from `agenthub create`. If you are deploying against a different host, pass `--target` explicitly.
 
 ## 5. Wait for bootstrap
 

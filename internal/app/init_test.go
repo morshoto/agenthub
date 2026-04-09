@@ -40,7 +40,6 @@ func TestInitWritesConfigFile(t *testing.T) {
 		"",                       // accept default instance g5.xlarge
 		"1",                      // image ubuntu-24.04
 		"20",                     // disk size
-		"",                       // accept default public network mode
 		"demo-key",               // ssh key pair name
 		"/tmp/demo.pem",          // ssh private key
 		"203.0.113.0/24",         // ssh cidr
@@ -135,7 +134,6 @@ func TestInitUsesDefaultAgentNameWhenBlank(t *testing.T) {
 		"",                       // accept default instance g5.xlarge
 		"1",                      // image ubuntu-24.04
 		"20",                     // disk size
-		"",                       // accept default public network mode
 		"demo-key",               // ssh key pair name
 		"/tmp/demo.pem",          // ssh private key
 		"203.0.113.0/24",         // ssh cidr
@@ -191,16 +189,15 @@ func TestInitSupportsCPUComputeMode(t *testing.T) {
 		"",  // accept default instance t3.xlarge
 		"1", // Ubuntu 22.04 LTS
 		"20",
-		"", // accept default public network mode
 		"demo-key",
 		"/tmp/demo.pem",
 		"203.0.113.0/24",
 		"ubuntu",
-		"",
-		"y",
-		"1",
-		"", // accept placeholder external endpoint
-		"y",
+		"",                       // skip GitHub access
+		"y",                      // use NemoClaw
+		"1",                      // provider codex
+		"http://localhost:11434", // endpoint
+		"y",                      // confirm summary
 	}, "\n") + "\n"
 
 	oldArgs := os.Args
@@ -254,7 +251,6 @@ func TestInitSupportsNonAWSPlatformScaffold(t *testing.T) {
 		"",                       // accept default instance type
 		"1",                      // image Ubuntu 22.04 LTS
 		"20",                     // disk size
-		"",                       // accept default public network mode
 		"demo-key",               // ssh key pair name
 		"/tmp/demo.pem",          // ssh private key
 		"203.0.113.0/24",         // ssh cidr
@@ -363,7 +359,6 @@ sandbox:
 		"demo-key",
 		"/tmp/demo.pem",
 		"203.0.113.0/24",
-		"ubuntu",
 		"",
 		"y",
 		"1",
@@ -420,7 +415,6 @@ func TestInitContinuesWhenAWSAuthCheckIsPermissionDenied(t *testing.T) {
 		"",                       // accept default instance g5.xlarge
 		"1",                      // image ubuntu-24.04
 		"20",                     // disk size
-		"",                       // accept default public network mode
 		"demo-key",               // ssh key pair name
 		"/tmp/demo.pem",          // ssh private key
 		"203.0.113.0/24",         // ssh cidr
@@ -477,7 +471,6 @@ func TestInitContinuesWhenAWSAuthCheckFailsAtSTS(t *testing.T) {
 		"",                       // accept default instance g5.xlarge
 		"1",                      // image ubuntu-24.04
 		"20",                     // disk size
-		"",                       // accept default public network mode
 		"demo-key",               // ssh key pair name
 		"/tmp/demo.pem",          // ssh private key
 		"203.0.113.0/24",         // ssh cidr
@@ -534,7 +527,6 @@ func TestInitFallsBackWhenAWSImageLookupIsPermissionDenied(t *testing.T) {
 		"",                       // accept default instance g5.xlarge
 		"1",                      // image fallback selection
 		"20",                     // disk size
-		"",                       // accept default public network mode
 		"demo-key",               // ssh key pair name
 		"/tmp/demo.pem",          // ssh private key
 		"203.0.113.0/24",         // ssh cidr

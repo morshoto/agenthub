@@ -68,16 +68,13 @@ func selectAWSProfile(ctx context.Context, in io.Reader, out io.Writer, existing
 		return profile, nil
 	}
 
-	defaultProfile := strings.TrimSpace(os.Getenv("AWS_PROFILE"))
-	if defaultProfile == "" {
-		defaultProfile = strings.TrimSpace(os.Getenv("AWS_DEFAULT_PROFILE"))
+	if envProfile := firstNonEmpty(strings.TrimSpace(os.Getenv("AWS_PROFILE")), strings.TrimSpace(os.Getenv("AWS_DEFAULT_PROFILE"))); envProfile != "" {
+		return envProfile, nil
 	}
+
 	interactive := isInteractiveInput(in)
 	profiles, err := listAWSProfilesFunc(ctx)
 	if err != nil {
-		if defaultProfile != "" {
-			return defaultProfile, nil
-		}
 		if interactive {
 			session := prompt.NewSession(in, out)
 			value, promptErr := session.Text("AWS profile", "")
@@ -89,29 +86,23 @@ func selectAWSProfile(ctx context.Context, in io.Reader, out io.Writer, existing
 		return "", err
 	}
 
+	if len(profiles) == 1 {
+		return profiles[0], nil
+	}
+
 	if !interactive {
-		switch {
-		case defaultProfile != "":
-			return defaultProfile, nil
-		case len(profiles) == 1:
-			return profiles[0], nil
-		default:
-			return "", errors.New("aws profile is required: pass --profile, set AWS_PROFILE, or run interactively")
-		}
+		return "", errors.New("aws profile is required: pass --profile, set AWS_PROFILE, or run interactively")
 	}
 
 	session := prompt.NewSession(in, out)
 	if len(profiles) == 0 {
-		value, err := session.Text("AWS profile", defaultProfile)
+		value, err := session.Text("AWS profile", "")
 		if err != nil {
 			return "", err
 		}
 		return strings.TrimSpace(value), nil
 	}
-	if defaultProfile == "" && len(profiles) > 0 {
-		defaultProfile = profiles[0]
-	}
-	value, err := session.Select("Select AWS profile", profiles, defaultProfile)
+	value, err := session.Select("Select AWS profile", profiles, profiles[0])
 	if err != nil {
 		return "", err
 	}
@@ -238,6 +229,8 @@ func renderTerraformVars(vars terraformVars) string {
 func terraformQuoted(value string) string {
 	return strconv.Quote(strings.TrimSpace(value))
 }
+
+var detectInteractiveInput = isInteractiveInput
 
 func isInteractiveInput(in io.Reader) bool {
 	file, ok := in.(*os.File)

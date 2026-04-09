@@ -105,7 +105,7 @@ func (s *Session) SelectSearch(label string, options []string, defaultValue stri
 }
 
 func (s *Session) selectWithLine(label string, options []string, defaultValue string) (string, error) {
-	fmt.Fprintln(s.out, s.style(ansiBrightCyan, label))
+	fmt.Fprintln(s.out, s.style(ansiCyan, label))
 	for i, option := range options {
 		marker := ""
 		if option == defaultValue {
@@ -143,7 +143,7 @@ func (s *Session) Confirm(label string, defaultValue bool) (bool, error) {
 	if defaultValue {
 		indicator = "Y/n"
 	}
-	fmt.Fprintf(s.out, "%s [%s]: ", s.style(ansiBrightCyan, label), s.style(ansiYellow, indicator))
+	fmt.Fprintf(s.out, "%s [%s]: ", s.style(ansiCyan, label), s.style(ansiYellow, indicator))
 	input, err := s.readLine()
 	if err != nil {
 		return false, err
@@ -167,9 +167,9 @@ func (s *Session) Text(label, defaultValue string) (string, error) {
 	}
 
 	if defaultValue != "" {
-		fmt.Fprintf(s.out, "%s [%s]: ", s.style(ansiBrightCyan, label), s.style(ansiYellow, defaultValue))
+		fmt.Fprintf(s.out, "%s [%s]: ", s.style(ansiCyan, label), s.style(ansiYellow, defaultValue))
 	} else {
-		fmt.Fprintf(s.out, "%s: ", s.style(ansiBrightCyan, label))
+		fmt.Fprintf(s.out, "%s: ", s.style(ansiCyan, label))
 	}
 	input, err := s.readLine()
 	if err != nil {
@@ -187,9 +187,9 @@ func (s *Session) Secret(label, defaultValue string) (string, error) {
 	}
 
 	if defaultValue != "" {
-		fmt.Fprintf(s.out, "%s [%s]: ", s.style(ansiBrightCyan, label), s.style(ansiYellow, "configured"))
+		fmt.Fprintf(s.out, "%s [%s]: ", s.style(ansiCyan, label), s.style(ansiYellow, "configured"))
 	} else {
-		fmt.Fprintf(s.out, "%s: ", s.style(ansiBrightCyan, label))
+		fmt.Fprintf(s.out, "%s: ", s.style(ansiCyan, label))
 	}
 	value, err := term.ReadPassword(int(s.inFile.Fd()))
 	fmt.Fprintln(s.out)
@@ -208,9 +208,9 @@ func (s *Session) Int(label string, defaultValue int) (int, error) {
 	}
 
 	if defaultValue != 0 {
-		fmt.Fprintf(s.out, "%s [%d]: ", s.style(ansiBrightCyan, label), defaultValue)
+		fmt.Fprintf(s.out, "%s [%d]: ", s.style(ansiCyan, label), defaultValue)
 	} else {
-		fmt.Fprintf(s.out, "%s: ", s.style(ansiBrightCyan, label))
+		fmt.Fprintf(s.out, "%s: ", s.style(ansiCyan, label))
 	}
 	input, err := s.readLine()
 	if err != nil {
