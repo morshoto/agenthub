@@ -638,6 +638,8 @@ func TestRedeployCommandOutputsSummaryAndVerification(t *testing.T) {
 						"  network_mode: public",
 						"",
 					}, "\n")}, nil
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc":
+					return host.CommandResult{Stdout: "ok"}, nil
 				default:
 					return host.CommandResult{}, errors.New("unexpected command: " + command + " " + strings.Join(args, " "))
 				}
@@ -651,7 +653,10 @@ func TestRedeployCommandOutputsSummaryAndVerification(t *testing.T) {
 	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
 		t.Fatalf("WriteFile(key) error = %v", err)
 	}
-	path := filepath.Join(dir, "agenthub.yaml")
+	path := filepath.Join(dir, "agents", "default", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
 	writeConfig(t, path, `
 platform:
   name: aws
@@ -851,6 +856,8 @@ func TestRunRedeployWorkflowFailsWhenVerificationFails(t *testing.T) {
 						"  network_mode: public",
 						"",
 					}, "\n")}, nil
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc":
+					return host.CommandResult{Stdout: "ok"}, nil
 				default:
 					return host.CommandResult{}, errors.New("unexpected command: " + command + " " + strings.Join(args, " "))
 				}
