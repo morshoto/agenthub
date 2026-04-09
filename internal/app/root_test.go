@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"agenthub/internal/provider"
 	awsprovider "agenthub/internal/provider/aws"
 	"agenthub/internal/runtimeinstall"
+	"agenthub/internal/setup"
 )
 
 func TestConfigValidateCommandAcceptsConfigFlagAfterSubcommand(t *testing.T) {
@@ -175,6 +177,62 @@ func TestAuthCheckCommandReportsSuccess(t *testing.T) {
 		if !strings.Contains(got, fragment) {
 			t.Fatalf("stdout = %q, want %q", got, fragment)
 		}
+	}
+}
+
+func TestAuthCheckCommandRunsAWSLoginForSSOProfiles(t *testing.T) {
+	originalProvider := newAWSProvider
+	originalLogin := setup.RunAWSLoginFunc
+	originalDetect := setup.AWSProfileUsesSSOFunc
+	originalInteractive := detectInteractiveInput
+	defer func() {
+		newAWSProvider = originalProvider
+		setup.RunAWSLoginFunc = originalLogin
+		setup.AWSProfileUsesSSOFunc = originalDetect
+		detectInteractiveInput = originalInteractive
+	}()
+
+	loginCalled := false
+	setup.RunAWSLoginFunc = func(ctx context.Context, profile string) error {
+		loginCalled = true
+		if profile != "sso-dev" {
+			t.Fatalf("profile = %q, want sso-dev", profile)
+		}
+		return nil
+	}
+	setup.AWSProfileUsesSSOFunc = func(ctx context.Context, profile string) bool {
+		return profile == "sso-dev"
+	}
+	detectInteractiveInput = func(in io.Reader) bool { return true }
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+		return &retryingAuthCloudProvider{stubCloudProvider: stubCloudProvider{profile: profile}}
+	}
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--profile", "sso-dev", "auth", "check"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	got := stdout.String()
+	for _, fragment := range []string{
+		"AWS SSO login refreshed credentials",
+		"AWS auth check passed",
+		"profile: sso-dev",
+	} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("stdout = %q, want %q", got, fragment)
+		}
+	}
+	if !loginCalled {
+		t.Fatal("AWS login should have been called")
 	}
 }
 
@@ -1564,6 +1622,24 @@ func (s stubCloudProvider) GetInstance(ctx context.Context, region, instanceID s
 		PrivateIP:      "10.0.0.10",
 		ConnectionInfo: "public IP: 203.0.113.10",
 	}, nil
+}
+
+type retryingAuthCloudProvider struct {
+	stubCloudProvider
+	checks int
+}
+
+func (p *retryingAuthCloudProvider) CheckAuth(ctx context.Context) (provider.AuthStatus, error) {
+	p.checks++
+	if p.checks == 1 {
+		return provider.AuthStatus{}, &awsprovider.AuthError{
+			Kind:    "no_credentials",
+			Profile: p.profile,
+			Stage:   "credentials",
+			Cause:   errors.New("no valid credential sources"),
+		}
+	}
+	return p.stubCloudProvider.CheckAuth(ctx)
 }
 
 type infraCreateStubCloudProvider struct {

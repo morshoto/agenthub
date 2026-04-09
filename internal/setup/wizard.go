@@ -28,6 +28,7 @@ type Wizard struct {
 	Existing        *config.Config
 	AWSProfile      string
 	AgentName       string
+	Interactive     bool
 
 	// startedAt is set at the beginning of Run and used to compute the
 	// elapsed-time column in scroll-safe log lines.
@@ -109,7 +110,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		return nil, err
 	}
 
-	profile, prompted, err := w.selectAWSProfile()
+	profile, _, err := w.selectAWSProfile()
 	if err != nil {
 		return nil, err
 	}
@@ -117,33 +118,28 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if profile == "" {
 		return nil, errors.New("AWS profile is required")
 	}
-	if prompted {
-		w.logLine("Setup", "!", "This profile uses AWS SSO")
-		w.logLine("Setup", "⇒", fmt.Sprintf("run `aws sso login --profile %s` if needed", profile))
-		ready, err := w.Prompter.Confirm("Continue after AWS SSO login", true)
-		if err != nil {
-			return nil, err
-		}
-		if !ready {
-			return nil, errors.New("setup cancelled")
-		}
-	}
 
 	if w.Provider == nil && w.ProviderFactory != nil {
 		w.Provider = w.ProviderFactory(platform, computeClass)
 	}
 	if w.Provider != nil {
 		authCtx, cancel := bestEffortAWSContext(ctx)
-		if _, err := w.Provider.CheckAuth(authCtx); err != nil {
-			cancel()
+		_, recovered, err := RecoverAWSAuth(authCtx, w.Provider, w.AWSProfile, w.Interactive)
+		cancel()
+		if err != nil {
 			var authErr *awsprovider.AuthError
 			if errors.As(err, &authErr) {
-				w.logLine("Setup", "!", "Warning: AWS auth check unavailable; continuing.")
+				if recovered {
+					w.logLine("Setup", "!", "Warning: AWS SSO login did not restore AWS auth; continuing.")
+				} else {
+					w.logLine("Setup", "!", "Warning: AWS auth check unavailable; continuing.")
+				}
 			} else {
 				return nil, err
 			}
+		} else if recovered {
+			w.logLine("Setup", "✓", "AWS SSO login refreshed credentials")
 		}
-		cancel()
 	}
 
 	regions, err := w.listRegions(ctx)

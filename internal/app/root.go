@@ -91,12 +91,16 @@ func newAuthCheckCommand(app *App) *cobra.Command {
 		Use:   "check",
 		Short: "Verify AWS credentials and API access",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			status, err := newAWSProvider(app.opts.Profile, "").CheckAuth(cmd.Context())
+			interactive := detectInteractiveInput(cmd.InOrStdin())
+			status, recovered, err := setup.RecoverAWSAuth(cmd.Context(), newAWSProvider(app.opts.Profile, ""), app.opts.Profile, interactive)
 			if err != nil {
 				return err
 			}
 
 			fmt.Fprintln(cmd.OutOrStdout(), "AWS auth check passed")
+			if recovered {
+				fmt.Fprintln(cmd.OutOrStdout(), "AWS SSO login refreshed credentials")
+			}
 			if status.Profile != "" {
 				fmt.Fprintf(cmd.OutOrStdout(), "profile: %s\n", status.Profile)
 			}
@@ -161,6 +165,7 @@ func newInitCommand(app *App) *cobra.Command {
 			}
 			session := prompt.NewSession(cmd.InOrStdin(), cmd.OutOrStdout())
 			wizard := setup.NewWizard(session, cmd.OutOrStdout(), nil, existing)
+			wizard.Interactive = detectInteractiveInput(cmd.InOrStdin())
 			wizard.ProviderFactory = func(platform, computeClass string) provider.CloudProvider {
 				return newCloudProvider(platform, wizard.AWSProfile, computeClass)
 			}

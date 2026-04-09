@@ -5,7 +5,7 @@ It is written for the AWS path used by this repository.
 
 ## 1. Sign in to AWS
 
-Use your AWS profile first:
+Use your AWS profile first. Interactive `agenthub` commands can now launch this same browser login automatically when they detect that your selected profile has no usable credentials:
 
 ```bash
 aws sso login --profile sso-dev
@@ -25,7 +25,7 @@ agenthub infra tfvars --config agenthub.yaml --output infra/aws/ec2/terraform.tf
 ```
 
 If you want to pin the AWS profile explicitly, pass `--profile sso-dev`.
-If you omit it and run interactively, the CLI will prompt you to choose a profile or type one in.
+If you omit it and run interactively, the CLI will prompt you to choose a profile or type one in, and it can open the AWS SSO browser flow to refresh credentials if the selected profile needs it.
 
 This command reads the YAML config, resolves the SSH public key, stages the current working tree as a bootstrap archive, and writes Terraform-compatible `terraform.tfvars` variables.
 If GitHub App auth is configured, it carries the project-owned Secrets Manager ARN into Terraform so the EC2 instance role can read the private key secret at runtime.

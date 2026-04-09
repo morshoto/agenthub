@@ -239,6 +239,8 @@ func terraformQuoted(value string) string {
 	return strconv.Quote(strings.TrimSpace(value))
 }
 
+var detectInteractiveInput = isInteractiveInput
+
 func isInteractiveInput(in io.Reader) bool {
 	file, ok := in.(*os.File)
 	if !ok {

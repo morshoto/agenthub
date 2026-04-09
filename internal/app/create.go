@@ -13,6 +13,7 @@ import (
 
 	"agenthub/internal/config"
 	"agenthub/internal/prompt"
+	"agenthub/internal/setup"
 )
 
 func newCreateCommand(app *App) *cobra.Command {
@@ -54,6 +55,9 @@ func newCreateCommand(app *App) *cobra.Command {
 				return err
 			}
 			app.opts.Profile = profile
+			if _, _, err := setup.RecoverAWSAuth(cmd.Context(), newAWSProvider(profile, ""), profile, detectInteractiveInput(cmd.InOrStdin())); err != nil {
+				return err
+			}
 			refreshedSSHCIDR, err := refreshCreateSSHCIDR(cmd.Context(), cfg, sshCIDR)
 			if err != nil {
 				return err
