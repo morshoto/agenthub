@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,7 +142,7 @@ func runDeleteCommand(t *testing.T, args []string, input string) (string, error)
 	return runDeleteCommandWithInput(t, args, strings.NewReader(input))
 }
 
-func runDeleteCommandWithInput(t *testing.T, args []string, input *bytes.Buffer) (string, error) {
+func runDeleteCommandWithInput(t *testing.T, args []string, input io.Reader) (string, error) {
 	t.Helper()
 
 	oldArgs := os.Args
@@ -158,4 +159,3 @@ func runDeleteCommandWithInput(t *testing.T, args []string, input *bytes.Buffer)
 	err := cmd.Execute()
 	return stdout.String(), err
 }
-
