@@ -37,6 +37,14 @@ Show merged agent config status under `agents/`:
 agenthub status
 ```
 
+Inspect one deployed agent in detail:
+
+```bash
+agenthub inspect alpha --ssh-key ~/.ssh/id_ed25519
+```
+
+`agenthub inspect` reads the merged local config for the selected agent, resolves the recorded deployment target, and probes the remote runtime state over SSH.
+
 ## Infrastructure Teardown
 
 Destroy infrastructure for one deployed agent:

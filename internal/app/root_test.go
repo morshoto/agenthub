@@ -667,6 +667,7 @@ func TestRootHelpGroupsCommands(t *testing.T) {
 		"init",
 		"create",
 		"slack",
+		"inspect",
 		"status",
 		"verify",
 	} {

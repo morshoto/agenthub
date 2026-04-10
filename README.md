@@ -37,6 +37,12 @@ Provision from a config file:
 agenthub create --config agenthub.yaml
 ```
 
+Inspect one deployed agent:
+
+```bash
+agenthub inspect alpha --ssh-key ~/.ssh/id_ed25519
+```
+
 Check the current version:
 
 ```bash
