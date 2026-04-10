@@ -418,12 +418,19 @@ func printInspectService(out io.Writer, label string, state inspectServiceState,
 		fmt.Fprintf(out, "- %s: unavailable: %v\n", label, err)
 		return
 	}
-	if strings.TrimSpace(state.Unit) == "" {
+	summary := formatInspectServiceSummary(state)
+	if summary == "" {
 		return
 	}
+	fmt.Fprintf(out, "- %s: %s\n", label, summary)
+}
+
+func formatInspectServiceSummary(state inspectServiceState) string {
+	if strings.TrimSpace(state.Unit) == "" {
+		return ""
+	}
 	if !state.Installed {
-		fmt.Fprintf(out, "- %s: not installed (%s)\n", label, state.Unit)
-		return
+		return fmt.Sprintf("not installed (%s)", state.Unit)
 	}
 	parts := []string{state.Unit}
 	if value := strings.TrimSpace(state.ActiveState); value != "" {
@@ -438,7 +445,7 @@ func printInspectService(out io.Writer, label string, state inspectServiceState,
 	if value := strings.TrimSpace(state.FragmentPath); value != "" {
 		parts = append(parts, "path="+value)
 	}
-	fmt.Fprintf(out, "- %s: %s\n", label, strings.Join(parts, " "))
+	return strings.Join(parts, " ")
 }
 
 func formatRemoteRuntimeConfigSummary(cfg *runtimeinstall.RuntimeConfig) string {
