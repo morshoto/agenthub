@@ -400,8 +400,11 @@ func TestStatusCommandRejectsUnsupportedOutputFormat(t *testing.T) {
 	if err == nil {
 		t.Fatal("Execute() error = nil, want unsupported output format error")
 	}
-	if !strings.Contains(stdout, "unsupported output format") {
-		t.Fatalf("stdout = %q, want unsupported output format", stdout)
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty output for unsupported format", stdout)
+	}
+	if !strings.Contains(err.Error(), "unsupported output format") {
+		t.Fatalf("err = %v, want unsupported output format", err)
 	}
 }
 

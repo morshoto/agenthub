@@ -160,9 +160,11 @@ func newStatusCommand(app *App) *cobra.Command {
 	var output string
 
 	cmd := &cobra.Command{
-		Use:     "status",
-		Short:   "Show formatted agent configuration status",
-		GroupID: "runtime",
+		Use:           "status",
+		Short:         "Show formatted agent configuration status",
+		GroupID:       "runtime",
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			outputFormat, err := parseStatusOutputFormat(output)
 			if err != nil {
