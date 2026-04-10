@@ -331,6 +331,7 @@ func runtimeServiceChangedMessage(action string) string {
 func runtimeServiceActionReachedExpectedState(action string, state inspectServiceState) bool {
 	switch action {
 	case "start":
+		fallthrough
 	case "restart":
 		return strings.EqualFold(strings.TrimSpace(state.ActiveState), "active")
 	case "stop":
