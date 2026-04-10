@@ -55,10 +55,22 @@ Show merged agent config status under `agents/`:
 agenthub status
 ```
 
+Show the same status as structured JSON for automation:
+
+```bash
+agenthub status --output json
+```
+
 Inspect one deployed agent in detail:
 
 ```bash
 agenthub inspect alpha --ssh-key ~/.ssh/id_ed25519
+```
+
+Show the same inspection report as structured JSON for automation:
+
+```bash
+agenthub inspect alpha --ssh-key ~/.ssh/id_ed25519 --output json
 ```
 
 `agenthub inspect` reads the merged local config for the selected agent, resolves the recorded deployment target, and probes the remote runtime state over SSH.
