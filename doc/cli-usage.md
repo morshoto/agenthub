@@ -37,6 +37,12 @@ Start the runtime service for one deployed agent:
 agenthub runtime start --config agenthub.yaml
 ```
 
+Restart the runtime service for one deployed agent:
+
+```bash
+agenthub runtime restart --config agenthub.yaml
+```
+
 Stop the runtime service for one deployed agent:
 
 ```bash

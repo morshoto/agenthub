@@ -39,6 +39,7 @@ func newRuntimeCommand(app *App) *cobra.Command {
 		GroupID: "runtime",
 	}
 	cmd.AddCommand(newRuntimeStartCommand(app))
+	cmd.AddCommand(newRuntimeRestartCommand(app))
 	cmd.AddCommand(newRuntimeStopCommand(app))
 	return cmd
 }
@@ -149,6 +150,59 @@ func newRuntimeStopCommand(app *App) *cobra.Command {
 	return cmd
 }
 
+func newRuntimeRestartCommand(app *App) *cobra.Command {
+	var target string
+	var sshUser string
+	var sshKey string
+	var sshPort int
+
+	cmd := &cobra.Command{
+		Use:          "restart",
+		Short:        "Restart the runtime service for a deployed agent",
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if strings.TrimSpace(app.opts.ConfigPath) == "" {
+				return errors.New("config file is required: pass --config <path>")
+			}
+
+			cfg, err := config.Load(app.opts.ConfigPath)
+			if err != nil {
+				return err
+			}
+			if err := config.Validate(cfg); err != nil {
+				return err
+			}
+
+			fmt.Fprintln(cmd.OutOrStdout(), "restarting runtime service...")
+			result, err := runRuntimeServiceWorkflow(cmd.Context(), app.opts.Profile, cfg, runtimeServiceOptions{
+				ConfigPath: app.opts.ConfigPath,
+				Target:     target,
+				SSHUser:    sshUser,
+				SSHKey:     sshKey,
+				SSHPort:    sshPort,
+				Action:     "restart",
+			})
+			printRuntimeServiceResult(cmd.OutOrStdout(), result)
+			if err != nil {
+				return wrapUserFacingError(
+					"runtime restart failed",
+					err,
+					"the target host is unreachable, the runtime service is missing, or systemd could not restart the unit",
+					"confirm the host is reachable over SSH and rerun "+commandRef(cmd.OutOrStdout(), "agenthub", "runtime", "restart", "--config", app.opts.ConfigPath),
+					"run "+commandRef(cmd.OutOrStdout(), "agenthub", "inspect", agentNameFromConfigPath(app.opts.ConfigPath))+" after fixing the host state",
+				)
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&target, "target", "", "SSH target host or EC2 instance id; defaults to infra.instance_id")
+	cmd.Flags().StringVar(&sshUser, "ssh-user", "", "SSH username for the target host")
+	cmd.Flags().StringVar(&sshKey, "ssh-key", "", "path to the SSH private key")
+	cmd.Flags().IntVar(&sshPort, "ssh-port", 22, "SSH port")
+	return cmd
+}
+
 func runRuntimeServiceWorkflow(ctx context.Context, profile string, cfg *config.Config, opts runtimeServiceOptions) (runtimeServiceResult, error) {
 	if cfg == nil {
 		return runtimeServiceResult{}, errors.New("config is required")
@@ -158,7 +212,7 @@ func runRuntimeServiceWorkflow(ctx context.Context, profile string, cfg *config.
 	if action == "" {
 		action = "start"
 	}
-	if action != "start" && action != "stop" {
+	if action != "start" && action != "stop" && action != "restart" {
 		return runtimeServiceResult{}, fmt.Errorf("unsupported runtime service action %q", action)
 	}
 
@@ -243,6 +297,8 @@ func runtimeServiceActionAlreadySatisfied(action string, state inspectServiceSta
 		return strings.EqualFold(strings.TrimSpace(state.ActiveState), "active")
 	case "stop":
 		return !strings.EqualFold(strings.TrimSpace(state.ActiveState), "active")
+	case "restart":
+		return false
 	default:
 		return false
 	}
@@ -263,6 +319,8 @@ func runtimeServiceChangedMessage(action string) string {
 	switch action {
 	case "start":
 		return "runtime service started"
+	case "restart":
+		return "runtime service restarted"
 	case "stop":
 		return "runtime service stopped"
 	default:
@@ -273,6 +331,8 @@ func runtimeServiceChangedMessage(action string) string {
 func runtimeServiceActionReachedExpectedState(action string, state inspectServiceState) bool {
 	switch action {
 	case "start":
+		fallthrough
+	case "restart":
 		return strings.EqualFold(strings.TrimSpace(state.ActiveState), "active")
 	case "stop":
 		return !strings.EqualFold(strings.TrimSpace(state.ActiveState), "active")
