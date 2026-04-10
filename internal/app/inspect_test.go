@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"agenthub/internal/host"
+	"agenthub/internal/provider"
 )
 
 func TestInspectCommandReportsDetailedDeployedState(t *testing.T) {
@@ -63,9 +64,6 @@ sandbox:
 	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
 		return flexibleExecutor{
 			run: func(command string, args ...string) (host.CommandResult, error) {
-				if result, ok := defaultFlexibleCommand(command, args...); ok {
-					return result, nil
-				}
 				key := strings.TrimSpace(command + " " + strings.Join(args, " "))
 				switch {
 				case key == "cat /opt/agenthub/runtime.yaml":
@@ -101,6 +99,9 @@ sandbox:
 					case strings.Contains(script, "http://127.0.0.1:9090/status"):
 						return host.CommandResult{Stdout: `{"status":"ok","active":true,"active_count":1,"active_agents":[{"id":"agent-1","task":"executing pwd"}]}`}, nil
 					}
+				}
+				if result, ok := defaultFlexibleCommand(command, args...); ok {
+					return result, nil
 				}
 				return host.CommandResult{}, errors.New("unexpected command: " + key)
 			},
@@ -178,9 +179,6 @@ sandbox:
 	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
 		return flexibleExecutor{
 			run: func(command string, args ...string) (host.CommandResult, error) {
-				if result, ok := defaultFlexibleCommand(command, args...); ok {
-					return result, nil
-				}
 				key := strings.TrimSpace(command + " " + strings.Join(args, " "))
 				switch {
 				case key == "cat /opt/agenthub/runtime.yaml":
@@ -197,6 +195,9 @@ sandbox:
 					case strings.Contains(script, "http://127.0.0.1:8080/status"):
 						return host.CommandResult{Stdout: `{"status":"ok","active":false,"active_count":0}`}, nil
 					}
+				}
+				if result, ok := defaultFlexibleCommand(command, args...); ok {
+					return result, nil
 				}
 				return host.CommandResult{}, errors.New("unexpected command: " + key)
 			},
