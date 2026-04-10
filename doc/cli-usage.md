@@ -67,6 +67,12 @@ Inspect one deployed agent in detail:
 agenthub inspect alpha --ssh-key ~/.ssh/id_ed25519
 ```
 
+Show the same inspection report as structured JSON for automation:
+
+```bash
+agenthub inspect alpha --ssh-key ~/.ssh/id_ed25519 --output json
+```
+
 `agenthub inspect` reads the merged local config for the selected agent, resolves the recorded deployment target, and probes the remote runtime state over SSH.
 
 ## Infrastructure Teardown

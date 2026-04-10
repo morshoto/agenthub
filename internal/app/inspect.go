@@ -43,8 +43,10 @@ type inspectReport struct {
 	RuntimeService    inspectServiceState
 	RuntimeServiceErr error
 	SlackService      inspectServiceState
+	SlackServiceErr   error
 	Health            map[string]any
 	HealthErr         error
+	StatusPayload     map[string]any
 	Status            *runtimeStatusResponse
 	StatusErr         error
 	Warnings          []string
@@ -60,6 +62,84 @@ type inspectServiceState struct {
 	FragmentPath  string
 }
 
+type inspectOutputFormat string
+
+const (
+	inspectOutputText inspectOutputFormat = "text"
+	inspectOutputJSON inspectOutputFormat = "json"
+)
+
+type inspectJSONResponse struct {
+	Agent            string                      `json:"agent"`
+	Path             string                      `json:"path,omitempty"`
+	Files            []string                    `json:"files,omitempty"`
+	LocalConfig      *inspectJSONLocalConfig     `json:"local_config,omitempty"`
+	Cloud            inspectJSONCloudState       `json:"cloud"`
+	RemoteDeployment inspectJSONRemoteDeployment `json:"remote_deployment"`
+	RuntimeState     inspectJSONRuntimeState     `json:"runtime_state"`
+	Warnings         []string                    `json:"warnings,omitempty"`
+}
+
+type inspectJSONLocalConfig struct {
+	Config          *statusJSONConfig `json:"config,omitempty"`
+	InfraInstanceID string            `json:"infra_instance_id,omitempty"`
+	SlackRuntimeURL string            `json:"slack_runtime_url,omitempty"`
+}
+
+type inspectJSONCloudState struct {
+	State    string                  `json:"state"`
+	Error    string                  `json:"error,omitempty"`
+	Instance *statusJSONLiveInstance `json:"instance,omitempty"`
+}
+
+type inspectJSONRemoteDeployment struct {
+	SSHTarget          string                    `json:"ssh_target,omitempty"`
+	RuntimeConfigPath  string                    `json:"runtime_config_path,omitempty"`
+	RuntimeConfig      *inspectJSONRuntimeConfig `json:"runtime_config,omitempty"`
+	RuntimeService     inspectJSONServiceState   `json:"runtime_service"`
+	IntegrationService inspectJSONServiceState   `json:"integration_service"`
+}
+
+type inspectJSONRuntimeConfig struct {
+	Provider    string              `json:"provider,omitempty"`
+	NIMEndpoint string              `json:"nim_endpoint,omitempty"`
+	Model       string              `json:"model,omitempty"`
+	Port        int                 `json:"port,omitempty"`
+	Region      string              `json:"region,omitempty"`
+	UseNemoClaw bool                `json:"use_nemoclaw"`
+	GitHub      *statusJSONGitHub   `json:"github,omitempty"`
+	Sandbox     *inspectJSONSandbox `json:"sandbox,omitempty"`
+}
+
+type inspectJSONSandbox struct {
+	Enabled         bool     `json:"enabled"`
+	NetworkMode     string   `json:"network_mode,omitempty"`
+	FilesystemAllow []string `json:"filesystem_allow,omitempty"`
+}
+
+type inspectJSONServiceState struct {
+	Unit          string `json:"unit,omitempty"`
+	Installed     bool   `json:"installed"`
+	LoadState     string `json:"load_state,omitempty"`
+	ActiveState   string `json:"active_state,omitempty"`
+	SubState      string `json:"sub_state,omitempty"`
+	UnitFileState string `json:"unit_file_state,omitempty"`
+	FragmentPath  string `json:"fragment_path,omitempty"`
+	Error         string `json:"error,omitempty"`
+}
+
+type inspectJSONRuntimeState struct {
+	Health inspectJSONEndpointState `json:"health"`
+	Status inspectJSONEndpointState `json:"status"`
+}
+
+type inspectJSONEndpointState struct {
+	Available bool                   `json:"available"`
+	Error     string                 `json:"error,omitempty"`
+	Payload   map[string]any         `json:"payload,omitempty"`
+	Summary   *runtimeStatusResponse `json:"summary,omitempty"`
+}
+
 func newInspectCommand(app *App) *cobra.Command {
 	var agentsDir string
 	var target string
@@ -67,14 +147,20 @@ func newInspectCommand(app *App) *cobra.Command {
 	var sshKey string
 	var sshPort int
 	var runtimeConfigPath string
+	var output string
 
 	cmd := &cobra.Command{
-		Use:          "inspect <agent>",
-		Short:        "Inspect one agent in detail",
-		GroupID:      "inspect",
-		Args:         cobra.ExactArgs(1),
-		SilenceUsage: true,
+		Use:           "inspect <agent>",
+		Short:         "Inspect one agent in detail",
+		GroupID:       "inspect",
+		Args:          cobra.ExactArgs(1),
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			outputFormat, parseErr := parseInspectOutputFormat(output)
+			if parseErr != nil {
+				return parseErr
+			}
 			report, err := runInspectWorkflow(cmd.Context(), app.opts.Profile, inspectOptions{
 				AgentName:         strings.TrimSpace(args[0]),
 				AgentsDir:         agentsDir,
@@ -84,7 +170,14 @@ func newInspectCommand(app *App) *cobra.Command {
 				SSHPort:           sshPort,
 				RuntimeConfigPath: runtimeConfigPath,
 			})
-			printInspectReport(cmd.OutOrStdout(), report)
+			switch outputFormat {
+			case inspectOutputJSON:
+				if encodeErr := json.NewEncoder(cmd.OutOrStdout()).Encode(buildInspectJSONResponse(report)); encodeErr != nil {
+					return encodeErr
+				}
+			default:
+				printInspectReport(cmd.OutOrStdout(), report)
+			}
 			if err != nil {
 				return wrapUserFacingError(
 					"inspect failed",
@@ -103,7 +196,19 @@ func newInspectCommand(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&sshKey, "ssh-key", "", "path to the SSH private key")
 	cmd.Flags().IntVar(&sshPort, "ssh-port", 22, "SSH port")
 	cmd.Flags().StringVar(&runtimeConfigPath, "runtime-config", "/opt/agenthub/runtime.yaml", "path to the runtime config on the target host")
+	cmd.Flags().StringVar(&output, "output", string(inspectOutputText), "output format: text or json")
 	return cmd
+}
+
+func parseInspectOutputFormat(value string) (inspectOutputFormat, error) {
+	switch inspectOutputFormat(strings.ToLower(strings.TrimSpace(value))) {
+	case "", inspectOutputText:
+		return inspectOutputText, nil
+	case inspectOutputJSON:
+		return inspectOutputJSON, nil
+	default:
+		return "", fmt.Errorf("unsupported output format %q: expected text or json", value)
+	}
 }
 
 func runInspectWorkflow(ctx context.Context, profile string, opts inspectOptions) (inspectReport, error) {
@@ -165,6 +270,7 @@ func runInspectWorkflow(ctx context.Context, profile string, opts inspectOptions
 
 	report.SlackService, err = inspectServiceUnit(ctx, exec, slackServiceNameForAgent(report.AgentName)+".service")
 	if err != nil {
+		report.SlackServiceErr = err
 		report.Warnings = append(report.Warnings, fmt.Sprintf("integration service probe failed: %v", err))
 	}
 
@@ -180,6 +286,7 @@ func runInspectWorkflow(ctx context.Context, profile string, opts inspectOptions
 		report.StatusErr = statusErr
 		errs = append(errs, fmt.Errorf("runtime status: %w", statusErr))
 	} else {
+		report.StatusPayload = cloneJSONMap(statusPayload)
 		var decoded runtimeStatusResponse
 		data, marshalErr := json.Marshal(statusPayload)
 		if marshalErr != nil {
@@ -392,7 +499,7 @@ func printInspectReport(out io.Writer, report inspectReport) {
 		fmt.Fprintf(out, "- remote runtime config: %s\n", formatRemoteRuntimeConfigSummary(report.RuntimeConfig))
 	}
 	printInspectService(out, "runtime service", report.RuntimeService, report.RuntimeServiceErr)
-	printInspectService(out, "integration service", report.SlackService, nil)
+	printInspectService(out, "integration service", report.SlackService, report.SlackServiceErr)
 
 	fmt.Fprintln(out, "runtime state")
 	if report.HealthErr != nil {
@@ -411,6 +518,112 @@ func printInspectReport(out io.Writer, report inspectReport) {
 	for _, warning := range report.Warnings {
 		fmt.Fprintf(out, "warning: %s\n", warning)
 	}
+}
+
+func buildInspectJSONResponse(report inspectReport) inspectJSONResponse {
+	return inspectJSONResponse{
+		Agent: report.AgentName,
+		Path:  report.Path,
+		Files: append([]string(nil), report.Files...),
+		LocalConfig: &inspectJSONLocalConfig{
+			Config:          buildStatusJSONConfig(report.Config),
+			InfraInstanceID: strings.TrimSpace(report.Config.Infra.InstanceID),
+			SlackRuntimeURL: strings.TrimSpace(report.Config.Slack.RuntimeURL),
+		},
+		Cloud: inspectJSONCloudState{
+			State:    buildStatusJSONLiveStatus(agentStatusEntry{Config: report.Config, Live: agentLiveStatus{Instance: report.Cloud, Err: report.CloudErr}}).State,
+			Error:    buildStatusJSONLiveStatus(agentStatusEntry{Config: report.Config, Live: agentLiveStatus{Instance: report.Cloud, Err: report.CloudErr}}).Error,
+			Instance: buildStatusJSONLiveStatus(agentStatusEntry{Config: report.Config, Live: agentLiveStatus{Instance: report.Cloud, Err: report.CloudErr}}).Instance,
+		},
+		RemoteDeployment: inspectJSONRemoteDeployment{
+			SSHTarget:          strings.TrimSpace(report.ResolvedTarget),
+			RuntimeConfigPath:  strings.TrimSpace(report.RuntimeConfigPath),
+			RuntimeConfig:      buildInspectJSONRuntimeConfig(report.RuntimeConfig),
+			RuntimeService:     buildInspectJSONServiceState(report.RuntimeService, report.RuntimeServiceErr),
+			IntegrationService: buildInspectJSONServiceState(report.SlackService, report.SlackServiceErr),
+		},
+		RuntimeState: inspectJSONRuntimeState{
+			Health: buildInspectJSONHealthState(report),
+			Status: buildInspectJSONStatusState(report),
+		},
+		Warnings: append([]string(nil), report.Warnings...),
+	}
+}
+
+func buildInspectJSONRuntimeConfig(cfg *runtimeinstall.RuntimeConfig) *inspectJSONRuntimeConfig {
+	if cfg == nil {
+		return nil
+	}
+	out := &inspectJSONRuntimeConfig{
+		Provider:    strings.TrimSpace(cfg.Provider),
+		NIMEndpoint: strings.TrimSpace(cfg.NIMEndpoint),
+		Model:       strings.TrimSpace(cfg.Model),
+		Port:        cfg.Port,
+		Region:      strings.TrimSpace(cfg.Region),
+		UseNemoClaw: cfg.UseNemoClaw,
+		Sandbox: &inspectJSONSandbox{
+			Enabled:         cfg.Sandbox.Enabled,
+			NetworkMode:     strings.TrimSpace(cfg.Sandbox.NetworkMode),
+			FilesystemAllow: append([]string(nil), cfg.Sandbox.FilesystemAllow...),
+		},
+	}
+	if github := buildStatusJSONGitHub(cfg.GitHub); github != nil {
+		out.GitHub = github
+	}
+	return out
+}
+
+func buildInspectJSONServiceState(state inspectServiceState, err error) inspectJSONServiceState {
+	out := inspectJSONServiceState{
+		Unit:          strings.TrimSpace(state.Unit),
+		Installed:     state.Installed,
+		LoadState:     strings.TrimSpace(state.LoadState),
+		ActiveState:   strings.TrimSpace(state.ActiveState),
+		SubState:      strings.TrimSpace(state.SubState),
+		UnitFileState: strings.TrimSpace(state.UnitFileState),
+		FragmentPath:  strings.TrimSpace(state.FragmentPath),
+	}
+	if err != nil {
+		out.Error = err.Error()
+	}
+	return out
+}
+
+func buildInspectJSONHealthState(report inspectReport) inspectJSONEndpointState {
+	out := inspectJSONEndpointState{
+		Available: report.HealthErr == nil && len(report.Health) > 0,
+		Payload:   cloneJSONMap(report.Health),
+	}
+	if report.HealthErr != nil {
+		out.Error = report.HealthErr.Error()
+	}
+	return out
+}
+
+func buildInspectJSONStatusState(report inspectReport) inspectJSONEndpointState {
+	out := inspectJSONEndpointState{
+		Available: report.StatusErr == nil && len(report.StatusPayload) > 0,
+		Payload:   cloneJSONMap(report.StatusPayload),
+	}
+	if report.StatusErr != nil {
+		out.Error = report.StatusErr.Error()
+	}
+	if report.Status != nil {
+		summary := *report.Status
+		out.Summary = &summary
+	}
+	return out
+}
+
+func cloneJSONMap(src map[string]any) map[string]any {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]any, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }
 
 func printInspectService(out io.Writer, label string, state inspectServiceState, err error) {
