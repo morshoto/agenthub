@@ -52,6 +52,7 @@ func newRootCommand(app *App) *cobra.Command {
 	rootCmd.AddCommand(newInspectCommand(app))
 	rootCmd.AddCommand(newStatusCommand(app))
 	rootCmd.AddCommand(newQuotaCommand(app))
+	rootCmd.AddCommand(newRuntimeCommand(app))
 	rootCmd.AddCommand(newSlackCommand(app))
 	rootCmd.AddCommand(newInitCommand(app))
 	rootCmd.AddCommand(newCreateCommand(app))

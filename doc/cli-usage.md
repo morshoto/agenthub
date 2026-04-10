@@ -31,6 +31,12 @@ Re-apply runtime deployment to an existing host:
 agenthub redeploy --config agenthub.yaml
 ```
 
+Start the runtime service for one deployed agent:
+
+```bash
+agenthub runtime start --config agenthub.yaml
+```
+
 Show merged agent config status under `agents/`:
 
 ```bash
