@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -38,23 +39,163 @@ type agentLiveStatus struct {
 	Err      error
 }
 
+type statusOutputFormat string
+
+const (
+	statusOutputText statusOutputFormat = "text"
+	statusOutputJSON statusOutputFormat = "json"
+)
+
+type statusJSONResponse struct {
+	Root   string                 `json:"root"`
+	Agents []statusJSONAgentEntry `json:"agents"`
+}
+
+type statusJSONAgentEntry struct {
+	Name   string                 `json:"name"`
+	Path   string                 `json:"path"`
+	Files  []string               `json:"files,omitempty"`
+	Status string                 `json:"status"`
+	Error  string                 `json:"error,omitempty"`
+	Config *statusJSONConfig      `json:"config,omitempty"`
+	Live   statusJSONLiveStatus   `json:"live"`
+}
+
+type statusJSONConfig struct {
+	Platform *statusJSONNameField  `json:"platform,omitempty"`
+	Compute  *statusJSONClassField `json:"compute,omitempty"`
+	Region   *statusJSONNameField  `json:"region,omitempty"`
+	Instance *statusJSONInstance   `json:"instance,omitempty"`
+	Image    *statusJSONImage      `json:"image,omitempty"`
+	Runtime  *statusJSONRuntime    `json:"runtime,omitempty"`
+	Sandbox  *statusJSONSandbox    `json:"sandbox,omitempty"`
+	SSH      *statusJSONSSH        `json:"ssh,omitempty"`
+	GitHub   *statusJSONGitHub     `json:"github,omitempty"`
+	Infra    *statusJSONInfra      `json:"infra,omitempty"`
+}
+
+type statusJSONNameField struct {
+	Name string `json:"name"`
+}
+
+type statusJSONClassField struct {
+	Class string `json:"class"`
+}
+
+type statusJSONInstance struct {
+	Type        string `json:"type,omitempty"`
+	DiskSizeGB  int    `json:"disk_size_gb,omitempty"`
+	NetworkMode string `json:"network_mode,omitempty"`
+}
+
+type statusJSONImage struct {
+	Name string `json:"name,omitempty"`
+	ID   string `json:"id,omitempty"`
+}
+
+type statusJSONRuntime struct {
+	Endpoint   string                `json:"endpoint,omitempty"`
+	Model      string                `json:"model,omitempty"`
+	Port       int                   `json:"port,omitempty"`
+	Provider   string                `json:"provider,omitempty"`
+	PublicCIDR string                `json:"public_cidr,omitempty"`
+	Codex      *statusJSONRuntimeCodex `json:"codex,omitempty"`
+}
+
+type statusJSONRuntimeCodex struct {
+	SecretID string `json:"secret_id,omitempty"`
+}
+
+type statusJSONSandbox struct {
+	Enabled         bool     `json:"enabled"`
+	NetworkMode     string   `json:"network_mode,omitempty"`
+	UseNemoClaw     bool     `json:"use_nemoclaw"`
+	FilesystemAllow []string `json:"filesystem_allow,omitempty"`
+}
+
+type statusJSONSSH struct {
+	KeyName              string `json:"key_name,omitempty"`
+	PrivateKeyPath       string `json:"private_key_path,omitempty"`
+	GitHubPrivateKeyPath string `json:"github_private_key_path,omitempty"`
+	CIDR                 string `json:"cidr,omitempty"`
+	User                 string `json:"user,omitempty"`
+}
+
+type statusJSONGitHub struct {
+	AuthMode            string `json:"auth_mode,omitempty"`
+	AppID               string `json:"app_id,omitempty"`
+	InstallationID      string `json:"installation_id,omitempty"`
+	PrivateKeySecretARN string `json:"private_key_secret_arn,omitempty"`
+	TokenSecretARN      string `json:"token_secret_arn,omitempty"`
+}
+
+type statusJSONInfra struct {
+	Backend     string `json:"backend,omitempty"`
+	ModuleDir   string `json:"module_dir,omitempty"`
+	AWSProfile  string `json:"aws_profile,omitempty"`
+	Environment string `json:"environment,omitempty"`
+	InstanceID  string `json:"instance_id,omitempty"`
+}
+
+type statusJSONLiveStatus struct {
+	State    string                  `json:"state"`
+	Error    string                  `json:"error,omitempty"`
+	Instance *statusJSONLiveInstance `json:"instance,omitempty"`
+}
+
+type statusJSONLiveInstance struct {
+	ID               string `json:"id,omitempty"`
+	Name             string `json:"name,omitempty"`
+	State            string `json:"state,omitempty"`
+	InstanceType     string `json:"instance_type,omitempty"`
+	AvailabilityZone string `json:"availability_zone,omitempty"`
+	PublicIP         string `json:"public_ip,omitempty"`
+	PrivateIP        string `json:"private_ip,omitempty"`
+	LaunchTime       string `json:"launch_time,omitempty"`
+	KeyName          string `json:"key_name,omitempty"`
+}
+
 func newStatusCommand(app *App) *cobra.Command {
 	var agentsDir string
+	var output string
 
 	cmd := &cobra.Command{
 		Use:     "status",
 		Short:   "Show formatted agent configuration status",
 		GroupID: "runtime",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			outputFormat, err := parseStatusOutputFormat(output)
+			if err != nil {
+				return err
+			}
 			report, err := loadAgentStatusReport(agentsDir)
 			attachAgentLiveStatus(cmd.Context(), app.opts.Profile, &report)
-			printAgentStatusReport(cmd.OutOrStdout(), report)
+			switch outputFormat {
+			case statusOutputJSON:
+				if encodeErr := json.NewEncoder(cmd.OutOrStdout()).Encode(buildStatusJSONResponse(report)); encodeErr != nil {
+					return encodeErr
+				}
+			default:
+				printAgentStatusReport(cmd.OutOrStdout(), report)
+			}
 			return err
 		},
 	}
 
 	cmd.Flags().StringVar(&agentsDir, "agents-dir", "agents", "path to the agents directory")
+	cmd.Flags().StringVar(&output, "output", string(statusOutputText), "output format: text or json")
 	return cmd
+}
+
+func parseStatusOutputFormat(value string) (statusOutputFormat, error) {
+	switch statusOutputFormat(strings.ToLower(strings.TrimSpace(value))) {
+	case "", statusOutputText:
+		return statusOutputText, nil
+	case statusOutputJSON:
+		return statusOutputJSON, nil
+	default:
+		return "", fmt.Errorf("unsupported output format %q: expected text or json", value)
+	}
 }
 
 func loadAgentStatusReport(root string) (agentStatusReport, error) {
@@ -279,6 +420,184 @@ func printAgentStatusReport(out io.Writer, report agentStatusReport) {
 		for _, line := range formatAgentLiveSummary(agent) {
 			fmt.Fprintf(out, "  %s\n", line)
 		}
+	}
+}
+
+func buildStatusJSONResponse(report agentStatusReport) statusJSONResponse {
+	response := statusJSONResponse{
+		Root:   report.Root,
+		Agents: make([]statusJSONAgentEntry, 0, len(report.Agents)),
+	}
+	for _, agent := range report.Agents {
+		entry := statusJSONAgentEntry{
+			Name:   agent.Name,
+			Path:   agent.Path,
+			Files:  append([]string(nil), agent.Files...),
+			Status: "valid",
+			Live:   buildStatusJSONLiveStatus(agent),
+		}
+		if agent.Err != nil {
+			entry.Status = "invalid"
+			entry.Error = agent.Err.Error()
+		} else {
+			entry.Config = buildStatusJSONConfig(agent.Config)
+		}
+		response.Agents = append(response.Agents, entry)
+	}
+	return response
+}
+
+func buildStatusJSONConfig(cfg config.Config) *statusJSONConfig {
+	out := &statusJSONConfig{}
+	if value := strings.TrimSpace(cfg.Platform.Name); value != "" {
+		out.Platform = &statusJSONNameField{Name: value}
+	}
+	if value := strings.TrimSpace(cfg.Compute.Class); value != "" {
+		out.Compute = &statusJSONClassField{Class: value}
+	}
+	if value := strings.TrimSpace(cfg.Region.Name); value != "" {
+		out.Region = &statusJSONNameField{Name: value}
+	}
+	if instance := buildStatusJSONInstance(cfg); instance != nil {
+		out.Instance = instance
+	}
+	if image := buildStatusJSONImage(cfg.Image); image != nil {
+		out.Image = image
+	}
+	if runtime := buildStatusJSONRuntime(cfg.Runtime); runtime != nil {
+		out.Runtime = runtime
+	}
+	out.Sandbox = &statusJSONSandbox{
+		Enabled:         cfg.Sandbox.Enabled,
+		NetworkMode:     strings.TrimSpace(cfg.Sandbox.NetworkMode),
+		UseNemoClaw:     cfg.Sandbox.UseNemoClaw,
+		FilesystemAllow: append([]string(nil), cfg.Sandbox.FilesystemAllow...),
+	}
+	if ssh := buildStatusJSONSSH(cfg.SSH); ssh != nil {
+		out.SSH = ssh
+	}
+	if github := buildStatusJSONGitHub(cfg.GitHub); github != nil {
+		out.GitHub = github
+	}
+	if infra := buildStatusJSONInfra(cfg.Infra); infra != nil {
+		out.Infra = infra
+	}
+	return out
+}
+
+func buildStatusJSONInstance(cfg config.Config) *statusJSONInstance {
+	instance := &statusJSONInstance{
+		Type:        strings.TrimSpace(cfg.Instance.Type),
+		DiskSizeGB:  cfg.Instance.DiskSizeGB,
+		NetworkMode: strings.TrimSpace(cfg.Instance.NetworkMode),
+	}
+	if instance.Type == "" && instance.DiskSizeGB == 0 && instance.NetworkMode == "" {
+		return nil
+	}
+	return instance
+}
+
+func buildStatusJSONImage(cfg config.ImageConfig) *statusJSONImage {
+	image := &statusJSONImage{
+		Name: strings.TrimSpace(cfg.Name),
+		ID:   strings.TrimSpace(cfg.ID),
+	}
+	if image.Name == "" && image.ID == "" {
+		return nil
+	}
+	return image
+}
+
+func buildStatusJSONRuntime(cfg config.RuntimeConfig) *statusJSONRuntime {
+	runtime := &statusJSONRuntime{
+		Endpoint:   strings.TrimSpace(cfg.Endpoint),
+		Model:      strings.TrimSpace(cfg.Model),
+		Port:       cfg.Port,
+		Provider:   strings.TrimSpace(cfg.Provider),
+		PublicCIDR: strings.TrimSpace(cfg.PublicCIDR),
+	}
+	if secretID := strings.TrimSpace(cfg.Codex.SecretID); secretID != "" {
+		runtime.Codex = &statusJSONRuntimeCodex{SecretID: secretID}
+	}
+	if runtime.Endpoint == "" && runtime.Model == "" && runtime.Port == 0 && runtime.Provider == "" && runtime.PublicCIDR == "" && runtime.Codex == nil {
+		return nil
+	}
+	return runtime
+}
+
+func buildStatusJSONSSH(cfg config.SSHConfig) *statusJSONSSH {
+	ssh := &statusJSONSSH{
+		KeyName:              strings.TrimSpace(cfg.KeyName),
+		PrivateKeyPath:       strings.TrimSpace(cfg.PrivateKeyPath),
+		GitHubPrivateKeyPath: strings.TrimSpace(cfg.GitHubPrivateKeyPath),
+		CIDR:                 strings.TrimSpace(cfg.CIDR),
+		User:                 strings.TrimSpace(cfg.User),
+	}
+	if ssh.KeyName == "" && ssh.PrivateKeyPath == "" && ssh.GitHubPrivateKeyPath == "" && ssh.CIDR == "" && ssh.User == "" {
+		return nil
+	}
+	return ssh
+}
+
+func buildStatusJSONGitHub(cfg config.GitHubConfig) *statusJSONGitHub {
+	github := &statusJSONGitHub{
+		AuthMode:            strings.TrimSpace(cfg.AuthMode),
+		AppID:               strings.TrimSpace(cfg.AppID),
+		InstallationID:      strings.TrimSpace(cfg.InstallationID),
+		PrivateKeySecretARN: strings.TrimSpace(cfg.PrivateKeySecretARN),
+		TokenSecretARN:      strings.TrimSpace(cfg.TokenSecretARN),
+	}
+	if github.AuthMode == "" && github.AppID == "" && github.InstallationID == "" && github.PrivateKeySecretARN == "" && github.TokenSecretARN == "" {
+		return nil
+	}
+	return github
+}
+
+func buildStatusJSONInfra(cfg config.InfraConfig) *statusJSONInfra {
+	infra := &statusJSONInfra{
+		Backend:     strings.TrimSpace(cfg.Backend),
+		ModuleDir:   strings.TrimSpace(cfg.ModuleDir),
+		AWSProfile:  strings.TrimSpace(cfg.AWSProfile),
+		Environment: strings.TrimSpace(cfg.Environment),
+		InstanceID:  strings.TrimSpace(cfg.InstanceID),
+	}
+	if infra.Backend == "" && infra.ModuleDir == "" && infra.AWSProfile == "" && infra.Environment == "" && infra.InstanceID == "" {
+		return nil
+	}
+	return infra
+}
+
+func buildStatusJSONLiveStatus(agent agentStatusEntry) statusJSONLiveStatus {
+	instanceID := strings.TrimSpace(agent.Config.Infra.InstanceID)
+	if instanceID == "" {
+		return statusJSONLiveStatus{State: "not_provisioned"}
+	}
+	if agent.Live.Err != nil {
+		return statusJSONLiveStatus{
+			State: "unavailable",
+			Error: agent.Live.Err.Error(),
+		}
+	}
+	if agent.Live.Instance == nil {
+		return statusJSONLiveStatus{State: "unavailable"}
+	}
+
+	instance := &statusJSONLiveInstance{
+		ID:               strings.TrimSpace(agent.Live.Instance.ID),
+		Name:             strings.TrimSpace(agent.Live.Instance.Name),
+		State:            strings.TrimSpace(agent.Live.Instance.State),
+		InstanceType:     strings.TrimSpace(agent.Live.Instance.InstanceType),
+		AvailabilityZone: strings.TrimSpace(agent.Live.Instance.AvailabilityZone),
+		PublicIP:         strings.TrimSpace(agent.Live.Instance.PublicIP),
+		PrivateIP:        strings.TrimSpace(agent.Live.Instance.PrivateIP),
+		KeyName:          strings.TrimSpace(agent.Live.Instance.KeyName),
+	}
+	if !agent.Live.Instance.LaunchTime.IsZero() {
+		instance.LaunchTime = agent.Live.Instance.LaunchTime.UTC().Format(time.RFC3339)
+	}
+	return statusJSONLiveStatus{
+		State:    "available",
+		Instance: instance,
 	}
 }
 
