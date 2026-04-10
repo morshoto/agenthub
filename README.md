@@ -32,6 +32,7 @@ gh release download latest --pattern 'agenthub_*_linux_amd64'
 
 Release binaries remain the source of truth for manual downloads.
 The Homebrew tap is published separately at `https://github.com/morshoto/homebrew-agenthub`.
+See `doc/changelog.md` for grouped release history beyond the short GitHub release notes.
 
 ### Supported OS / arch
 
@@ -110,6 +111,7 @@ The canonical build entrypoint is `./cmd/agenthub`. Local builds, CI, packaging,
 ### Publishing
 
 - Release builds are created by `.github/workflows/publish.yml`.
+- Short GitHub release notes link to the full grouped history in `doc/changelog.md`.
 - The workflow also updates the `morshoto/homebrew-agenthub` tap.
 - Set the `HOMEBREW_TAP_TOKEN` repository secret on `morshoto/agenthub` so the tap push step can authenticate.
 - `go-ci` runs a dry-run publish check against a temporary Homebrew tap before release jobs run.
