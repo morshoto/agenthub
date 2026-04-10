@@ -166,6 +166,167 @@ sandbox:
 	}
 }
 
+func TestRuntimeRestartCommandRestartsActiveService(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "alpha", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-west-2
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+infra:
+  instance_id: i-0123456789abcdef0
+sandbox:
+  enabled: false
+`)
+
+	keyPath := filepath.Join(t.TempDir(), "id_ed25519")
+	if err := os.WriteFile(keyPath, []byte("test-key"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+
+	oldProvider := newAWSProvider
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+		return fakeStatusCloudProvider{}
+	}
+	t.Cleanup(func() { newAWSProvider = oldProvider })
+
+	var restartCalls int
+	var inspectCalls int
+	oldExecutor := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return flexibleExecutor{
+			run: func(command string, args ...string) (host.CommandResult, error) {
+				key := strings.TrimSpace(command + " " + strings.Join(args, " "))
+				switch {
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], `unit="agenthub.service"`):
+					inspectCalls++
+					return host.CommandResult{Stdout: "installed=true\nLoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=enabled\nFragmentPath=/etc/systemd/system/agenthub.service\n"}, nil
+				case key == "sudo systemctl restart agenthub.service":
+					restartCalls++
+					return host.CommandResult{}, nil
+				}
+				if result, ok := defaultFlexibleCommand(command, args...); ok {
+					return result, nil
+				}
+				return host.CommandResult{}, errors.New("unexpected command: " + key)
+			},
+		}
+	}
+	t.Cleanup(func() { newSSHExecutor = oldExecutor })
+
+	stdout, err := runRuntimeRestartCommand(t, []string{"--config", path, "--ssh-user", "ubuntu", "--ssh-key", keyPath})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if restartCalls != 1 {
+		t.Fatalf("restartCalls = %d, want 1", restartCalls)
+	}
+	if inspectCalls != 2 {
+		t.Fatalf("inspectCalls = %d, want 2", inspectCalls)
+	}
+	for _, fragment := range []string{
+		"restarting runtime service...",
+		"agent: alpha",
+		"target: 203.0.113.10",
+		"result: runtime service restarted",
+		"runtime service: agenthub.service active=active sub=running enabled=enabled path=/etc/systemd/system/agenthub.service",
+	} {
+		if !strings.Contains(stdout, fragment) {
+			t.Fatalf("stdout = %q, want %q", stdout, fragment)
+		}
+	}
+}
+
+func TestRuntimeRestartCommandStartsStoppedService(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "alpha", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-west-2
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+infra:
+  instance_id: i-0123456789abcdef0
+sandbox:
+  enabled: false
+`)
+
+	keyPath := filepath.Join(t.TempDir(), "id_ed25519")
+	if err := os.WriteFile(keyPath, []byte("test-key"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+
+	oldProvider := newAWSProvider
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+		return fakeStatusCloudProvider{}
+	}
+	t.Cleanup(func() { newAWSProvider = oldProvider })
+
+	var restartCalls int
+	var inspectCalls int
+	oldExecutor := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return flexibleExecutor{
+			run: func(command string, args ...string) (host.CommandResult, error) {
+				key := strings.TrimSpace(command + " " + strings.Join(args, " "))
+				switch {
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], `unit="agenthub.service"`):
+					inspectCalls++
+					if inspectCalls == 1 {
+						return host.CommandResult{Stdout: "installed=true\nLoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=enabled\nFragmentPath=/etc/systemd/system/agenthub.service\n"}, nil
+					}
+					return host.CommandResult{Stdout: "installed=true\nLoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=enabled\nFragmentPath=/etc/systemd/system/agenthub.service\n"}, nil
+				case key == "sudo systemctl restart agenthub.service":
+					restartCalls++
+					return host.CommandResult{}, nil
+				}
+				if result, ok := defaultFlexibleCommand(command, args...); ok {
+					return result, nil
+				}
+				return host.CommandResult{}, errors.New("unexpected command: " + key)
+			},
+		}
+	}
+	t.Cleanup(func() { newSSHExecutor = oldExecutor })
+
+	stdout, err := runRuntimeRestartCommand(t, []string{"--config", path, "--ssh-user", "ubuntu", "--ssh-key", keyPath})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if restartCalls != 1 {
+		t.Fatalf("restartCalls = %d, want 1", restartCalls)
+	}
+	if inspectCalls != 2 {
+		t.Fatalf("inspectCalls = %d, want 2", inspectCalls)
+	}
+	if !strings.Contains(stdout, "result: runtime service restarted") {
+		t.Fatalf("stdout = %q, want restarted message", stdout)
+	}
+}
+
 func TestRuntimeStopCommandStopsActiveService(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agents", "alpha", "config.yaml")
@@ -443,6 +604,68 @@ sandbox:
 	}
 }
 
+func TestRuntimeRestartCommandFailsWhenServiceMissing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "alpha", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-west-2
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+infra:
+  instance_id: i-0123456789abcdef0
+sandbox:
+  enabled: false
+`)
+
+	keyPath := filepath.Join(t.TempDir(), "id_ed25519")
+	if err := os.WriteFile(keyPath, []byte("test-key"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+
+	oldProvider := newAWSProvider
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+		return fakeStatusCloudProvider{}
+	}
+	t.Cleanup(func() { newAWSProvider = oldProvider })
+
+	oldExecutor := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return flexibleExecutor{
+			run: func(command string, args ...string) (host.CommandResult, error) {
+				key := strings.TrimSpace(command + " " + strings.Join(args, " "))
+				if command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], `unit="agenthub.service"`) {
+					return host.CommandResult{Stdout: "installed=false\n"}, nil
+				}
+				if result, ok := defaultFlexibleCommand(command, args...); ok {
+					return result, nil
+				}
+				return host.CommandResult{}, errors.New("unexpected command: " + key)
+			},
+		}
+	}
+	t.Cleanup(func() { newSSHExecutor = oldExecutor })
+
+	_, err := runRuntimeRestartCommand(t, []string{"--config", path, "--ssh-user", "ubuntu", "--ssh-key", keyPath})
+	if err == nil {
+		t.Fatal("Execute() error = nil")
+	}
+	if !strings.Contains(err.Error(), "agenthub.service is not installed") {
+		t.Fatalf("error = %q, want missing service error", err)
+	}
+}
+
 func TestRunRuntimeServiceWorkflowFailsWhenServiceDoesNotBecomeActive(t *testing.T) {
 	cfg := mustLoadConfigFromString(t, `
 platform:
@@ -585,12 +808,93 @@ sandbox:
 	}
 }
 
+func TestRunRuntimeServiceWorkflowFailsWhenServiceDoesNotBecomeActiveAfterRestart(t *testing.T) {
+	cfg := mustLoadConfigFromString(t, `
+platform:
+  name: aws
+region:
+  name: us-west-2
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+infra:
+  instance_id: i-0123456789abcdef0
+ssh:
+  user: ubuntu
+sandbox:
+  enabled: false
+`)
+
+	keyPath := filepath.Join(t.TempDir(), "id_ed25519")
+	if err := os.WriteFile(keyPath, []byte("test-key"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+	cfg.SSH.PrivateKeyPath = keyPath
+
+	oldProvider := newAWSProvider
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+		return fakeStatusCloudProvider{}
+	}
+	t.Cleanup(func() { newAWSProvider = oldProvider })
+
+	var inspectCalls int
+	oldExecutor := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return flexibleExecutor{
+			run: func(command string, args ...string) (host.CommandResult, error) {
+				key := strings.TrimSpace(command + " " + strings.Join(args, " "))
+				switch {
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], `unit="agenthub.service"`):
+					inspectCalls++
+					if inspectCalls == 1 {
+						return host.CommandResult{Stdout: "installed=true\nLoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=enabled\nFragmentPath=/etc/systemd/system/agenthub.service\n"}, nil
+					}
+					return host.CommandResult{Stdout: "installed=true\nLoadState=loaded\nActiveState=failed\nSubState=failed\nUnitFileState=enabled\nFragmentPath=/etc/systemd/system/agenthub.service\n"}, nil
+				case key == "sudo systemctl restart agenthub.service":
+					return host.CommandResult{}, nil
+				}
+				if result, ok := defaultFlexibleCommand(command, args...); ok {
+					return result, nil
+				}
+				return host.CommandResult{}, errors.New("unexpected command: " + key)
+			},
+		}
+	}
+	t.Cleanup(func() { newSSHExecutor = oldExecutor })
+
+	_, err := runRuntimeServiceWorkflow(context.Background(), "", cfg, runtimeServiceOptions{
+		ConfigPath: filepath.Join("agents", "alpha", "config.yaml"),
+		Action:     "restart",
+	})
+	if err == nil {
+		t.Fatal("runRuntimeServiceWorkflow() error = nil")
+	}
+	if !strings.Contains(err.Error(), "did not reach expected state after restart") {
+		t.Fatalf("error = %q, want post-restart verification failure", err)
+	}
+}
+
 func runRuntimeStartCommand(t *testing.T, args []string) (string, error) {
 	t.Helper()
 
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	os.Args = append([]string{"agenthub", "runtime", "start"}, args...)
+
+	return runRuntimeCommand(t)
+}
+
+func runRuntimeRestartCommand(t *testing.T, args []string) (string, error) {
+	t.Helper()
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = append([]string{"agenthub", "runtime", "restart"}, args...)
 
 	return runRuntimeCommand(t)
 }
