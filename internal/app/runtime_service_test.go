@@ -509,7 +509,7 @@ sandbox:
 	if err == nil {
 		t.Fatal("runRuntimeServiceWorkflow() error = nil")
 	}
-	if !strings.Contains(err.Error(), "did not reach active state after start") {
+	if !strings.Contains(err.Error(), "did not reach expected state after start") {
 		t.Fatalf("error = %q, want post-start verification failure", err)
 	}
 }
