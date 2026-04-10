@@ -1156,6 +1156,261 @@ runtime:
 	}
 }
 
+func TestLogsCommandFetchesRuntimeAndIntegrationLogs(t *testing.T) {
+	restore := stubAWSProviderFactory()
+	defer restore()
+
+	originalExecutor := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return flexibleExecutor{
+			run: func(command string, args ...string) (host.CommandResult, error) {
+				if command == "sudo" && len(args) >= 3 && args[0] == "sh" && args[1] == "-lc" {
+					script := args[2]
+					switch {
+					case strings.Contains(script, `unit="agenthub.service"`):
+						return host.CommandResult{Stdout: "2026-04-10T12:00:00Z runtime started\n2026-04-10T12:00:01Z runtime healthy\n"}, nil
+					case strings.Contains(script, `unit="agenthub-slack-alpha.service"`):
+						return host.CommandResult{Stdout: "2026-04-10T12:00:02Z slack connected\n"}, nil
+					}
+				}
+				return host.CommandResult{}, errors.New("unexpected command: " + command + " " + strings.Join(args, " "))
+			},
+		}
+	}
+	defer func() { newSSHExecutor = originalExecutor }()
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "demo.pem")
+	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+	agentDir := filepath.Join(dir, "agents", "alpha")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	path := filepath.Join(agentDir, "config.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+ssh:
+  private_key_path: `+keyPath+`
+  user: ubuntu
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+  network_mode: public
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+infra:
+  instance_id: i-0123456789abcdef0
+sandbox:
+  enabled: false
+  network_mode: public
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--config", path, "logs", "--ssh-user", "ubuntu", "--ssh-key", keyPath, "--lines", "20"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	got := stdout.String()
+	for _, fragment := range []string{
+		"fetching service logs...",
+		"agent: alpha",
+		"target: 203.0.113.10",
+		"lines: 20",
+		"runtime logs (agenthub.service)",
+		"2026-04-10T12:00:00Z runtime started",
+		"integration logs (agenthub-slack-alpha.service)",
+		"2026-04-10T12:00:02Z slack connected",
+	} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("stdout = %q, want %q", got, fragment)
+		}
+	}
+}
+
+func TestLogsCommandWarnsWhenIntegrationServiceIsMissingForAll(t *testing.T) {
+	restore := stubAWSProviderFactory()
+	defer restore()
+
+	originalExecutor := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return flexibleExecutor{
+			run: func(command string, args ...string) (host.CommandResult, error) {
+				if command == "sudo" && len(args) >= 3 && args[0] == "sh" && args[1] == "-lc" {
+					script := args[2]
+					switch {
+					case strings.Contains(script, `unit="agenthub.service"`):
+						return host.CommandResult{Stdout: "2026-04-10T12:00:00Z runtime started\n"}, nil
+					case strings.Contains(script, `unit="agenthub-slack-alpha.service"`):
+						return host.CommandResult{Stderr: "service unit agenthub-slack-alpha.service is not installed on the target host"}, errors.New("missing unit")
+					}
+				}
+				return host.CommandResult{}, errors.New("unexpected command: " + command + " " + strings.Join(args, " "))
+			},
+		}
+	}
+	defer func() { newSSHExecutor = originalExecutor }()
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "demo.pem")
+	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+	agentDir := filepath.Join(dir, "agents", "alpha")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	path := filepath.Join(agentDir, "config.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+ssh:
+  private_key_path: `+keyPath+`
+  user: ubuntu
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+  network_mode: public
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+infra:
+  instance_id: i-0123456789abcdef0
+sandbox:
+  enabled: false
+  network_mode: public
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--config", path, "logs", "--ssh-user", "ubuntu", "--ssh-key", keyPath}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	got := stdout.String()
+	for _, fragment := range []string{
+		"runtime logs (agenthub.service)",
+		"2026-04-10T12:00:00Z runtime started",
+		"warning: integration logs (agenthub-slack-alpha.service): service unit agenthub-slack-alpha.service is not installed on the target host",
+	} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("stdout = %q, want %q", got, fragment)
+		}
+	}
+	if strings.Contains(got, "Usage:") {
+		t.Fatalf("stdout = %q, did not expect usage output", got)
+	}
+}
+
+func TestLogsCommandReturnsServiceSpecificErrors(t *testing.T) {
+	restore := stubAWSProviderFactory()
+	defer restore()
+
+	originalExecutor := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return flexibleExecutor{
+			run: func(command string, args ...string) (host.CommandResult, error) {
+				if command == "sudo" && len(args) >= 3 && args[0] == "sh" && args[1] == "-lc" {
+					script := args[2]
+					if strings.Contains(script, `unit="agenthub-slack-alpha.service"`) {
+						return host.CommandResult{Stderr: "service unit agenthub-slack-alpha.service is not installed on the target host"}, errors.New("missing unit")
+					}
+				}
+				return host.CommandResult{}, errors.New("unexpected command: " + command + " " + strings.Join(args, " "))
+			},
+		}
+	}
+	defer func() { newSSHExecutor = originalExecutor }()
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "demo.pem")
+	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+	agentDir := filepath.Join(dir, "agents", "alpha")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	path := filepath.Join(agentDir, "config.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+ssh:
+  private_key_path: `+keyPath+`
+  user: ubuntu
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+  network_mode: public
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+infra:
+  instance_id: i-0123456789abcdef0
+sandbox:
+  enabled: false
+  network_mode: public
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--config", path, "logs", "--service", "integration", "--ssh-user", "ubuntu", "--ssh-key", keyPath}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil")
+	}
+	msg := err.Error()
+	for _, fragment := range []string{
+		"logs retrieval failed",
+		"integration logs (agenthub-slack-alpha.service)",
+		"service unit agenthub-slack-alpha.service is not installed on the target host",
+	} {
+		if !strings.Contains(msg, fragment) {
+			t.Fatalf("error = %q, want %q", msg, fragment)
+		}
+	}
+	if strings.Contains(stdout.String(), "Usage:") {
+		t.Fatalf("stdout = %q, did not expect usage output", stdout.String())
+	}
+}
+
 func TestRunRedeployWorkflowFailsWhenVerificationFails(t *testing.T) {
 	originalBuildRuntimeBinary := runtimeinstall.BuildRuntimeBinaryFunc
 	runtimeinstall.BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {

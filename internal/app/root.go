@@ -60,6 +60,7 @@ func newRootCommand(app *App) *cobra.Command {
 	rootCmd.AddCommand(newInstallCommand(app))
 	rootCmd.AddCommand(newRedeployCommand(app))
 	rootCmd.AddCommand(newVerifyCommand(app))
+	rootCmd.AddCommand(newLogsCommand(app))
 
 	return rootCmd
 }
