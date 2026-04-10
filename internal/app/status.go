@@ -52,13 +52,13 @@ type statusJSONResponse struct {
 }
 
 type statusJSONAgentEntry struct {
-	Name   string                 `json:"name"`
-	Path   string                 `json:"path"`
-	Files  []string               `json:"files,omitempty"`
-	Status string                 `json:"status"`
-	Error  string                 `json:"error,omitempty"`
-	Config *statusJSONConfig      `json:"config,omitempty"`
-	Live   statusJSONLiveStatus   `json:"live"`
+	Name   string               `json:"name"`
+	Path   string               `json:"path"`
+	Files  []string             `json:"files,omitempty"`
+	Status string               `json:"status"`
+	Error  string               `json:"error,omitempty"`
+	Config *statusJSONConfig    `json:"config,omitempty"`
+	Live   statusJSONLiveStatus `json:"live"`
 }
 
 type statusJSONConfig struct {
@@ -94,11 +94,11 @@ type statusJSONImage struct {
 }
 
 type statusJSONRuntime struct {
-	Endpoint   string                `json:"endpoint,omitempty"`
-	Model      string                `json:"model,omitempty"`
-	Port       int                   `json:"port,omitempty"`
-	Provider   string                `json:"provider,omitempty"`
-	PublicCIDR string                `json:"public_cidr,omitempty"`
+	Endpoint   string                  `json:"endpoint,omitempty"`
+	Model      string                  `json:"model,omitempty"`
+	Port       int                     `json:"port,omitempty"`
+	Provider   string                  `json:"provider,omitempty"`
+	PublicCIDR string                  `json:"public_cidr,omitempty"`
 	Codex      *statusJSONRuntimeCodex `json:"codex,omitempty"`
 }
 

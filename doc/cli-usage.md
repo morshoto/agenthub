@@ -55,6 +55,12 @@ Show merged agent config status under `agents/`:
 agenthub status
 ```
 
+Show the same status as structured JSON for automation:
+
+```bash
+agenthub status --output json
+```
+
 Inspect one deployed agent in detail:
 
 ```bash
