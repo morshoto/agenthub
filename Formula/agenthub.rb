@@ -21,20 +21,7 @@ class Agenthub < Formula
       -X agenthub/internal/app.BuildDate=unknown
     ].join(" ")
 
-    cd buildpath do
-      puts pwd
-      puts "top-level entries:"
-      puts Dir.children(".").sort
-      unless File.exist?("go.mod")
-        archive = Dir.glob("*.tar.gz*").first
-        system "tar", "-xzf", archive, "--strip-components=1" if archive
-      end
-      puts "top-level entries after extract:"
-      puts Dir.children(".").sort
-      puts "go.mod files:"
-      puts Dir.glob("**/go.mod")
-      system "go", "build", *std_go_args(ldflags: ldflags), "./cmd/agenthub"
-    end
+    system "go", "build", *std_go_args(ldflags: ldflags), "./cmd/agenthub"
   end
 
   test do

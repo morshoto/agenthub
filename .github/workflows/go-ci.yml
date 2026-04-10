@@ -168,6 +168,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Cache Homebrew downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: homebrew-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/go-ci.yml', '.github/scripts/homebrew_formula.py', 'Formula/agenthub.rb') }}
+          restore-keys: |
+            homebrew-downloads-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Homebrew vendor bundle
+        uses: actions/cache@v4
+        with:
+          path: /opt/homebrew/Library/Homebrew/vendor/bundle
+          key: homebrew-bundle-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/go-ci.yml') }}
+          restore-keys: |
+            homebrew-bundle-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Resolve dry-run version
         id: version
         shell: bash
@@ -188,7 +204,7 @@ jobs:
 
           version_no_v="${{ steps.version.outputs.version }}"
           version_no_v="${version_no_v#v}"
-          archive="$(mktemp -t agenthub.XXXXXX.tar.gz)"
+          archive="${RUNNER_TEMP}/agenthub-${version_no_v}.tar.gz"
           git archive --format=tar --prefix="agenthub-${version_no_v}/" HEAD | gzip -9 > "${archive}"
           sha256="$(shasum -a 256 "${archive}" | awk '{print $1}')"
 
@@ -213,6 +229,7 @@ jobs:
           brew audit --strict --new tmp/agenthub/agenthub
 
       - name: Render install formula
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -227,23 +244,8 @@ jobs:
             --sha256 "${{ steps.archive.outputs.sha256 }}" \
             --output "${tap_path}/Formula/a/agenthub.rb"
 
-      - name: Debug Homebrew source tree
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          tap_path="$(brew --repo tmp/agenthub)"
-          cache_dir="$(brew --cache)"
-          echo "tap_path=${tap_path}"
-          echo "cache_dir=${cache_dir}"
-          echo "formula:"
-          sed -n '1,120p' "${tap_path}/Formula/a/agenthub.rb"
-          echo "tap tree:"
-          find "${tap_path}" -maxdepth 3 -print | sort
-          echo "cache tree:"
-          find "${cache_dir}" -maxdepth 3 -name 'agenthub*' -print | sort
-
       - name: Install dry-run formula
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
