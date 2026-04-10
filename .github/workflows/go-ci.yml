@@ -1,254 +1,254 @@
 name: Go CI
 
-"on":
-  push:
-    branches:
-      - main
-  pull_request:
+'on':
+    push:
+        branches:
+            - main
+    pull_request:
 
 permissions:
-  contents: read
+    contents: read
 
 jobs:
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
+    build:
+        name: Build
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@v4
 
-      - name: Set up Go
-        id: setup-go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
+            - name: Set up Go
+              id: setup-go
+              uses: actions/setup-go@v5
+              with:
+                  go-version-file: go.mod
+                  cache: false
 
-      - name: Cache Go build artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}-build
-          restore-keys: |
-            go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}-
-            go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-
+            - name: Cache Go build artifacts
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cache/go-build
+                      ~/go/pkg/mod
+                  key: go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}-build
+                  restore-keys: |
+                      go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}-
+                      go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-
 
-      - name: Build
-        run: go build ./cmd/agenthub
+            - name: Build
+              run: go build ./cmd/agenthub
 
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
+    lint:
+        name: Lint
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@v4
 
-      - name: Set up Go
-        id: setup-go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
+            - name: Set up Go
+              id: setup-go
+              uses: actions/setup-go@v5
+              with:
+                  go-version-file: go.mod
+                  cache: false
 
-      - name: Cache Go build artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}-lint
-          restore-keys: |
-            go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}-
-            go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-
+            - name: Cache Go build artifacts
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cache/go-build
+                      ~/go/pkg/mod
+                  key: go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}-lint
+                  restore-keys: |
+                      go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}-
+                      go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-
 
-      - name: Check formatting
-        shell: bash
-        run: |
-          test -z "$(gofmt -l .)"
+            - name: Check formatting
+              shell: bash
+              run: |
+                  test -z "$(gofmt -l .)"
 
-      - name: Go vet
-        run: go vet ./...
+            - name: Go vet
+              run: go vet ./...
 
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
+    test:
+        name: Test
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            issues: write
+            pull-requests: write
+        steps:
+            - uses: actions/checkout@v4
 
-      - name: Set up Go
-        id: setup-go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: false
+            - name: Set up Go
+              id: setup-go
+              uses: actions/setup-go@v5
+              with:
+                  go-version-file: go.mod
+                  cache: false
 
-      - name: Cache Go build artifacts
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}-test
-          restore-keys: |
-            go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}-
-            go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-
+            - name: Cache Go build artifacts
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      ~/.cache/go-build
+                      ~/go/pkg/mod
+                  key: go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}-test
+                  restore-keys: |
+                      go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-${{ hashFiles('**/go.sum') }}-
+                      go-${{ runner.os }}-${{ steps.setup-go.outputs.go-version }}-
 
-      - name: Test
-        id: test
-        shell: bash
-        run: |
-          set +e
-          go test -json -coverprofile=coverage.out ./... > test.json
-          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+            - name: Test
+              id: test
+              shell: bash
+              run: |
+                  set +e
+                  go test -json -coverprofile=coverage.out ./... > test.json
+                  echo "exit_code=$?" >> "$GITHUB_OUTPUT"
 
-      - name: Generate test report
-        shell: bash
-        run: |
-          python3 .github/scripts/test_report.py \
-            --test-json test.json \
-            --coverprofile coverage.out \
-            --output test-report.md \
-            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          cat test-report.md >> "$GITHUB_STEP_SUMMARY"
+            - name: Generate test report
+              shell: bash
+              run: |
+                  python3 .github/scripts/test_report.py \
+                    --test-json test.json \
+                    --coverprofile coverage.out \
+                    --output test-report.md \
+                    --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+                  cat test-report.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Comment test report on PR
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ github.token }}
-          script: |
-            const fs = require('fs');
-            const marker = '<!-- ci-report:go -->';
-            const body = `${fs.readFileSync('test-report.md', 'utf8')}\n\n${marker}`;
-            const { owner, repo } = context.repo;
-            const issue_number = context.issue.number;
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner,
-              repo,
-              issue_number,
-              per_page: 100,
-            });
-            const existing = comments.find((comment) => comment.body.includes(marker));
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner,
-                repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number,
-                body,
-              });
-            }
+            - name: Comment test report on PR
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              uses: actions/github-script@v7
+              with:
+                  github-token: ${{ github.token }}
+                  script: |
+                      const fs = require('fs');
+                      const marker = '<!-- ci-report:go -->';
+                      const body = `${fs.readFileSync('test-report.md', 'utf8')}\n\n${marker}`;
+                      const { owner, repo } = context.repo;
+                      const issue_number = context.issue.number;
+                      const comments = await github.paginate(github.rest.issues.listComments, {
+                        owner,
+                        repo,
+                        issue_number,
+                        per_page: 100,
+                      });
+                      const existing = comments.find((comment) => comment.body.includes(marker));
+                      if (existing) {
+                        await github.rest.issues.updateComment({
+                          owner,
+                          repo,
+                          comment_id: existing.id,
+                          body,
+                        });
+                      } else {
+                        await github.rest.issues.createComment({
+                          owner,
+                          repo,
+                          issue_number,
+                          body,
+                        });
+                      }
 
-      - name: Fail if tests failed
-        if: steps.test.outputs.exit_code != '0'
-        shell: bash
-        run: exit 1
+            - name: Fail if tests failed
+              if: steps.test.outputs.exit_code != '0'
+              shell: bash
+              run: exit 1
 
-  publish-dry-run:
-    name: Publish dry run
-    runs-on: macos-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    dry-run:
+        name: Dry run
+        runs-on: macos-latest
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
 
-      - name: Cache Homebrew downloads
-        uses: actions/cache@v4
-        with:
-          path: ~/Library/Caches/Homebrew
-          key: homebrew-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/go-ci.yml', '.github/scripts/homebrew_formula.py', 'Formula/agenthub.rb') }}
-          restore-keys: |
-            homebrew-downloads-${{ runner.os }}-${{ runner.arch }}-
+            - name: Cache Homebrew downloads
+              uses: actions/cache@v4
+              with:
+                  path: ~/Library/Caches/Homebrew
+                  key: homebrew-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/go-ci.yml', '.github/scripts/homebrew_formula.py', 'Formula/agenthub.rb') }}
+                  restore-keys: |
+                      homebrew-downloads-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Cache Homebrew vendor bundle
-        uses: actions/cache@v4
-        with:
-          path: /opt/homebrew/Library/Homebrew/vendor/bundle
-          key: homebrew-bundle-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/go-ci.yml') }}
-          restore-keys: |
-            homebrew-bundle-${{ runner.os }}-${{ runner.arch }}-
+            - name: Cache Homebrew vendor bundle
+              uses: actions/cache@v4
+              with:
+                  path: /opt/homebrew/Library/Homebrew/vendor/bundle
+                  key: homebrew-bundle-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/workflows/go-ci.yml') }}
+                  restore-keys: |
+                      homebrew-bundle-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Resolve dry-run version
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
+            - name: Resolve dry-run version
+              id: version
+              shell: bash
+              run: |
+                  set -euo pipefail
 
-          version="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1 || true)"
-          if [[ -z "${version}" ]]; then
-            version="v0.1.0"
-          fi
-          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+                  version="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1 || true)"
+                  if [[ -z "${version}" ]]; then
+                    version="v0.1.0"
+                  fi
+                  echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
-      - name: Create source archive
-        id: archive
-        shell: bash
-        run: |
-          set -euo pipefail
+            - name: Create source archive
+              id: archive
+              shell: bash
+              run: |
+                  set -euo pipefail
 
-          version_no_v="${{ steps.version.outputs.version }}"
-          version_no_v="${version_no_v#v}"
-          archive="${RUNNER_TEMP}/agenthub-${version_no_v}.tar.gz"
-          git archive --format=tar --prefix="agenthub-${version_no_v}/" HEAD | gzip -9 > "${archive}"
-          sha256="$(shasum -a 256 "${archive}" | awk '{print $1}')"
+                  version_no_v="${{ steps.version.outputs.version }}"
+                  version_no_v="${version_no_v#v}"
+                  archive="${RUNNER_TEMP}/agenthub-${version_no_v}.tar.gz"
+                  git archive --format=tar --prefix="agenthub-${version_no_v}/" HEAD | gzip -9 > "${archive}"
+                  sha256="$(shasum -a 256 "${archive}" | awk '{print $1}')"
 
-          echo "archive=${archive}" >> "${GITHUB_OUTPUT}"
-          echo "sha256=${sha256}" >> "${GITHUB_OUTPUT}"
+                  echo "archive=${archive}" >> "${GITHUB_OUTPUT}"
+                  echo "sha256=${sha256}" >> "${GITHUB_OUTPUT}"
 
-      - name: Render audit formula
-        shell: bash
-        run: |
-          set -euo pipefail
+            - name: Render audit formula
+              shell: bash
+              run: |
+                  set -euo pipefail
 
-          brew tap-new --no-git tmp/agenthub
-          tap_path="$(brew --repo tmp/agenthub)"
-          mkdir -p "${tap_path}/Formula/a"
+                  brew tap-new --no-git tmp/agenthub
+                  tap_path="$(brew --repo tmp/agenthub)"
+                  mkdir -p "${tap_path}/Formula/a"
 
-          python3 "${GITHUB_WORKSPACE}/.github/scripts/homebrew_formula.py" \
-            --url "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${{ steps.version.outputs.version }}.tar.gz" \
-            --sha256 "${{ steps.archive.outputs.sha256 }}" \
-            --output "${tap_path}/Formula/a/agenthub.rb"
+                  python3 "${GITHUB_WORKSPACE}/.github/scripts/homebrew_formula.py" \
+                    --url "https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/${{ steps.version.outputs.version }}.tar.gz" \
+                    --sha256 "${{ steps.archive.outputs.sha256 }}" \
+                    --output "${tap_path}/Formula/a/agenthub.rb"
 
-          brew style tmp/agenthub/agenthub
-          brew audit --strict --new tmp/agenthub/agenthub
+                  brew style tmp/agenthub/agenthub
+                  brew audit --strict --new tmp/agenthub/agenthub
 
-      - name: Render install formula
-        if: github.event_name != 'pull_request'
-        shell: bash
-        run: |
-          set -euo pipefail
+            - name: Render install formula
+              if: github.event_name != 'pull_request'
+              shell: bash
+              run: |
+                  set -euo pipefail
 
-          version_no_v="${{ steps.version.outputs.version }}"
-          version_no_v="${version_no_v#v}"
+                  version_no_v="${{ steps.version.outputs.version }}"
+                  version_no_v="${version_no_v#v}"
 
-          tap_path="$(brew --repo tmp/agenthub)"
-          python3 "${GITHUB_WORKSPACE}/.github/scripts/homebrew_formula.py" \
-            --version "${version_no_v}" \
-            --url "file://${{ steps.archive.outputs.archive }}" \
-            --sha256 "${{ steps.archive.outputs.sha256 }}" \
-            --output "${tap_path}/Formula/a/agenthub.rb"
+                  tap_path="$(brew --repo tmp/agenthub)"
+                  python3 "${GITHUB_WORKSPACE}/.github/scripts/homebrew_formula.py" \
+                    --version "${version_no_v}" \
+                    --url "file://${{ steps.archive.outputs.archive }}" \
+                    --sha256 "${{ steps.archive.outputs.sha256 }}" \
+                    --output "${tap_path}/Formula/a/agenthub.rb"
 
-      - name: Install dry-run formula
-        if: github.event_name != 'pull_request'
-        shell: bash
-        run: |
-          set -euo pipefail
+            - name: Install dry-run formula
+              if: github.event_name != 'pull_request'
+              shell: bash
+              run: |
+                  set -euo pipefail
 
-          brew install --build-from-source tmp/agenthub/agenthub
-          brew test tmp/agenthub/agenthub
+                  brew install --build-from-source tmp/agenthub/agenthub
+                  brew test tmp/agenthub/agenthub
