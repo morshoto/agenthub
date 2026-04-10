@@ -189,31 +189,23 @@ jobs:
 
             - name: Generate release notes and metadata
               shell: bash
+              env:
+                  REPO_URL: ${{ github.server_url }}/${{ github.repository }}
               run: |
                   set -euo pipefail
 
                   commit_sha="$(git rev-parse HEAD)"
                   build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-                  if [[ -n "${PREVIOUS_TAG}" ]]; then
-                    changelog_range="${PREVIOUS_TAG}..${TARGET_REF}"
-                  else
-                    changelog_range="${TARGET_REF}"
-                  fi
-
                   find artifacts -type f -maxdepth 2 -name 'agenthub_*' -print0 | sort -z | xargs -0 sha256sum > checksums.txt
 
-                  {
-                    echo "# ${VERSION}"
-                    echo
-                    echo "## Changelog"
-                    git log --no-merges --pretty=format:'- %s (%h)' "${changelog_range}" || true
-                    echo
-                    echo
-                    echo "## Checksums"
-                    cat checksums.txt
-                    echo
-                  } > release-notes.md
+                  python3 .github/scripts/render_changelog.py \
+                    --version "${VERSION}" \
+                    --previous-tag "${PREVIOUS_TAG}" \
+                    --target-ref "${TARGET_REF}" \
+                    --repo-url "${REPO_URL}" \
+                    --checksums checksums.txt \
+                    --release-notes-out release-notes.md
 
                   jq -n \
                     --arg version "${VERSION}" \
