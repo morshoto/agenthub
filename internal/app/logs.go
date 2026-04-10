@@ -44,12 +44,19 @@ type serviceLogResult struct {
 	Output string
 }
 
+type serviceLogError struct {
+	Name string
+	Unit string
+	Err  error
+}
+
 type logsResult struct {
 	AgentName string
 	Target    string
 	Lines     int
 	Service   string
 	Sections  []serviceLogResult
+	Warnings  []serviceLogError
 }
 
 func newLogsCommand(app *App) *cobra.Command {
@@ -62,9 +69,10 @@ func newLogsCommand(app *App) *cobra.Command {
 	var agentsDir string
 
 	cmd := &cobra.Command{
-		Use:     "logs",
-		Short:   "Fetch recent logs for a deployed agent",
-		GroupID: "runtime",
+		Use:          "logs",
+		Short:        "Fetch recent logs for a deployed agent",
+		GroupID:      "runtime",
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configPath := strings.TrimSpace(app.opts.ConfigPath)
 			if configPath == "" {
@@ -183,6 +191,11 @@ func runLogsWorkflow(ctx context.Context, profile string, cfg *config.Config, op
 	for _, target := range targets {
 		output, fetchErr := fetchServiceLogs(ctx, exec, target.Unit, opts.Lines)
 		if fetchErr != nil {
+			serviceErr := serviceLogError{Name: target.Name, Unit: target.Unit, Err: fetchErr}
+			if service == logServiceAll && target.Name == logServiceIntegration && isMissingServiceUnitError(fetchErr) {
+				result.Warnings = append(result.Warnings, serviceErr)
+				continue
+			}
 			errs = append(errs, fmt.Errorf("%s logs (%s): %w", target.Name, target.Unit, fetchErr))
 			continue
 		}
@@ -249,6 +262,14 @@ func fetchServiceLogs(ctx context.Context, exec host.Executor, unit string, line
 	return output, nil
 }
 
+func isMissingServiceUnitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "service unit") &&
+		strings.Contains(strings.ToLower(err.Error()), "is not installed")
+}
+
 func printLogsResult(out io.Writer, result logsResult) {
 	if strings.TrimSpace(result.AgentName) != "" {
 		fmt.Fprintf(out, "agent: %s\n", result.AgentName)
@@ -276,5 +297,8 @@ func printLogsResult(out io.Writer, result logsResult) {
 	}
 	if len(result.Sections) > 0 {
 		fmt.Fprintln(out)
+	}
+	for _, warning := range result.Warnings {
+		fmt.Fprintf(out, "warning: %s logs (%s): %s\n", warning.Name, warning.Unit, warning.Err)
 	}
 }
