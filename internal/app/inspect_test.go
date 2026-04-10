@@ -2,7 +2,6 @@ package app
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,7 +9,6 @@ import (
 	"testing"
 
 	"agenthub/internal/host"
-	"agenthub/internal/provider"
 )
 
 func TestInspectCommandReportsDetailedDeployedState(t *testing.T) {
@@ -241,53 +239,4 @@ func runInspectCommand(t *testing.T, args []string) (string, error) {
 
 	err := cmd.Execute()
 	return stdout.String(), err
-}
-
-type fakeStatusCloudProvider struct{}
-
-func (fakeStatusCloudProvider) CheckAuth(ctx context.Context) (provider.AuthStatus, error) {
-	return provider.AuthStatus{}, nil
-}
-
-func (fakeStatusCloudProvider) ListRegions(ctx context.Context) ([]string, error) {
-	return []string{"us-west-2"}, nil
-}
-
-func (fakeStatusCloudProvider) CheckGPUQuota(ctx context.Context, region, instanceFamily string) (provider.GPUQuotaReport, error) {
-	return provider.GPUQuotaReport{}, nil
-}
-
-func (fakeStatusCloudProvider) RecommendInstanceTypes(ctx context.Context, region, computeClass string) ([]provider.InstanceType, error) {
-	return nil, nil
-}
-
-func (fakeStatusCloudProvider) RecommendBaseImages(ctx context.Context, region, computeClass string) ([]provider.BaseImage, error) {
-	return nil, nil
-}
-
-func (fakeStatusCloudProvider) GetInstance(ctx context.Context, region, instanceID string) (*provider.Instance, error) {
-	return &provider.Instance{
-		ID:               instanceID,
-		Name:             instanceID,
-		Region:           region,
-		State:            "running",
-		InstanceType:     "g5.xlarge",
-		AvailabilityZone: "us-west-2a",
-		PublicIP:         "203.0.113.10",
-		PrivateIP:        "10.0.0.10",
-		KeyName:          "demo-key",
-		LaunchTime:       mustTime("2026-04-06T12:00:00Z"),
-	}, nil
-}
-
-func (fakeStatusCloudProvider) DeleteInstance(ctx context.Context, region, instanceID string) error {
-	return nil
-}
-
-func mustTime(raw string) time.Time {
-	parsed, err := time.Parse(time.RFC3339, raw)
-	if err != nil {
-		panic(err)
-	}
-	return parsed
 }
