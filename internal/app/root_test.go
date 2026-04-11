@@ -514,6 +514,281 @@ sandbox:
 	}
 }
 
+func TestConfigSecretUpdateCommandUpdatesEnvAndConfigWithRedactedOutput(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "alpha", "config.yaml")
+	envPath := filepath.Join(dir, "agents", "alpha", ".env")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: t3.medium
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  provider: codex
+  endpoint: http://localhost:11434
+slack: {}
+sandbox:
+  enabled: false
+`)
+	if err := os.WriteFile(envPath, []byte(strings.Join([]string{
+		"SLACK_BOT_TOKEN=xoxb-old",
+		"SLACK_APP_TOKEN=xapp-old",
+		"SOME_OTHER_KEY=keep-me",
+		"",
+	}, "\n")), 0o600); err != nil {
+		t.Fatalf("WriteFile(env) error = %v", err)
+	}
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{
+		"agenthub", "config", "secret", "update",
+		"--config", path,
+		"--set", "slack.bot_token=xoxb-new",
+		"--set", "slack.app_token=xapp-new",
+		"--set", "codex.api_key=sk-secret",
+		"--set", "github.auth_mode=user",
+		"--set", "github.token_secret_arn=arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-token",
+	}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	if got := cfg.GitHub.AuthMode; got != config.GitHubAuthModeUser {
+		t.Fatalf("cfg.GitHub.AuthMode = %q, want %q", got, config.GitHubAuthModeUser)
+	}
+	if got := cfg.GitHub.TokenSecretARN; got == "" {
+		t.Fatal("cfg.GitHub.TokenSecretARN = empty, want updated ARN")
+	}
+
+	env, err := loadAgentEnvFile(envPath)
+	if err != nil {
+		t.Fatalf("loadAgentEnvFile() error = %v", err)
+	}
+	if got := env["SLACK_BOT_TOKEN"]; got != "xoxb-new" {
+		t.Fatalf("SLACK_BOT_TOKEN = %q, want xoxb-new", got)
+	}
+	if got := env["SLACK_APP_TOKEN"]; got != "xapp-new" {
+		t.Fatalf("SLACK_APP_TOKEN = %q, want xapp-new", got)
+	}
+	if got := env["OPENAI_API_KEY"]; got != "sk-secret" {
+		t.Fatalf("OPENAI_API_KEY = %q, want sk-secret", got)
+	}
+	if got := env["SOME_OTHER_KEY"]; got != "keep-me" {
+		t.Fatalf("SOME_OTHER_KEY = %q, want keep-me", got)
+	}
+
+	output := stdout.String()
+	for _, fragment := range []string{
+		"integration credentials updated:",
+		"slack.bot_token: <redacted> -> <redacted>",
+		"slack.app_token: <redacted> -> <redacted>",
+		"codex.api_key: <empty> -> <redacted>",
+		"github.token_secret_arn:  -> arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-token",
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("stdout = %q, want %q", output, fragment)
+		}
+	}
+	if strings.Contains(output, "sk-secret") || strings.Contains(output, "xoxb-new") || strings.Contains(output, "xapp-new") {
+		t.Fatalf("stdout leaked secret values: %q", output)
+	}
+}
+
+func TestConfigSecretUpdateCommandPromptsForMissingSlackToken(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "alpha", "config.yaml")
+	envPath := filepath.Join(dir, "agents", "alpha", ".env")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: t3.medium
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  provider: codex
+  endpoint: http://localhost:11434
+sandbox:
+  enabled: false
+`)
+
+	originalInteractive := detectInteractiveInput
+	detectInteractiveInput = func(io.Reader) bool { return true }
+	t.Cleanup(func() { detectInteractiveInput = originalInteractive })
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{
+		"agenthub", "config", "secret", "update",
+		"--config", path,
+		"--set", "slack.bot_token=xoxb-new",
+	}
+
+	app := New()
+	cmd := newRootCommand(app)
+	cmd.SetIn(strings.NewReader("xapp-new\n"))
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	env, err := loadAgentEnvFile(envPath)
+	if err != nil {
+		t.Fatalf("loadAgentEnvFile() error = %v", err)
+	}
+	if got := env["SLACK_APP_TOKEN"]; got != "xapp-new" {
+		t.Fatalf("SLACK_APP_TOKEN = %q, want xapp-new", got)
+	}
+	if got := stdout.String(); !strings.Contains(got, "Slack app token") {
+		t.Fatalf("stdout = %q, want Slack app token prompt", got)
+	}
+}
+
+func TestConfigSecretUpdateCommandDryRunDoesNotWriteFiles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "alpha", "config.yaml")
+	envPath := filepath.Join(dir, "agents", "alpha", ".env")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: t3.medium
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  provider: codex
+  endpoint: http://localhost:11434
+sandbox:
+  enabled: false
+`)
+	if err := os.WriteFile(envPath, []byte("SLACK_BOT_TOKEN=xoxb-old\nSLACK_APP_TOKEN=xapp-old\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(env) error = %v", err)
+	}
+	beforeConfig, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	beforeEnv, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("ReadFile(env) error = %v", err)
+	}
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{
+		"agenthub", "config", "secret", "update",
+		"--config", path,
+		"--dry-run",
+		"--set", "slack.bot_token=xoxb-new",
+		"--set", "slack.app_token=xapp-new",
+	}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	afterConfig, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(config) error = %v", err)
+	}
+	afterEnv, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatalf("ReadFile(env) error = %v", err)
+	}
+	if string(beforeConfig) != string(afterConfig) {
+		t.Fatalf("config changed during dry-run:\nbefore=%s\nafter=%s", beforeConfig, afterConfig)
+	}
+	if string(beforeEnv) != string(afterEnv) {
+		t.Fatalf("env changed during dry-run:\nbefore=%s\nafter=%s", beforeEnv, afterEnv)
+	}
+	if got := stdout.String(); !strings.Contains(got, "dry-run: integration credentials not written:") {
+		t.Fatalf("stdout = %q, want dry-run message", got)
+	}
+}
+
+func TestConfigSecretUpdateCommandRejectsUnknownField(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "alpha", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: t3.medium
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  provider: codex
+  endpoint: http://localhost:11434
+sandbox:
+  enabled: false
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "config", "secret", "update", "--config", path, "--set", "slack.unknown=value"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil")
+	}
+	if got := err.Error(); !strings.Contains(got, `unknown secret field "slack.unknown"`) {
+		t.Fatalf("error = %q, want unknown field message", got)
+	}
+}
+
 func TestVersionFlagPrintsVersionInformation(t *testing.T) {
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
