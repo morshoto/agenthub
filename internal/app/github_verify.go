@@ -27,6 +27,7 @@ var gitRemoteOriginURLFunc = func(ctx context.Context) (string, error) {
 var loadGitHubInstallationToken = githubauth.InstallationToken
 var loadGitHubUserToken = githubauth.LoadToken
 var verifyRemoteGitHubAccessFunc = verifyRemoteGitHubAccess
+var verifyGitHubCredentialHelperFunc = verifyGitHubCredentialHelperConfigured
 
 type githubVerificationTarget struct {
 	RemoteURL string
@@ -130,9 +131,32 @@ func verifyRemoteGitHubAccess(ctx context.Context, exec host.Executor, repoURL s
 	if repoURL == "" {
 		return errors.New("GitHub deployment verification requires a GitHub repository target")
 	}
+	if err := verifyGitHubCredentialHelperFunc(ctx, exec); err != nil {
+		return err
+	}
 	_, err := exec.Run(ctx, "git", "ls-remote", repoURL)
 	if err != nil {
 		return fmt.Errorf("verify GitHub access with git ls-remote %q: %w", repoURL, err)
+	}
+	return nil
+}
+
+func verifyGitHubCredentialHelperConfigured(ctx context.Context, exec host.Executor) error {
+	if exec == nil {
+		return errors.New("remote verification requires a host executor")
+	}
+	checks := [][]string{
+		{"git", "config", "--global", "--get", "credential.helper"},
+		{"git", "config", "--global", "--get", "url.https://github.com/.insteadof"},
+	}
+	for _, args := range checks {
+		result, err := exec.Run(ctx, args[0], args[1:]...)
+		if err != nil {
+			return fmt.Errorf("verify git credential helper setup with %q: %w", strings.Join(args, " "), err)
+		}
+		if strings.TrimSpace(result.Stdout) == "" {
+			return fmt.Errorf("verify git credential helper setup with %q: expected a configured value", strings.Join(args, " "))
+		}
 	}
 	return nil
 }
