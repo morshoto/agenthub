@@ -7,6 +7,15 @@
 - Release for v0.1.5 by @agenthub-tagpr[bot] in https://github.com/morshoto/agenthub/pull/118
 - Release for v0.1.5 by @agenthub-tagpr[bot] in https://github.com/morshoto/agenthub/pull/121
 - split tagpr and publish actions by @morshoto in https://github.com/morshoto/agenthub/pull/123
+- Release for v0.1.5 by @agenthub-tagpr[bot] in https://github.com/morshoto/agenthub/pull/122
+
+## [v0.1.5](https://github.com/morshoto/agenthub/compare/v0.1.4...v0.1.5) - 2026-04-11
+- Bootstrap a GitHub SSH key onto EC2 by @morshoto in https://github.com/morshoto/agenthub/pull/117
+- Require GitHub Connectivity for Deployment by @morshoto in https://github.com/morshoto/agenthub/pull/119
+- Add GitHub deployment verification by @morshoto in https://github.com/morshoto/agenthub/pull/120
+- Release for v0.1.5 by @agenthub-tagpr[bot] in https://github.com/morshoto/agenthub/pull/118
+- Release for v0.1.5 by @agenthub-tagpr[bot] in https://github.com/morshoto/agenthub/pull/121
+- split tagpr and publish actions by @morshoto in https://github.com/morshoto/agenthub/pull/123
 
 ## [v0.1.5](https://github.com/morshoto/agenthub/compare/v0.1.4...v0.1.5) - 2026-04-11
 - Bootstrap a GitHub SSH key onto EC2 by @morshoto in https://github.com/morshoto/agenthub/pull/117
