@@ -5,12 +5,44 @@ exec > >(tee /var/log/agenthub-bootstrap.log | logger -t agenthub-bootstrap -s 2
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates git openssh-client
+apt-get install -y awscli ca-certificates git openssh-client
 
 install -d -m 0755 /opt/agenthub/src
 install -d -m 0755 /opt/agenthub
 install -d -m 0700 /home/ubuntu/.ssh
 chown ubuntu:ubuntu /home/ubuntu/.ssh
+
+github_ssh_key_secret_arn="${github_ssh_key_secret_arn}"
+aws_region="${region}"
+
+if [ -n "$github_ssh_key_secret_arn" ]; then
+  github_key_path="/home/ubuntu/.ssh/github"
+  github_config_path="/home/ubuntu/.ssh/config"
+  github_known_hosts_path="/home/ubuntu/.ssh/known_hosts"
+
+  aws secretsmanager get-secret-value \
+    --region "$aws_region" \
+    --secret-id "$github_ssh_key_secret_arn" \
+    --query SecretString \
+    --output text > "$github_key_path"
+
+  chmod 600 "$github_key_path"
+
+  cat > "$github_config_path" <<'EOF'
+Host github.com
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/github
+  IdentitiesOnly yes
+  StrictHostKeyChecking yes
+  UserKnownHostsFile ~/.ssh/known_hosts
+EOF
+
+  ssh-keyscan -H github.com > "$github_known_hosts_path"
+
+  chmod 600 "$github_config_path" "$github_known_hosts_path"
+  chown ubuntu:ubuntu "$github_key_path" "$github_config_path" "$github_known_hosts_path"
+fi
 
 cat > /opt/agenthub/runtime.yaml <<'EOF'
 ${runtime_config_yaml}
