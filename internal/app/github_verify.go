@@ -85,12 +85,9 @@ func normalizeGitHubPath(prefix, path string) (string, error) {
 	return prefix + parts[0] + "/" + parts[1], nil
 }
 
-func validateCreateGitHubDeployment(cfg *config.Config, target githubVerificationTarget) error {
+func validateCreateGitHubDeployment(cfg *config.Config) error {
 	if cfg == nil {
 		return errors.New("config is required")
-	}
-	if strings.TrimSpace(target.HTTPSURL) == "" {
-		return errors.New("GitHub deployment verification requires a GitHub repository target")
 	}
 	if mode := config.GitHubAuthModeFor(cfg.GitHub); mode == "" {
 		return errors.New("GitHub connectivity is required for deployment; configure github.auth_mode=app (recommended) or github.auth_mode=user")
