@@ -21,28 +21,42 @@ jobs:
         if: github.ref == 'refs/heads/main'
         runs-on: ubuntu-latest
         steps:
-            - name: Validate tagpr token
+            - name: Validate GitHub App settings
               shell: bash
               env:
-                  TAGPR_TOKEN: ${{ secrets.TAGPR_TOKEN }}
+                  TAGPR_APP_ID: ${{ vars.TAGPR_APP_ID }}
+                  TAGPR_APP_PRIVATE_KEY: ${{ secrets.TAGPR_APP_PRIVATE_KEY }}
               run: |
                   set -euo pipefail
 
-                  if [[ -z "${TAGPR_TOKEN}" ]]; then
-                    echo "TAGPR_TOKEN secret is required so tag creation triggers the publish job" >&2
+                  if [[ -z "${TAGPR_APP_ID}" ]]; then
+                    echo "TAGPR_APP_ID repository variable is required to mint the GitHub App token for tagpr" >&2
                     exit 1
                   fi
+
+                  if [[ -z "${TAGPR_APP_PRIVATE_KEY}" ]]; then
+                    echo "TAGPR_APP_PRIVATE_KEY secret is required to mint the GitHub App token for tagpr" >&2
+                    exit 1
+                  fi
+
+            - name: Create GitHub App token
+              id: app-token
+              uses: actions/create-github-app-token@v2
+              with:
+                  app-id: ${{ vars.TAGPR_APP_ID }}
+                  private-key: ${{ secrets.TAGPR_APP_PRIVATE_KEY }}
 
             - name: Checkout
               uses: actions/checkout@v4
               with:
                   fetch-depth: 0
-                  token: ${{ secrets.TAGPR_TOKEN }}
+                  token: ${{ steps.app-token.outputs.token }}
+                  persist-credentials: false
 
             - name: Run tagpr
               uses: Songmu/tagpr@main
               env:
-                  GITHUB_TOKEN: ${{ secrets.TAGPR_TOKEN }}
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
     prepare:
         name: Release version
