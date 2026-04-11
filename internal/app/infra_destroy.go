@@ -64,7 +64,7 @@ func newInfraDestroyCommand(app *App) *cobra.Command {
 			logger := loggerFromContext(cmd.Context())
 			logger.Info("starting infra destroy")
 			fmt.Fprintln(cmd.OutOrStdout(), "destroying infrastructure with Terraform...")
-			if err := runInfraDestroy(cmd.Context(), profile, cfg, createOptions{AgentName: agentName}); err != nil {
+			if err := runInfraDestroy(cmd.Context(), profile, cfg, createOptions{ConfigPath: app.opts.ConfigPath, AgentName: agentName}); err != nil {
 				return wrapUserFacingError(
 					"infra destroy failed",
 					err,
@@ -99,12 +99,18 @@ func runInfraDestroy(ctx context.Context, profile string, cfg *config.Config, op
 		return err
 	}
 
-	workdir, err := prepareTerraformWorkdir()
+	workdir, err := prepareTerraformWorkdir(opts.ConfigPath)
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(workdir)
 
+	backend, err := newTerraformBackend(profile, cfg)
+	if err != nil {
+		return err
+	}
+	if err := backend.Init(ctx, workdir); err != nil {
+		return err
+	}
 	varsPath, err := writeTerraformVars(workdir, terraformVars{
 		Region:                    cfg.Region.Name,
 		ComputeClass:              config.EffectiveComputeClass(cfg.Compute.Class),
@@ -126,6 +132,7 @@ func runInfraDestroy(ctx context.Context, profile string, cfg *config.Config, op
 		SSHCIDR:                   inputs.SSHCIDR,
 		SSHUser:                   inputs.SSHUser,
 		NamePrefix:                "agenthub",
+		SecurityGroupName:         securityGroupIdentityName("agenthub", inputs.Owner, inputs.AgentName, inputs.Environment),
 		UseNemoClaw:               cfg.Sandbox.UseNemoClaw,
 		NIMEndpoint:               cfg.Runtime.Endpoint,
 		Model:                     cfg.Runtime.Model,
@@ -134,16 +141,13 @@ func runInfraDestroy(ctx context.Context, profile string, cfg *config.Config, op
 	if err != nil {
 		return err
 	}
-
-	backend, err := newTerraformBackend(profile, cfg)
-	if err != nil {
-		return err
-	}
-	if err := backend.Init(ctx, workdir); err != nil {
-		return err
-	}
 	if err := backend.Destroy(ctx, workdir, varsPath); err != nil {
 		return err
+	}
+	if !isEphemeralTerraformWorkdir(workdir) {
+		if err := os.RemoveAll(workdir); err != nil {
+			return fmt.Errorf("remove terraform workspace %q: %w", workdir, err)
+		}
 	}
 	return nil
 }
