@@ -123,6 +123,14 @@ agenthub slack deploy --config agenthub.yaml
 
 `agenthub slack deploy` uses `infra.instance_id` from the config created by `agenthub create`. Pass `--target` if you want to override it.
 
+Remove the deployed Slack integration:
+
+```bash
+agenthub slack undeploy --config agenthub.yaml
+```
+
+`agenthub slack undeploy` removes the agent-specific Slack systemd unit and uploaded integration workspace from the target host without destroying the main runtime service.
+
 ## Version
 
 Print the release version:
