@@ -837,6 +837,161 @@ sandbox:
 	}
 }
 
+func TestInfraCreateCommandImportsExistingAWSKeyPairBeforePlan(t *testing.T) {
+	originalProvider := newAWSProvider
+	originalBackend := newTerraformBackend
+	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
+	originalEnsureSSHPrivateKey := ensureSSHPrivateKeyFunc
+	defer func() {
+		newAWSProvider = originalProvider
+		newTerraformBackend = originalBackend
+		deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey
+		ensureSSHPrivateKeyFunc = originalEnsureSSHPrivateKey
+	}()
+
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+		return keyPairInspectorCloudProvider{
+			stubCloudProvider: stubCloudProvider{profile: profile},
+			exists:            true,
+		}
+	}
+	ensureSSHPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return privateKeyPath, nil
+	}
+	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub", nil
+	}
+
+	var calls []string
+	newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {
+		return fakeTerraformBackend{
+			onInit: func(workdir string) { calls = append(calls, "init") },
+			onImport: func(workdir, address, id string) {
+				calls = append(calls, "import:"+address+":"+id)
+			},
+			onPlan: func(workdir, varsFile string) { calls = append(calls, "plan") },
+			onApply: func(workdir, varsFile string) { calls = append(calls, "apply") },
+			output: &infratf.InfraOutput{InstanceID: "i-0123456789abcdef0", Region: cfg.Region.Name, NetworkMode: "public"},
+		}, nil
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agenthub.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+ssh:
+  key_name: demo-key
+  private_key_path: /tmp/demo.pem
+  cidr: 203.0.113.0/24
+  user: ubuntu
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+  network_mode: public
+image:
+  id: ami-0123456789abcdef0
+sandbox:
+  enabled: true
+  network_mode: public
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--config", path, "infra", "create", "--ssh-key-name", "demo-key", "--ssh-cidr", "203.0.113.0/24"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	want := []string{"init", "import:aws_key_pair.this:demo-key", "plan", "apply"}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("backend calls = %#v, want %#v", calls, want)
+	}
+}
+
+func TestInfraCreateCommandSkipsImportWhenAWSKeyPairDoesNotExist(t *testing.T) {
+	originalProvider := newAWSProvider
+	originalBackend := newTerraformBackend
+	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
+	originalEnsureSSHPrivateKey := ensureSSHPrivateKeyFunc
+	defer func() {
+		newAWSProvider = originalProvider
+		newTerraformBackend = originalBackend
+		deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey
+		ensureSSHPrivateKeyFunc = originalEnsureSSHPrivateKey
+	}()
+
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+		return keyPairInspectorCloudProvider{
+			stubCloudProvider: stubCloudProvider{profile: profile},
+			exists:            false,
+		}
+	}
+	ensureSSHPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return privateKeyPath, nil
+	}
+	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub", nil
+	}
+
+	var calls []string
+	newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {
+		return fakeTerraformBackend{
+			onInit:  func(workdir string) { calls = append(calls, "init") },
+			onPlan:  func(workdir, varsFile string) { calls = append(calls, "plan") },
+			onApply: func(workdir, varsFile string) { calls = append(calls, "apply") },
+			output:  &infratf.InfraOutput{InstanceID: "i-0123456789abcdef0", Region: cfg.Region.Name, NetworkMode: "public"},
+		}, nil
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agenthub.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+ssh:
+  key_name: demo-key
+  private_key_path: /tmp/demo.pem
+  cidr: 203.0.113.0/24
+  user: ubuntu
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+  network_mode: public
+image:
+  id: ami-0123456789abcdef0
+sandbox:
+  enabled: true
+  network_mode: public
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--config", path, "infra", "create", "--ssh-key-name", "demo-key", "--ssh-cidr", "203.0.113.0/24"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	want := []string{"init", "plan", "apply"}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("backend calls = %#v, want %#v", calls, want)
+	}
+}
+
 func TestCreateCommandRequiresSSHAccessConfiguration(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()
@@ -2865,6 +3020,16 @@ type infraCreateStubCloudProvider struct {
 	stubCloudProvider
 }
 
+type keyPairInspectorCloudProvider struct {
+	stubCloudProvider
+	exists bool
+	err    error
+}
+
+func (p keyPairInspectorCloudProvider) KeyPairExists(ctx context.Context, region, keyName string) (bool, error) {
+	return p.exists, p.err
+}
+
 type cleanupTrackingCloudProvider struct {
 	stubCloudProvider
 	onDelete func(region, instanceID string)
@@ -2893,13 +3058,34 @@ func (p runtimeURLFallbackCloudProvider) GetInstance(ctx context.Context, region
 
 type fakeTerraformBackend struct {
 	output *infratf.InfraOutput
+	onInit func(workdir string)
+	onImport func(workdir, address, id string)
+	onPlan func(workdir, varsFile string)
+	onApply func(workdir, varsFile string)
 }
 
-func (f fakeTerraformBackend) Init(ctx context.Context, workdir string) error { return nil }
+func (f fakeTerraformBackend) Init(ctx context.Context, workdir string) error {
+	if f.onInit != nil {
+		f.onInit(workdir)
+	}
+	return nil
+}
+func (f fakeTerraformBackend) Import(ctx context.Context, workdir string, address string, id string) error {
+	if f.onImport != nil {
+		f.onImport(workdir, address, id)
+	}
+	return nil
+}
 func (f fakeTerraformBackend) Plan(ctx context.Context, workdir string, varsFile string) error {
+	if f.onPlan != nil {
+		f.onPlan(workdir, varsFile)
+	}
 	return nil
 }
 func (f fakeTerraformBackend) Apply(ctx context.Context, workdir string, varsFile string) error {
+	if f.onApply != nil {
+		f.onApply(workdir, varsFile)
+	}
 	return nil
 }
 func (f fakeTerraformBackend) Destroy(ctx context.Context, workdir string, varsFile string) error {
