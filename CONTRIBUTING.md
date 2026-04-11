@@ -127,4 +127,4 @@ GitHub issue templates are available for bugs, features, improvements, design pr
 
 ## Release Notes
 
-Release publishing is handled by GitHub Actions. Contributors do not need to build release artifacts manually for normal PRs, but user-visible changes should be described clearly in commits and pull requests because release notes are generated from git history.
+Release publishing is handled by GitHub Actions. Pushes to `main` update the `tagpr` release PR, and merging that PR creates the semver tag that triggers the publish workflow. Contributors do not need to build release artifacts manually for normal PRs, but user-visible changes should be described clearly in commits and pull requests because release notes are generated from git history.
