@@ -185,6 +185,9 @@ func newInitCommand(app *App) *cobra.Command {
 			if err := config.Validate(cfg); err != nil {
 				return err
 			}
+			if err := validateDeploymentConfig(cmd.OutOrStdout(), cfg); err != nil {
+				return err
+			}
 			cfg.Infra.AWSProfile = strings.TrimSpace(wizard.AWSProfile)
 
 			agentName := strings.TrimSpace(wizard.AgentName)

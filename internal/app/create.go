@@ -53,6 +53,9 @@ func newCreateCommand(app *App) *cobra.Command {
 			if err := config.Validate(cfg); err != nil {
 				return err
 			}
+			if err := validateDeploymentConfig(cmd.OutOrStdout(), cfg); err != nil {
+				return err
+			}
 			profile, err := selectCreateAWSProfile(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), firstNonEmpty(app.opts.Profile, cfg.Infra.AWSProfile))
 			if err != nil {
 				return err
