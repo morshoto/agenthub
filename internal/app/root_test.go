@@ -603,7 +603,7 @@ sandbox:
 		"slack.bot_token: <redacted> -> <redacted>",
 		"slack.app_token: <redacted> -> <redacted>",
 		"codex.api_key: <empty> -> <redacted>",
-		"github.token_secret_arn:  -> arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-token",
+		"github.token_secret_arn: \"\" -> arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-token",
 	} {
 		if !strings.Contains(output, fragment) {
 			t.Fatalf("stdout = %q, want %q", output, fragment)
