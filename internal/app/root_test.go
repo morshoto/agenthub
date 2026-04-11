@@ -869,9 +869,9 @@ func TestInfraCreateCommandImportsExistingAWSKeyPairBeforePlan(t *testing.T) {
 			onImport: func(workdir, address, id string) {
 				calls = append(calls, "import:"+address+":"+id)
 			},
-			onPlan: func(workdir, varsFile string) { calls = append(calls, "plan") },
+			onPlan:  func(workdir, varsFile string) { calls = append(calls, "plan") },
 			onApply: func(workdir, varsFile string) { calls = append(calls, "apply") },
-			output: &infratf.InfraOutput{InstanceID: "i-0123456789abcdef0", Region: cfg.Region.Name, NetworkMode: "public"},
+			output:  &infratf.InfraOutput{InstanceID: "i-0123456789abcdef0", Region: cfg.Region.Name, NetworkMode: "public"},
 		}, nil
 	}
 
@@ -3057,11 +3057,11 @@ func (p runtimeURLFallbackCloudProvider) GetInstance(ctx context.Context, region
 }
 
 type fakeTerraformBackend struct {
-	output *infratf.InfraOutput
-	onInit func(workdir string)
+	output   *infratf.InfraOutput
+	onInit   func(workdir string)
 	onImport func(workdir, address, id string)
-	onPlan func(workdir, varsFile string)
-	onApply func(workdir, varsFile string)
+	onPlan   func(workdir, varsFile string)
+	onApply  func(workdir, varsFile string)
 }
 
 func (f fakeTerraformBackend) Init(ctx context.Context, workdir string) error {
