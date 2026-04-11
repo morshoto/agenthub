@@ -83,6 +83,7 @@ type GitHubConfig struct {
 	AppID               string `yaml:"app_id,omitempty"`
 	InstallationID      string `yaml:"installation_id,omitempty"`
 	PrivateKeySecretARN string `yaml:"private_key_secret_arn,omitempty"`
+	SSHKeySecretARN     string `yaml:"ssh_key_secret_arn,omitempty"`
 	TokenSecretARN      string `yaml:"token_secret_arn,omitempty"`
 }
 
@@ -380,6 +381,7 @@ func hasGitHubConfig(cfg GitHubConfig) bool {
 		strings.TrimSpace(cfg.AppID) != "" ||
 		strings.TrimSpace(cfg.InstallationID) != "" ||
 		strings.TrimSpace(cfg.PrivateKeySecretARN) != "" ||
+		strings.TrimSpace(cfg.SSHKeySecretARN) != "" ||
 		strings.TrimSpace(cfg.TokenSecretARN) != ""
 }
 

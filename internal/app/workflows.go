@@ -79,6 +79,7 @@ type terraformVars struct {
 	SSHKeyName                string `json:"ssh_key_name"`
 	SSHPublicKey              string `json:"ssh_public_key"`
 	GitHubPrivateKeySecretARN string `json:"github_private_key_secret_arn"`
+	GitHubSSHKeySecretARN     string `json:"github_ssh_key_secret_arn"`
 	GitHubTokenSecretARN      string `json:"github_token_secret_arn"`
 	SSHCIDR                   string `json:"ssh_cidr"`
 	SSHUser                   string `json:"ssh_user"`
@@ -98,6 +99,7 @@ type terraformInputs struct {
 	SSHKeyName                string
 	SSHPublicKey              string
 	GitHubPrivateKeySecretARN string
+	GitHubSSHKeySecretARN     string
 	GitHubTokenSecretARN      string
 	SSHCIDR                   string
 	SSHUser                   string
@@ -210,6 +212,7 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 			SSHKeyName:                inputs.SSHKeyName,
 			SSHPublicKey:              inputs.SSHPublicKey,
 			GitHubPrivateKeySecretARN: inputs.GitHubPrivateKeySecretARN,
+			GitHubSSHKeySecretARN:     inputs.GitHubSSHKeySecretARN,
 			GitHubTokenSecretARN:      inputs.GitHubTokenSecretARN,
 			SSHCIDR:                   inputs.SSHCIDR,
 			SSHUser:                   inputs.SSHUser,
@@ -438,6 +441,7 @@ func buildTerraformInputs(ctx context.Context, profile string, cfg *config.Confi
 		SSHKeyName:                sshKeyName,
 		SSHPublicKey:              sshPublicKey,
 		GitHubPrivateKeySecretARN: strings.TrimSpace(cfg.GitHub.PrivateKeySecretARN),
+		GitHubSSHKeySecretARN:     strings.TrimSpace(cfg.GitHub.SSHKeySecretARN),
 		GitHubTokenSecretARN:      strings.TrimSpace(cfg.GitHub.TokenSecretARN),
 		SSHCIDR:                   sshCIDR,
 		SSHUser:                   sshUser,
