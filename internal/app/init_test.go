@@ -371,7 +371,6 @@ sandbox:
 		"",  // accept default instance g5.xlarge
 		"1", // image
 		"20",
-		"",
 		"demo-key",
 		"/tmp/demo.pem",
 		"203.0.113.0/24",
