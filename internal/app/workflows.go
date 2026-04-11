@@ -500,6 +500,19 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 		progress = newProgressRenderer(io.Discard)
 	}
 
+	ghTarget, err := resolveGitHubVerificationTarget(ctx)
+	if err != nil {
+		return nil, runtimeinstall.Result{}, verify.Report{}, err
+	}
+	if err := validateCreateGitHubDeployment(cfg, ghTarget); err != nil {
+		return nil, runtimeinstall.Result{}, verify.Report{}, err
+	}
+	if err := runCreateStage(progress, ctx, "GitHub", "verifying local auth", func(runCtx context.Context) error {
+		return verifyLocalGitHubAuth(runCtx, cfg)
+	}); err != nil {
+		return nil, runtimeinstall.Result{}, verify.Report{}, err
+	}
+
 	var instance *provider.Instance
 	if instance, err = runInfraCreate(ctx, profile, cfg, opts, progress); err != nil {
 		return instance, runtimeinstall.Result{}, verify.Report{}, err
@@ -548,6 +561,12 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 		resolvedTarget = target
 	}
 
+	if err = runCreateStage(progress, ctx, "GitHub", "verifying host GitHub access", func(runCtx context.Context) error {
+		return runRemoteGitHubVerification(runCtx, profile, cfg, opts, resolvedTarget, ghTarget.HTTPSURL)
+	}); err != nil {
+		return instance, installResult, verify.Report{}, err
+	}
+
 	var verifyReport verify.Report
 	if err = runCreateStage(progress, ctx, "Runtime", "verifying runtime", func(runCtx context.Context) error {
 		var err error
@@ -582,6 +601,30 @@ func cleanupCreatedInstance(ctx context.Context, profile string, cfg *config.Con
 	provider := newAWSProvider(profile, cfg.Compute.Class)
 	if err := provider.DeleteInstance(cleanupCtx, region, instance.ID); err != nil {
 		return fmt.Errorf("cleanup created instance %s: %w", instance.ID, err)
+	}
+	return nil
+}
+
+func runRemoteGitHubVerification(ctx context.Context, profile string, cfg *config.Config, opts createOptions, target, repoURL string) error {
+	if strings.TrimSpace(target) == "" {
+		return errors.New("target is required")
+	}
+	user, keyPath, err := resolveInstallSSH(cfg, opts.SSHUser, opts.SSHKey)
+	if err != nil {
+		return err
+	}
+	exec := newSSHExecutor(host.SSHConfig{
+		Host:           target,
+		Port:           opts.SSHPort,
+		User:           user,
+		IdentityFile:   keyPath,
+		ConnectTimeout: 15 * time.Second,
+	})
+	if err := waitForSSHReady(ctx, exec, target); err != nil {
+		return err
+	}
+	if err := verifyRemoteGitHubAccessFunc(ctx, exec, repoURL); err != nil {
+		return err
 	}
 	return nil
 }
