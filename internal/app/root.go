@@ -133,6 +133,7 @@ func newConfigCommand(app *App) *cobra.Command {
 	}
 	cmd.AddCommand(newConfigValidateCommand(app))
 	cmd.AddCommand(newConfigUpdateCommand(app))
+	cmd.AddCommand(newConfigSecretCommand(app))
 	return cmd
 }
 
