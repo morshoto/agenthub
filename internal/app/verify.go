@@ -16,16 +16,26 @@ func newVerifyCommand(app *App) *cobra.Command {
 	var sshKey string
 	var sshPort int
 	var runtimeConfigPath string
+	var agentName string
+	var agentsDir string
 
 	cmd := &cobra.Command{
 		Use:     "verify",
 		Short:   "Verify the runtime environment",
 		GroupID: "runtime",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			configPath, err := resolveAgentConfigPath(agentConfigResolutionOptions{
+				ConfigPath: app.opts.ConfigPath,
+				AgentName:  agentName,
+				AgentsDir:  agentsDir,
+			})
+			if err != nil {
+				return err
+			}
+			app.opts.ConfigPath = configPath
 			var cfg *config.Config
-			var err error
-			if strings.TrimSpace(app.opts.ConfigPath) != "" {
-				cfg, err = config.Load(app.opts.ConfigPath)
+			if strings.TrimSpace(configPath) != "" {
+				cfg, err = config.Load(configPath)
 				if err != nil {
 					return err
 				}
@@ -74,5 +84,7 @@ func newVerifyCommand(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&sshKey, "ssh-key", "", "path to the SSH private key")
 	cmd.Flags().IntVar(&sshPort, "ssh-port", 22, "SSH port")
 	cmd.Flags().StringVar(&runtimeConfigPath, "runtime-config", "/opt/agenthub/runtime.yaml", "path to the runtime config on the target host")
+	cmd.Flags().StringVar(&agentName, "agent", "", "agent name to resolve under the agents directory")
+	cmd.Flags().StringVar(&agentsDir, "agents-dir", "agents", "path to the agents directory")
 	return cmd
 }

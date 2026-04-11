@@ -21,16 +21,25 @@ func newInstallCommand(app *App) *cobra.Command {
 	var port int
 	var useNemoClaw bool
 	var disableNemoClaw bool
+	var agentName string
+	var agentsDir string
 
 	cmd := &cobra.Command{
 		Use:     "install",
 		Short:   "Install the AgentHub runtime on a prepared host",
 		GroupID: "provision",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(app.opts.ConfigPath) == "" {
-				return errors.New("config file is required: pass --config <path>")
+			configPath, err := resolveAgentConfigPath(agentConfigResolutionOptions{
+				ConfigPath:    app.opts.ConfigPath,
+				AgentName:     agentName,
+				AgentsDir:     agentsDir,
+				RequireConfig: true,
+			})
+			if err != nil {
+				return err
 			}
-			cfg, err := config.Load(app.opts.ConfigPath)
+			app.opts.ConfigPath = configPath
+			cfg, err := config.Load(configPath)
 			if err != nil {
 				return err
 			}
@@ -55,13 +64,13 @@ func newInstallCommand(app *App) *cobra.Command {
 				DisableNemoClaw: disableNemoClaw,
 			})
 			printInstallResult(cmd.OutOrStdout(), result)
-			printSuccessNextSteps(cmd.OutOrStdout(), app.opts.ConfigPath, resolvedTarget, false)
+			printSuccessNextSteps(cmd.OutOrStdout(), configPath, resolvedTarget, false)
 			if err != nil {
 				return wrapUserFacingError(
 					"install failed",
 					err,
 					"the SSH target is unreachable or the host prerequisites are missing",
-					"run "+commandRef(cmd.OutOrStdout(), "agenthub", "verify", "--config", app.opts.ConfigPath, "--target", resolvedTarget)+" after fixing the host",
+					"run "+commandRef(cmd.OutOrStdout(), "agenthub", "verify", "--config", configPath, "--target", resolvedTarget)+" after fixing the host",
 					"check Docker, GPU drivers, and SSH access on the target host",
 				)
 			}
@@ -77,6 +86,8 @@ func newInstallCommand(app *App) *cobra.Command {
 	cmd.Flags().IntVar(&port, "port", 0, "runtime port override")
 	cmd.Flags().BoolVar(&useNemoClaw, "use-nemoclaw", false, "enable NemoClaw settings for the generated runtime config")
 	cmd.Flags().BoolVar(&disableNemoClaw, "disable-nemoclaw", false, "disable NemoClaw settings for the generated runtime config")
+	cmd.Flags().StringVar(&agentName, "agent", "", "agent name to resolve under the agents directory")
+	cmd.Flags().StringVar(&agentsDir, "agents-dir", "agents", "path to the agents directory")
 	return cmd
 }
 
