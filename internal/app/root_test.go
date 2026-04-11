@@ -1887,6 +1887,240 @@ runtime:
 	}
 }
 
+func TestInstallCommandAcceptsAgentFlag(t *testing.T) {
+	restore := stubAWSProviderFactory()
+	defer restore()
+	restoreSourceArchive := stubSourceArchiveURL(t)
+	defer restoreSourceArchive()
+
+	originalBuildRuntimeBinary := runtimeinstall.BuildRuntimeBinaryFunc
+	runtimeinstall.BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "agenthub")
+		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
+			return "", err
+		}
+		return path, nil
+	}
+	defer func() { runtimeinstall.BuildRuntimeBinaryFunc = originalBuildRuntimeBinary }()
+
+	originalExecutor := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return fakeSSHExecutor{
+			results: map[string]host.CommandResult{
+				"true":          {},
+				"nvidia-smi -L": {Stdout: "GPU 0: demo"},
+				"docker info":   {Stdout: "Docker Engine"},
+				"docker info --format {{json .Runtimes}}":                                                {Stdout: `{"nvidia":{}}`},
+				"docker run --rm --gpus all --pull=never nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi": {Stdout: "NVIDIA-SMI"},
+				"sudo mkdir -p /opt/agenthub":                                                            {},
+				"chmod +x /opt/agenthub/install.sh":                                                      {},
+				"sh /opt/agenthub/install.sh /opt/agenthub/runtime.yaml":                                 {Stdout: "AgentHub runtime installation complete"},
+				"sudo mkdir -p /opt/agenthub/bin":                                                        {},
+				"sudo chown -R ubuntu:ubuntu /opt/agenthub":                                              {},
+				"sudo mv /opt/agenthub/agenthub.upload /opt/agenthub/bin/agenthub":                       {},
+				"chmod +x /opt/agenthub/bin/agenthub":                                                    {},
+				"sudo mv /opt/agenthub/agenthub.service /etc/systemd/system/agenthub.service":            {},
+				"sudo systemctl daemon-reload":                                                           {},
+				"sudo systemctl enable --now agenthub.service":                                           {},
+			},
+		}
+	}
+	defer func() { newSSHExecutor = originalExecutor }()
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "demo.pem")
+	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+	agentsDir := filepath.Join(dir, "agents")
+	configPath := filepath.Join(agentsDir, "alpha", "config.yaml")
+	if err := writeMinimalInstallConfig(configPath, keyPath); err != nil {
+		t.Fatalf("writeMinimalInstallConfig() error = %v", err)
+	}
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "install", "--agent", "alpha", "--agents-dir", agentsDir, "--target", "i-0123456789abcdef0", "--working-dir", "/opt/agenthub", "--ssh-user", "ubuntu", "--ssh-key", keyPath}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "install workflow completed") {
+		t.Fatalf("stdout = %q, want install summary", got)
+	}
+	if !strings.Contains(got, "agenthub verify --config "+configPath) {
+		t.Fatalf("stdout = %q, want next step to use resolved config path", got)
+	}
+}
+
+func TestInstallCommandRejectsConfigAndAgent(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--config", "agents/alpha/config.yaml", "install", "--agent", "alpha", "--target", "host"}
+
+	app := New()
+	cmd := newRootCommand(app)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil")
+	}
+	if !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("error = %v, want mutually exclusive message", err)
+	}
+}
+
+func TestVerifyCommandAcceptsAgentFlag(t *testing.T) {
+	restore := stubAWSProviderFactory()
+	defer restore()
+
+	originalLocalExecutor := newLocalExecutor
+	newLocalExecutor = func() host.Executor {
+		return flexibleExecutor{
+			run: func(command string, args ...string) (host.CommandResult, error) {
+				switch {
+				case command == "true" && len(args) == 0:
+					return host.CommandResult{}, nil
+				case command == "nvidia-smi" && strings.Join(args, " ") == "-L":
+					return host.CommandResult{Stdout: "GPU 0: demo"}, nil
+				case command == "docker" && strings.Join(args, " ") == "info":
+					return host.CommandResult{Stdout: "Docker Engine"}, nil
+				case command == "test" && strings.Join(args, " ") == "-s /opt/agenthub/runtime.yaml":
+					return host.CommandResult{}, nil
+				case command == "cat" && strings.Join(args, " ") == "/opt/agenthub/runtime.yaml":
+					return host.CommandResult{Stdout: "use_nemoclaw: true\nnim_endpoint: http://localhost:11434\nmodel: llama3.2\n"}, nil
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc":
+					return host.CommandResult{Stdout: "ok"}, nil
+				default:
+					return host.CommandResult{}, errors.New("unexpected command: " + command + " " + strings.Join(args, " "))
+				}
+			},
+		}
+	}
+	defer func() { newLocalExecutor = originalLocalExecutor }()
+
+	dir := t.TempDir()
+	agentsDir := filepath.Join(dir, "agents")
+	configPath := filepath.Join(agentsDir, "alpha", "config.yaml")
+	if err := writeMinimalAgentConfig(configPath); err != nil {
+		t.Fatalf("writeMinimalAgentConfig() error = %v", err)
+	}
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "verify", "--agent", "alpha", "--agents-dir", agentsDir}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	got := stdout.String()
+	for _, fragment := range []string{"verification summary", "gpu visibility: PASS", "all required checks passed"} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("stdout = %q, want %q", got, fragment)
+		}
+	}
+	_ = configPath
+}
+
+func TestVerifyCommandStillWorksWithoutConfigSelection(t *testing.T) {
+	restore := stubAWSProviderFactory()
+	defer restore()
+
+	originalLocalExecutor := newLocalExecutor
+	newLocalExecutor = func() host.Executor {
+		return flexibleExecutor{
+			run: func(command string, args ...string) (host.CommandResult, error) {
+				switch {
+				case command == "true" && len(args) == 0:
+					return host.CommandResult{}, nil
+				case command == "nvidia-smi" && strings.Join(args, " ") == "-L":
+					return host.CommandResult{Stdout: "GPU 0: demo"}, nil
+				case command == "docker" && strings.Join(args, " ") == "info":
+					return host.CommandResult{Stdout: "Docker Engine"}, nil
+				case command == "test" && strings.Join(args, " ") == "-s /opt/agenthub/runtime.yaml":
+					return host.CommandResult{}, nil
+				case command == "cat" && strings.Join(args, " ") == "/opt/agenthub/runtime.yaml":
+					return host.CommandResult{Stdout: "use_nemoclaw: true\nnim_endpoint: http://localhost:11434\nmodel: llama3.2\n"}, nil
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc":
+					return host.CommandResult{Stdout: "ok"}, nil
+				default:
+					return host.CommandResult{}, errors.New("unexpected command: " + command + " " + strings.Join(args, " "))
+				}
+			},
+		}
+	}
+	defer func() { newLocalExecutor = originalLocalExecutor }()
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "verify"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got := stdout.String(); !strings.Contains(got, "verification summary") {
+		t.Fatalf("stdout = %q, want verification summary", got)
+	}
+}
+
+func writeMinimalAgentConfig(path string) error {
+	return writeMinimalInstallConfig(path, "")
+}
+
+func writeMinimalInstallConfig(path, keyPath string) error {
+	keyBlock := ""
+	if strings.TrimSpace(keyPath) != "" {
+		keyBlock = "\n  private_key_path: " + keyPath
+	}
+	content := `
+platform:
+  name: aws
+region:
+  name: us-east-1
+ssh:
+  key_name: demo-key` + keyBlock + `
+  cidr: 203.0.113.0/24
+  user: ubuntu
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+  network_mode: public
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: true
+  network_mode: public
+  use_nemoclaw: false
+`
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(strings.TrimSpace(content)+"\n"), 0o600)
+}
+
 func TestLogsCommandFetchesRuntimeAndIntegrationLogs(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()

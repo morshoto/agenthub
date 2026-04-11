@@ -90,3 +90,60 @@ func TestSlackServeLoadsAgentEnvFile(t *testing.T) {
 		t.Fatalf("allowed channels = %#v, want agent env values", got.AllowedChannels)
 	}
 }
+
+func TestSlackServeAcceptsAgentFlag(t *testing.T) {
+	dir := t.TempDir()
+	agentsDir := filepath.Join(dir, "agents")
+	configPath := filepath.Join(agentsDir, "alpha", "config.yaml")
+	envPath := filepath.Join(agentsDir, "alpha", ".env")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(strings.Join([]string{
+		"runtime:",
+		"  provider: codex",
+		"  model: codex-pro",
+		"  endpoint: http://localhost:11434",
+		"slack:",
+		"  runtime_url: http://agent-runtime.example.com",
+		"",
+	}, "\n")), 0o600); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	if err := os.WriteFile(envPath, []byte(strings.Join([]string{
+		"SLACK_BOT_TOKEN=xoxb-agent-token",
+		"SLACK_APP_TOKEN=xapp-agent-token",
+		"",
+	}, "\n")), 0o600); err != nil {
+		t.Fatalf("WriteFile(env) error = %v", err)
+	}
+
+	originalRunSlackAdapter := runSlackAdapter
+	defer func() { runSlackAdapter = originalRunSlackAdapter }()
+
+	var got slackbot.Config
+	runSlackAdapter = func(ctx context.Context, cfg slackbot.Config, out io.Writer) error {
+		got = cfg
+		return nil
+	}
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "slack", "serve", "--agent", "alpha", "--agents-dir", agentsDir}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if got.BotToken != "xoxb-agent-token" || got.AppToken != "xapp-agent-token" {
+		t.Fatalf("slack config = %#v, want agent env values", got)
+	}
+	if got.RuntimeURL != "http://agent-runtime.example.com" {
+		t.Fatalf("runtime url = %q, want agent runtime url", got.RuntimeURL)
+	}
+}
