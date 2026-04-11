@@ -319,9 +319,10 @@ infra:
 	defer func() { os.Args = oldArgs }()
 	os.Args = []string{
 		"agenthub",
-		"--config", configPath,
 		"slack",
 		"deploy",
+		"--agent", "alpha",
+		"--agents-dir", agentsDir,
 		"--ssh-user", "ubuntu",
 		"--ssh-key", keyPath,
 		"--working-dir", "/opt/agenthub",
