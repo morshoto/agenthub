@@ -128,13 +128,43 @@ func TestVerifyLocalGitHubAuthUsesUserToken(t *testing.T) {
 func TestVerifyRemoteGitHubAccess(t *testing.T) {
 	exec := &testHostExecutor{
 		runFn: func(ctx context.Context, command string, args ...string) (host.CommandResult, error) {
-			if command != "git" || len(args) != 2 || args[0] != "ls-remote" || args[1] != "https://github.com/owner/repo" {
+			switch {
+			case command != "git":
+				t.Fatalf("unexpected command: %s %v", command, args)
+			case len(args) == 4 && args[0] == "config" && args[1] == "--global" && args[2] == "--get" && args[3] == "credential.helper":
+				return host.CommandResult{Stdout: "!/opt/agenthub/bin/agenthub github credential --runtime-config /opt/agenthub/runtime.yaml"}, nil
+			case len(args) == 4 && args[0] == "config" && args[1] == "--global" && args[2] == "--get" && args[3] == "url.https://github.com/.insteadof":
+				return host.CommandResult{Stdout: "git@github.com:"}, nil
+			case len(args) == 2 && args[0] == "ls-remote" && args[1] == "https://github.com/owner/repo":
+				return host.CommandResult{Stdout: "deadbeef\tHEAD"}, nil
+			default:
 				t.Fatalf("unexpected command: %s %v", command, args)
 			}
-			return host.CommandResult{Stdout: "deadbeef\tHEAD"}, nil
+			return host.CommandResult{}, nil
 		},
 	}
 	if err := verifyRemoteGitHubAccess(context.Background(), exec, "https://github.com/owner/repo"); err != nil {
 		t.Fatalf("verifyRemoteGitHubAccess() error = %v", err)
+	}
+}
+
+func TestVerifyGitHubCredentialHelperConfigured(t *testing.T) {
+	exec := &testHostExecutor{
+		runFn: func(ctx context.Context, command string, args ...string) (host.CommandResult, error) {
+			switch {
+			case command != "git":
+				t.Fatalf("unexpected command: %s %v", command, args)
+			case len(args) == 4 && args[0] == "config" && args[1] == "--global" && args[2] == "--get" && args[3] == "credential.helper":
+				return host.CommandResult{Stdout: "!/opt/agenthub/bin/agenthub github credential --runtime-config /opt/agenthub/runtime.yaml"}, nil
+			case len(args) == 4 && args[0] == "config" && args[1] == "--global" && args[2] == "--get" && args[3] == "url.https://github.com/.insteadof":
+				return host.CommandResult{Stdout: "git@github.com:"}, nil
+			default:
+				t.Fatalf("unexpected command: %s %v", command, args)
+			}
+			return host.CommandResult{}, nil
+		},
+	}
+	if err := verifyGitHubCredentialHelperConfigured(context.Background(), exec); err != nil {
+		t.Fatalf("verifyGitHubCredentialHelperConfigured() error = %v", err)
 	}
 }
