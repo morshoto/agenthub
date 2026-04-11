@@ -256,35 +256,41 @@ func ValidateDeployment(cfg *Config) error {
 
 	var v ValidationError
 	gh := cfg.GitHub
-	mode := GitHubAuthModeFor(gh)
-	switch mode {
-	case GitHubAuthModeUser:
-		if strings.TrimSpace(gh.TokenSecretARN) == "" {
-			v.Add("github.token_secret_arn", "is required for deployment when github.auth_mode=user")
-		} else if !strings.HasPrefix(strings.TrimSpace(gh.TokenSecretARN), "arn:") {
-			v.Add("github.token_secret_arn", "must be a Secrets Manager ARN")
+	explicitMode := strings.ToLower(strings.TrimSpace(gh.AuthMode))
+	if explicitMode != "" && explicitMode != GitHubAuthModeApp && explicitMode != GitHubAuthModeUser {
+		v.Add("github.auth_mode", fmt.Sprintf("unsupported GitHub auth mode %q", gh.AuthMode))
+	} else {
+		mode := explicitMode
+		if mode == "" {
+			mode = GitHubAuthModeFor(gh)
 		}
-	case GitHubAuthModeApp:
-		if strings.TrimSpace(gh.AppID) == "" {
-			v.Add("github.app_id", "is required for deployment when github.auth_mode=app")
-		} else if _, err := strconv.ParseInt(strings.TrimSpace(gh.AppID), 10, 64); err != nil {
-			v.Add("github.app_id", "must be a numeric GitHub App id")
-		}
-		if strings.TrimSpace(gh.InstallationID) == "" {
-			v.Add("github.installation_id", "is required for deployment when github.auth_mode=app")
-		} else if _, err := strconv.ParseInt(strings.TrimSpace(gh.InstallationID), 10, 64); err != nil {
-			v.Add("github.installation_id", "must be a numeric GitHub installation id")
-		}
-		if strings.TrimSpace(gh.PrivateKeySecretARN) == "" {
-			v.Add("github.private_key_secret_arn", "is required for deployment when github.auth_mode=app")
-		} else if !strings.HasPrefix(strings.TrimSpace(gh.PrivateKeySecretARN), "arn:") {
-			v.Add("github.private_key_secret_arn", "must be a Secrets Manager ARN")
-		}
-	default:
-		if strings.TrimSpace(gh.AuthMode) != "" {
-			v.Add("github.auth_mode", fmt.Sprintf("GitHub connectivity is required for deployment; unsupported GitHub auth mode %q", gh.AuthMode))
-		} else {
+		switch mode {
+		case "":
 			v.Add("github.auth_mode", "GitHub connectivity is required for deployment; configure github.auth_mode=app (recommended) or github.auth_mode=user")
+		case GitHubAuthModeUser:
+			if strings.TrimSpace(gh.TokenSecretARN) == "" {
+				v.Add("github.token_secret_arn", "is required for deployment when github.auth_mode=user")
+			} else if !strings.HasPrefix(strings.TrimSpace(gh.TokenSecretARN), "arn:") {
+				v.Add("github.token_secret_arn", "must be a Secrets Manager ARN")
+			}
+		case GitHubAuthModeApp:
+			if strings.TrimSpace(gh.AppID) == "" {
+				v.Add("github.app_id", "is required for deployment when github.auth_mode=app")
+			} else if _, err := strconv.ParseInt(strings.TrimSpace(gh.AppID), 10, 64); err != nil {
+				v.Add("github.app_id", "must be a numeric GitHub App id")
+			}
+			if strings.TrimSpace(gh.InstallationID) == "" {
+				v.Add("github.installation_id", "is required for deployment when github.auth_mode=app")
+			} else if _, err := strconv.ParseInt(strings.TrimSpace(gh.InstallationID), 10, 64); err != nil {
+				v.Add("github.installation_id", "must be a numeric GitHub installation id")
+			}
+			if strings.TrimSpace(gh.PrivateKeySecretARN) == "" {
+				v.Add("github.private_key_secret_arn", "is required for deployment when github.auth_mode=app")
+			} else if !strings.HasPrefix(strings.TrimSpace(gh.PrivateKeySecretARN), "arn:") {
+				v.Add("github.private_key_secret_arn", "must be a Secrets Manager ARN")
+			}
+		default:
+			v.Add("github.auth_mode", fmt.Sprintf("unsupported GitHub auth mode %q", gh.AuthMode))
 		}
 	}
 

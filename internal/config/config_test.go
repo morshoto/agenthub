@@ -184,6 +184,32 @@ func TestValidateDeploymentRejectsUnsupportedGitHubAuthMode(t *testing.T) {
 	}
 }
 
+func TestValidateDeploymentRejectsUnsupportedGitHubAuthModeEvenWithFallbackFields(t *testing.T) {
+	cfg := &Config{
+		Platform: PlatformConfig{Name: PlatformAWS},
+		Region:   RegionConfig{Name: "us-east-1"},
+		Instance: InstanceConfig{Type: "t3.medium", DiskSizeGB: 20},
+		Image:    ImageConfig{Name: "ubuntu-24.04"},
+		Runtime:  RuntimeConfig{Endpoint: "http://localhost:11434", Model: "llama3.2"},
+		GitHub: GitHubConfig{
+			AuthMode:            "ssh",
+			TokenSecretARN:      "arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-token",
+			AppID:               "123456",
+			InstallationID:      "789012",
+			PrivateKeySecretARN: "arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
+		},
+		Sandbox: SandboxConfig{Enabled: true},
+	}
+
+	err := ValidateDeployment(cfg)
+	if err == nil {
+		t.Fatal("ValidateDeployment() error = nil")
+	}
+	if got := err.Error(); !strings.Contains(got, `unsupported GitHub auth mode "ssh"`) {
+		t.Fatalf("ValidateDeployment() error = %q, want unsupported mode error", got)
+	}
+}
+
 func TestValidateDeploymentAcceptsValidGitHubAuth(t *testing.T) {
 	cfg := &Config{
 		Platform: PlatformConfig{Name: PlatformAWS},
