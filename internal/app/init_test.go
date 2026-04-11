@@ -24,15 +24,6 @@ func stubGitHubSSHSetup(t *testing.T) {
 	t.Cleanup(func() { deriveSSHPublicKeyFunc = originalDerive })
 }
 
-func defaultGitHubAppInitInput() []string {
-	return []string{
-		"", // accept default GitHub App auth
-		"123456",
-		"789012",
-		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
-	}
-}
-
 func TestInitWritesConfigFile(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()
@@ -42,20 +33,20 @@ func TestInitWritesConfigFile(t *testing.T) {
 	agentsDir := filepath.Join(dir, "agents")
 	configPath := filepath.Join(agentsDir, "alpha", "config.yaml")
 	input := strings.Join([]string{
-		"alpha",                  // agent name
-		"1",                      // platform aws
-		"",                       // accept default GPU compute mode
-		"2",                      // region us-east-1
-		"",                       // accept default instance g5.xlarge
-		"1",                      // image ubuntu-24.04
-		"20",                     // disk size
-		"demo-key",               // ssh key pair name
-		"/tmp/demo.pem",          // ssh private key
-		"203.0.113.0/24",         // ssh cidr
-		"ubuntu",                 // ssh user
-		"",                       // accept default GitHub App auth
-		"123456",                 // GitHub App ID
-		"789012",                 // GitHub installation ID
+		"alpha",          // agent name
+		"1",              // platform aws
+		"",               // accept default GPU compute mode
+		"2",              // region us-east-1
+		"",               // accept default instance g5.xlarge
+		"1",              // image ubuntu-24.04
+		"20",             // disk size
+		"demo-key",       // ssh key pair name
+		"/tmp/demo.pem",  // ssh private key
+		"203.0.113.0/24", // ssh cidr
+		"ubuntu",         // ssh user
+		"",               // accept default GitHub App auth
+		"123456",         // GitHub App ID
+		"789012",         // GitHub installation ID
 		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
 		"y",                      // use NemoClaw
 		"1",                      // provider codex
@@ -143,20 +134,20 @@ func TestInitUsesDefaultAgentNameWhenBlank(t *testing.T) {
 	agentsDir := filepath.Join(dir, "agents")
 	configPath := filepath.Join(agentsDir, "default", "config.yaml")
 	input := strings.Join([]string{
-		"",                       // accept default agent name
-		"1",                      // platform aws
-		"",                       // accept default GPU compute mode
-		"2",                      // region us-east-1
-		"",                       // accept default instance g5.xlarge
-		"1",                      // image ubuntu-24.04
-		"20",                     // disk size
-		"demo-key",               // ssh key pair name
-		"/tmp/demo.pem",          // ssh private key
-		"203.0.113.0/24",         // ssh cidr
-		"ubuntu",                 // ssh user
-		"",                       // accept default GitHub App auth
-		"123456",                 // GitHub App ID
-		"789012",                 // GitHub installation ID
+		"",               // accept default agent name
+		"1",              // platform aws
+		"",               // accept default GPU compute mode
+		"2",              // region us-east-1
+		"",               // accept default instance g5.xlarge
+		"1",              // image ubuntu-24.04
+		"20",             // disk size
+		"demo-key",       // ssh key pair name
+		"/tmp/demo.pem",  // ssh private key
+		"203.0.113.0/24", // ssh cidr
+		"ubuntu",         // ssh user
+		"",               // accept default GitHub App auth
+		"123456",         // GitHub App ID
+		"789012",         // GitHub installation ID
 		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
 		"y",                      // use NemoClaw
 		"1",                      // provider codex
@@ -212,7 +203,7 @@ func TestInitSupportsCPUComputeMode(t *testing.T) {
 		"/tmp/demo.pem",
 		"203.0.113.0/24",
 		"ubuntu",
-		"",                       // accept default GitHub App auth
+		"", // accept default GitHub App auth
 		"123456",
 		"789012",
 		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
@@ -266,20 +257,20 @@ func TestInitSupportsNonAWSPlatformScaffold(t *testing.T) {
 	agentsDir := filepath.Join(dir, "agents")
 	configPath := filepath.Join(agentsDir, "alpha", "config.yaml")
 	input := strings.Join([]string{
-		"alpha",                  // agent name
-		"2",                      // gcp
-		"",                       // accept default GPU compute mode
-		"",                       // accept default region
-		"",                       // accept default instance type
-		"1",                      // image Ubuntu 22.04 LTS
-		"20",                     // disk size
-		"demo-key",               // ssh key pair name
-		"/tmp/demo.pem",          // ssh private key
-		"203.0.113.0/24",         // ssh cidr
-		"ubuntu",                 // ssh user
-		"",                       // accept default GitHub App auth
-		"123456",                 // GitHub App ID
-		"789012",                 // GitHub installation ID
+		"alpha",          // agent name
+		"2",              // gcp
+		"",               // accept default GPU compute mode
+		"",               // accept default region
+		"",               // accept default instance type
+		"1",              // image Ubuntu 22.04 LTS
+		"20",             // disk size
+		"demo-key",       // ssh key pair name
+		"/tmp/demo.pem",  // ssh private key
+		"203.0.113.0/24", // ssh cidr
+		"ubuntu",         // ssh user
+		"",               // accept default GitHub App auth
+		"123456",         // GitHub App ID
+		"789012",         // GitHub installation ID
 		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
 		"y",                      // use NemoClaw
 		"1",                      // provider codex
@@ -438,19 +429,19 @@ func TestInitContinuesWhenAWSAuthCheckIsPermissionDenied(t *testing.T) {
 	agentsDir := filepath.Join(dir, "agents")
 	input := strings.Join([]string{
 		"alpha",
-		"1",                      // platform aws
-		"",                       // accept default GPU compute mode
-		"2",                      // region us-east-1
-		"",                       // accept default instance g5.xlarge
-		"1",                      // image ubuntu-24.04
-		"20",                     // disk size
-		"demo-key",               // ssh key pair name
-		"/tmp/demo.pem",          // ssh private key
-		"203.0.113.0/24",         // ssh cidr
-		"ubuntu",                 // ssh user
-		"",                       // accept default GitHub App auth
-		"123456",                 // GitHub App ID
-		"789012",                 // GitHub installation ID
+		"1",              // platform aws
+		"",               // accept default GPU compute mode
+		"2",              // region us-east-1
+		"",               // accept default instance g5.xlarge
+		"1",              // image ubuntu-24.04
+		"20",             // disk size
+		"demo-key",       // ssh key pair name
+		"/tmp/demo.pem",  // ssh private key
+		"203.0.113.0/24", // ssh cidr
+		"ubuntu",         // ssh user
+		"",               // accept default GitHub App auth
+		"123456",         // GitHub App ID
+		"789012",         // GitHub installation ID
 		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
 		"y",                      // use NemoClaw
 		"1",                      // provider codex
@@ -497,19 +488,19 @@ func TestInitContinuesWhenAWSAuthCheckFailsAtSTS(t *testing.T) {
 	agentsDir := filepath.Join(dir, "agents")
 	input := strings.Join([]string{
 		"alpha",
-		"1",                      // platform aws
-		"",                       // accept default GPU compute mode
-		"2",                      // region us-east-1
-		"",                       // accept default instance g5.xlarge
-		"1",                      // image ubuntu-24.04
-		"20",                     // disk size
-		"demo-key",               // ssh key pair name
-		"/tmp/demo.pem",          // ssh private key
-		"203.0.113.0/24",         // ssh cidr
-		"ubuntu",                 // ssh user
-		"",                       // accept default GitHub App auth
-		"123456",                 // GitHub App ID
-		"789012",                 // GitHub installation ID
+		"1",              // platform aws
+		"",               // accept default GPU compute mode
+		"2",              // region us-east-1
+		"",               // accept default instance g5.xlarge
+		"1",              // image ubuntu-24.04
+		"20",             // disk size
+		"demo-key",       // ssh key pair name
+		"/tmp/demo.pem",  // ssh private key
+		"203.0.113.0/24", // ssh cidr
+		"ubuntu",         // ssh user
+		"",               // accept default GitHub App auth
+		"123456",         // GitHub App ID
+		"789012",         // GitHub installation ID
 		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
 		"y",                      // use NemoClaw
 		"1",                      // provider codex
@@ -556,19 +547,19 @@ func TestInitFallsBackWhenAWSImageLookupIsPermissionDenied(t *testing.T) {
 	agentsDir := filepath.Join(dir, "agents")
 	input := strings.Join([]string{
 		"alpha",
-		"1",                      // platform aws
-		"",                       // accept default GPU compute mode
-		"2",                      // region us-east-1
-		"",                       // accept default instance g5.xlarge
-		"1",                      // image fallback selection
-		"20",                     // disk size
-		"demo-key",               // ssh key pair name
-		"/tmp/demo.pem",          // ssh private key
-		"203.0.113.0/24",         // ssh cidr
-		"ubuntu",                 // ssh user
-		"",                       // accept default GitHub App auth
-		"123456",                 // GitHub App ID
-		"789012",                 // GitHub installation ID
+		"1",              // platform aws
+		"",               // accept default GPU compute mode
+		"2",              // region us-east-1
+		"",               // accept default instance g5.xlarge
+		"1",              // image fallback selection
+		"20",             // disk size
+		"demo-key",       // ssh key pair name
+		"/tmp/demo.pem",  // ssh private key
+		"203.0.113.0/24", // ssh cidr
+		"ubuntu",         // ssh user
+		"",               // accept default GitHub App auth
+		"123456",         // GitHub App ID
+		"789012",         // GitHub installation ID
 		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
 		"y",                      // use NemoClaw
 		"1",                      // provider codex

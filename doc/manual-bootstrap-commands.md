@@ -29,6 +29,8 @@ If you omit it and run interactively, the CLI will prompt you to choose a profil
 
 This command reads the YAML config, resolves the SSH public key, stages the current working tree as a bootstrap archive, and writes Terraform-compatible `terraform.tfvars` variables.
 If GitHub App auth is configured, it carries the project-owned Secrets Manager ARN into Terraform so the EC2 instance role can read the private key secret at runtime.
+GitHub connectivity is required for deployed agents, so `agenthub infra tfvars` and `agenthub create` now fail fast if the config does not include valid GitHub deployment auth.
+Prefer GitHub App auth for shared or production environments. User-token auth is still supported as an explicit personal/development fallback.
 The generated file includes deploy-time values such as `aws_profile`, `runtime_port`, `runtime_cidr`, and `source_archive_url`, so Terraform can create the EC2 instance and leave runtime installation to the SSH-based `install` stage.
 Treat it as a deploy helper rather than a pure formatter: it depends on a usable SSH private key path, a resolvable AWS profile, the current git worktree state, and a GitHub App secret ARN if you want the host to clone private repositories.
 
