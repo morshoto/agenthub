@@ -260,6 +260,7 @@ func newSlackCommand(app *App) *cobra.Command {
 	}
 	cmd.AddGroup(&cobra.Group{ID: "integrations", Title: "Integrations"})
 	cmd.AddCommand(newSlackDeployCommand(app))
+	cmd.AddCommand(newSlackUndeployCommand(app))
 	cmd.AddCommand(newSlackServeCommand(app))
 	return cmd
 }
