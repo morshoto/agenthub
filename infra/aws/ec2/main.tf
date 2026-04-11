@@ -210,8 +210,12 @@ locals {
 }
 
 resource "aws_key_pair" "this" {
-  key_name   = "${trimspace(var.ssh_key_name)}-${random_id.suffix.hex}"
+  key_name   = trimspace(var.ssh_key_name)
   public_key = trimspace(var.ssh_public_key)
+
+  lifecycle {
+    ignore_changes = [public_key]
+  }
 }
 
 resource "random_id" "suffix" {
@@ -219,9 +223,16 @@ resource "random_id" "suffix" {
 }
 
 resource "aws_security_group" "this" {
-  name        = "${var.name_prefix}-${random_id.suffix.hex}"
+  name        = trimspace(var.security_group_name)
   description = "AgentHub instance security group"
   vpc_id      = local.vpc_id
+  tags = {
+    Name        = trimspace(var.security_group_name)
+    Owner       = local.owner
+    AgentName   = local.agent_name
+    Environment = local.environment
+    ManagedBy   = "agenthub"
+  }
 
   dynamic "ingress" {
     for_each = var.network_mode == "public" && trimspace(var.ssh_cidr) != "" ? [1] : []

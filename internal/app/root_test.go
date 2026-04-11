@@ -193,6 +193,75 @@ sandbox:
 	}
 }
 
+func TestConfigUpdateCommandDryRunPrintsChangesWithoutWriting(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "default", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: t3.medium
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: false
+`)
+
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{
+		"agenthub", "config", "update",
+		"--config", path,
+		"--dry-run",
+		"--set", "runtime.model=gpt-5.4",
+		"--set", "sandbox.enabled=true",
+	}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("config file changed during dry-run:\nbefore=%s\nafter=%s", before, after)
+	}
+
+	output := stdout.String()
+	for _, fragment := range []string{
+		"changes:",
+		"runtime.model: llama3.2 -> gpt-5.4",
+		"sandbox.enabled: false -> true",
+		"dry-run: configuration not written:",
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("stdout = %q, want %q", output, fragment)
+		}
+	}
+}
+
 func TestConfigUpdateCommandRequiresSetFlag(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agents", "default", "config.yaml")
@@ -768,6 +837,248 @@ sandbox:
 	}
 }
 
+func TestInfraCreateCommandImportsExistingAWSKeyPairBeforePlan(t *testing.T) {
+	originalProvider := newAWSProvider
+	originalBackend := newTerraformBackend
+	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
+	originalEnsureSSHPrivateKey := ensureSSHPrivateKeyFunc
+	defer func() {
+		newAWSProvider = originalProvider
+		newTerraformBackend = originalBackend
+		deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey
+		ensureSSHPrivateKeyFunc = originalEnsureSSHPrivateKey
+	}()
+
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+		return keyPairInspectorCloudProvider{
+			stubCloudProvider: stubCloudProvider{profile: profile},
+			exists:            true,
+		}
+	}
+	ensureSSHPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return privateKeyPath, nil
+	}
+	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub", nil
+	}
+
+	var calls []string
+	newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {
+		return fakeTerraformBackend{
+			onInit: func(workdir string) { calls = append(calls, "init") },
+			onImport: func(workdir, address, id string) {
+				calls = append(calls, "import:"+address+":"+id)
+			},
+			onPlan:  func(workdir, varsFile string) { calls = append(calls, "plan") },
+			onApply: func(workdir, varsFile string) { calls = append(calls, "apply") },
+			output:  &infratf.InfraOutput{InstanceID: "i-0123456789abcdef0", Region: cfg.Region.Name, NetworkMode: "public"},
+		}, nil
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agenthub.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+ssh:
+  key_name: demo-key
+  private_key_path: /tmp/demo.pem
+  cidr: 203.0.113.0/24
+  user: ubuntu
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+  network_mode: public
+image:
+  id: ami-0123456789abcdef0
+sandbox:
+  enabled: true
+  network_mode: public
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--config", path, "infra", "create", "--ssh-key-name", "demo-key", "--ssh-cidr", "203.0.113.0/24"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	want := []string{"init", "import:aws_key_pair.this:demo-key", "plan", "apply"}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("backend calls = %#v, want %#v", calls, want)
+	}
+}
+
+func TestInfraCreateCommandSkipsImportWhenAWSKeyPairDoesNotExist(t *testing.T) {
+	originalProvider := newAWSProvider
+	originalBackend := newTerraformBackend
+	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
+	originalEnsureSSHPrivateKey := ensureSSHPrivateKeyFunc
+	defer func() {
+		newAWSProvider = originalProvider
+		newTerraformBackend = originalBackend
+		deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey
+		ensureSSHPrivateKeyFunc = originalEnsureSSHPrivateKey
+	}()
+
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+		return keyPairInspectorCloudProvider{
+			stubCloudProvider: stubCloudProvider{profile: profile},
+			exists:            false,
+		}
+	}
+	ensureSSHPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return privateKeyPath, nil
+	}
+	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub", nil
+	}
+
+	var calls []string
+	newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {
+		return fakeTerraformBackend{
+			onInit:  func(workdir string) { calls = append(calls, "init") },
+			onPlan:  func(workdir, varsFile string) { calls = append(calls, "plan") },
+			onApply: func(workdir, varsFile string) { calls = append(calls, "apply") },
+			output:  &infratf.InfraOutput{InstanceID: "i-0123456789abcdef0", Region: cfg.Region.Name, NetworkMode: "public"},
+		}, nil
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agenthub.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+ssh:
+  key_name: demo-key
+  private_key_path: /tmp/demo.pem
+  cidr: 203.0.113.0/24
+  user: ubuntu
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+  network_mode: public
+image:
+  id: ami-0123456789abcdef0
+sandbox:
+  enabled: true
+  network_mode: public
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--config", path, "infra", "create", "--ssh-key-name", "demo-key", "--ssh-cidr", "203.0.113.0/24"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	want := []string{"init", "plan", "apply"}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("backend calls = %#v, want %#v", calls, want)
+	}
+}
+
+func TestInfraCreateCommandImportsExistingAWSSecurityGroupBeforePlanWhenStateMissing(t *testing.T) {
+	originalProvider := newAWSProvider
+	originalBackend := newTerraformBackend
+	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
+	originalEnsureSSHPrivateKey := ensureSSHPrivateKeyFunc
+	defer func() {
+		newAWSProvider = originalProvider
+		newTerraformBackend = originalBackend
+		deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey
+		ensureSSHPrivateKeyFunc = originalEnsureSSHPrivateKey
+	}()
+
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+		return keyPairInspectorCloudProvider{
+			stubCloudProvider: stubCloudProvider{profile: profile},
+			exists:            false,
+			securityGroupID:   "sg-0123456789abcdef0",
+		}
+	}
+	ensureSSHPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return privateKeyPath, nil
+	}
+	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub", nil
+	}
+
+	var calls []string
+	newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {
+		return fakeTerraformBackend{
+			onInit: func(workdir string) { calls = append(calls, "init:"+workdir) },
+			onImport: func(workdir, address, id string) {
+				calls = append(calls, "import:"+address+":"+id)
+			},
+			onPlan:  func(workdir, varsFile string) { calls = append(calls, "plan") },
+			onApply: func(workdir, varsFile string) { calls = append(calls, "apply") },
+			output:  &infratf.InfraOutput{InstanceID: "i-0123456789abcdef0", Region: cfg.Region.Name, NetworkMode: "public"},
+		}, nil
+	}
+
+	dir := t.TempDir()
+	agentDir := filepath.Join(dir, "alpha")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(agentDir) error = %v", err)
+	}
+	path := filepath.Join(agentDir, "config.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+infra:
+  aws_profile: sso-dev
+ssh:
+  key_name: demo-key
+  private_key_path: /tmp/demo.pem
+  cidr: 203.0.113.0/24
+  user: ubuntu
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+  network_mode: public
+image:
+  id: ami-0123456789abcdef0
+sandbox:
+  enabled: true
+  network_mode: public
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--config", path, "infra", "create", "--ssh-key-name", "demo-key", "--ssh-cidr", "203.0.113.0/24"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	workdir := filepath.Join(agentDir, ".agenthub", "terraform")
+	want := []string{"init:" + workdir, "import:aws_security_group.this:sg-0123456789abcdef0", "plan", "apply"}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("backend calls = %#v, want %#v", calls, want)
+	}
+}
+
 func TestCreateCommandRequiresSSHAccessConfiguration(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()
@@ -1039,6 +1350,150 @@ sandbox:
 	} {
 		if !strings.Contains(got, fragment) {
 			t.Fatalf("stdout = %q, want %q", got, fragment)
+		}
+	}
+}
+
+func TestRedeployCommandDryRunOutputsPreviewWithoutMutation(t *testing.T) {
+	restore := stubAWSProviderFactory()
+	defer restore()
+
+	var commands []string
+	originalExecutor := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return flexibleExecutor{
+			run: func(command string, args ...string) (host.CommandResult, error) {
+				key := strings.TrimSpace(command + " " + strings.Join(args, " "))
+				commands = append(commands, key)
+				switch {
+				case key == "true":
+					return host.CommandResult{}, nil
+				case key == "sudo test -f /opt/agenthub/runtime.yaml":
+					return host.CommandResult{}, nil
+				case key == "sudo cat /opt/agenthub/runtime.yaml":
+					return host.CommandResult{Stdout: strings.Join([]string{
+						"use_nemoclaw: false",
+						"nim_endpoint: http://localhost:11434",
+						"model: llama3.2",
+						"port: 8080",
+						"sandbox:",
+						"  enabled: false",
+						"  network_mode: public",
+						"",
+					}, "\n")}, nil
+				case key == "sudo test -f /etc/systemd/system/agenthub.service":
+					return host.CommandResult{}, nil
+				case key == "sudo cat /etc/systemd/system/agenthub.service":
+					return host.CommandResult{Stdout: strings.Join([]string{
+						"[Unit]",
+						"Description=AgentHub runtime",
+						"After=network-online.target",
+						"Wants=network-online.target",
+						"",
+						"[Service]",
+						"Type=simple",
+						"WorkingDirectory=/opt/agenthub",
+						"ExecStart=/opt/agenthub/bin/agenthub serve --runtime-config /opt/agenthub/runtime.yaml --listen 0.0.0.0:8080 --idle-timeout 24h0m0s --idle-shutdown-command \"shutdown -h now\"",
+						"Restart=always",
+						"RestartSec=5",
+						"",
+						"[Install]",
+						"WantedBy=multi-user.target",
+						"",
+					}, "\n")}, nil
+				case key == "sudo test -f /opt/agenthub/agenthub.env":
+					return host.CommandResult{}, &host.RemoteCommandError{Command: "test", Args: []string{"-f", "/opt/agenthub/agenthub.env"}, ExitCode: 1, Err: errors.New("exit status 1")}
+				default:
+					return host.CommandResult{}, errors.New("unexpected command: " + key)
+				}
+			},
+		}
+	}
+	defer func() { newSSHExecutor = originalExecutor }()
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "demo.pem")
+	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+	path := filepath.Join(dir, "agents", "default", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+ssh:
+  private_key_path: `+keyPath+`
+  user: ubuntu
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+  network_mode: public
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.3
+  port: 8080
+  provider: aws-bedrock
+infra:
+  instance_id: i-0123456789abcdef0
+sandbox:
+  enabled: true
+  network_mode: public
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--config", path, "redeploy", "--dry-run", "--working-dir", "/opt/agenthub", "--ssh-user", "ubuntu", "--ssh-key", keyPath}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stdout.String()
+	for _, fragment := range []string{
+		"running redeploy workflow...",
+		"dry-run preview",
+		"- runtime config: would update",
+		"- systemd unit: would update",
+		"- provider environment: would create",
+		"- runtime binary: would replace",
+		"--- current /opt/agenthub/runtime.yaml",
+		"+++ proposed /opt/agenthub/runtime.yaml",
+		"-model: llama3.2",
+		"+model: llama3.3",
+		"target: 203.0.113.10",
+	} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("stdout = %q, want %q", got, fragment)
+		}
+	}
+	for _, forbidden := range []string{
+		"install workflow completed",
+		"verification summary",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("stdout = %q, do not want %q", got, forbidden)
+		}
+	}
+	for _, forbidden := range []string{
+		"sudo systemctl daemon-reload",
+		"sudo systemctl enable --now agenthub.service",
+		"sudo mkdir -p /opt/agenthub",
+		"sudo mv /opt/agenthub/agenthub.service /etc/systemd/system/agenthub.service",
+	} {
+		if slices.Contains(commands, forbidden) {
+			t.Fatalf("commands = %v, do not want %q", commands, forbidden)
 		}
 	}
 }
@@ -2652,6 +3107,21 @@ type infraCreateStubCloudProvider struct {
 	stubCloudProvider
 }
 
+type keyPairInspectorCloudProvider struct {
+	stubCloudProvider
+	exists          bool
+	err             error
+	securityGroupID string
+}
+
+func (p keyPairInspectorCloudProvider) KeyPairExists(ctx context.Context, region, keyName string) (bool, error) {
+	return p.exists, p.err
+}
+
+func (p keyPairInspectorCloudProvider) FindSecurityGroupByName(ctx context.Context, region, groupName, owner, agentName, environment string) (string, error) {
+	return p.securityGroupID, p.err
+}
+
 type cleanupTrackingCloudProvider struct {
 	stubCloudProvider
 	onDelete func(region, instanceID string)
@@ -2679,14 +3149,35 @@ func (p runtimeURLFallbackCloudProvider) GetInstance(ctx context.Context, region
 }
 
 type fakeTerraformBackend struct {
-	output *infratf.InfraOutput
+	output   *infratf.InfraOutput
+	onInit   func(workdir string)
+	onImport func(workdir, address, id string)
+	onPlan   func(workdir, varsFile string)
+	onApply  func(workdir, varsFile string)
 }
 
-func (f fakeTerraformBackend) Init(ctx context.Context, workdir string) error { return nil }
+func (f fakeTerraformBackend) Init(ctx context.Context, workdir string) error {
+	if f.onInit != nil {
+		f.onInit(workdir)
+	}
+	return nil
+}
+func (f fakeTerraformBackend) Import(ctx context.Context, workdir string, address string, id string) error {
+	if f.onImport != nil {
+		f.onImport(workdir, address, id)
+	}
+	return nil
+}
 func (f fakeTerraformBackend) Plan(ctx context.Context, workdir string, varsFile string) error {
+	if f.onPlan != nil {
+		f.onPlan(workdir, varsFile)
+	}
 	return nil
 }
 func (f fakeTerraformBackend) Apply(ctx context.Context, workdir string, varsFile string) error {
+	if f.onApply != nil {
+		f.onApply(workdir, varsFile)
+	}
 	return nil
 }
 func (f fakeTerraformBackend) Destroy(ctx context.Context, workdir string, varsFile string) error {

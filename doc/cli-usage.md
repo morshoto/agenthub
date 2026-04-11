@@ -31,6 +31,14 @@ Re-apply runtime deployment to an existing host:
 agenthub redeploy --config agenthub.yaml
 ```
 
+Preview the managed file changes a redeploy would make without mutating the host:
+
+```bash
+agenthub redeploy --config agenthub.yaml --dry-run
+```
+
+`agenthub redeploy --dry-run` resolves the target over SSH, compares the generated runtime config, systemd unit, and provider environment file against the current host state, and reports that the runtime binary would be replaced. It does not upload files, restart services, or run post-apply verification.
+
 Start the runtime service for one deployed agent:
 
 ```bash
@@ -59,6 +67,12 @@ Show the same status as structured JSON for automation:
 
 ```bash
 agenthub status --output json
+```
+
+Preview config edits without writing the config file:
+
+```bash
+agenthub config update --config agenthub.yaml --dry-run --set runtime.model=gpt-5.4
 ```
 
 Inspect one deployed agent in detail:

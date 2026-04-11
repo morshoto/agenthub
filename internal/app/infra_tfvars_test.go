@@ -97,6 +97,7 @@ ssh:
 		t.Fatalf("ReadFile() error = %v", err)
 	}
 	body := string(data)
+	agentName := agentNameFromConfigPath(configPath)
 	mustContainTerraformAssignment(t, body, "region", `"ap-northeast-1"`)
 	mustContainTerraformAssignment(t, body, "compute_class", `"gpu"`)
 	mustContainTerraformAssignment(t, body, "instance_type", `"g5.xlarge"`)
@@ -114,6 +115,7 @@ ssh:
 	mustContainTerraformAssignment(t, body, "ssh_cidr", `"203.0.113.0/24"`)
 	mustContainTerraformAssignment(t, body, "ssh_user", `"ubuntu"`)
 	mustContainTerraformAssignment(t, body, "name_prefix", `"agenthub"`)
+	mustContainTerraformAssignment(t, body, "security_group_name", `"`+securityGroupIdentityName("agenthub", "sso-dev", agentName, "default")+`"`)
 	mustContainTerraformAssignment(t, body, "use_nemoclaw", `true`)
 	mustContainTerraformAssignment(t, body, "nim_endpoint", `"http://localhost:11434"`)
 	mustContainTerraformAssignment(t, body, "model", `"llama3.2"`)
@@ -256,6 +258,13 @@ ssh:
 	}
 	body := string(data)
 	mustContainTerraformAssignment(t, body, "aws_profile", `"sso-dev"`)
+}
+
+func TestSecurityGroupIdentityNameNormalizesInputs(t *testing.T) {
+	got := securityGroupIdentityName("AgentHub", "Sso Dev", "Alpha_Bot", "Prod")
+	if got != "agenthub-sso-dev-alpha-bot-prod-sg" {
+		t.Fatalf("securityGroupIdentityName() = %q, want agenthub-sso-dev-alpha-bot-prod-sg", got)
+	}
 }
 
 func mustContainTerraformAssignment(t *testing.T, body, key, value string) {

@@ -214,7 +214,8 @@ func newInitCommand(app *App) *cobra.Command {
 				agentName = "default"
 			}
 			instance, installResult, verifyReport, err := runCreateWorkflow(cmd.Context(), app.opts.Profile, cfg, createOptions{
-				AgentName: agentName,
+				ConfigPath: configPath,
+				AgentName:  agentName,
 			}, nil)
 			if err != nil {
 				return wrapUserFacingError(
