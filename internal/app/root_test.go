@@ -1468,6 +1468,11 @@ runtime:
   model: llama3.2
 sandbox:
   network_mode: public
+github:
+  auth_mode: app
+  app_id: "123456"
+  installation_id: "789012"
+  private_key_secret_arn: arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key
 `)
 
 	oldArgs := os.Args
@@ -2799,6 +2804,11 @@ sandbox:
   enabled: true
   network_mode: public
   use_nemoclaw: true
+github:
+  auth_mode: app
+  app_id: "123456"
+  installation_id: "789012"
+  private_key_secret_arn: arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key
 `)
 
 	oldArgs := os.Args
@@ -2957,6 +2967,11 @@ sandbox:
   enabled: true
   network_mode: public
   use_nemoclaw: true
+github:
+  auth_mode: app
+  app_id: "123456"
+  installation_id: "789012"
+  private_key_secret_arn: arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key
 `)
 	writeConfig(t, filepath.Join(agentsDir, "beta", "config.yaml"), `
 platform:
@@ -2984,6 +2999,11 @@ sandbox:
   enabled: true
   network_mode: public
   use_nemoclaw: true
+github:
+  auth_mode: app
+  app_id: "123456"
+  installation_id: "789012"
+  private_key_secret_arn: arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key
 `)
 
 	oldArgs := os.Args
@@ -3141,6 +3161,11 @@ sandbox:
   enabled: true
   network_mode: public
   use_nemoclaw: true
+github:
+  auth_mode: app
+  app_id: "123456"
+  installation_id: "789012"
+  private_key_secret_arn: arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key
 `)
 
 	oldArgs := os.Args
@@ -3280,6 +3305,11 @@ sandbox:
   enabled: true
   network_mode: public
   use_nemoclaw: true
+github:
+  auth_mode: app
+  app_id: "123456"
+  installation_id: "789012"
+  private_key_secret_arn: arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key
 `)
 
 	oldArgs := os.Args
@@ -3425,6 +3455,11 @@ sandbox:
   enabled: true
   network_mode: public
   use_nemoclaw: true
+github:
+  auth_mode: app
+  app_id: "123456"
+  installation_id: "789012"
+  private_key_secret_arn: arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key
 `)
 
 	oldArgs := os.Args
@@ -3512,6 +3547,11 @@ sandbox:
   enabled: true
   network_mode: public
   use_nemoclaw: true
+github:
+  auth_mode: app
+  app_id: "123456"
+  installation_id: "789012"
+  private_key_secret_arn: arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key
 infra:
   aws_profile: sso-dev
 `)
@@ -3845,6 +3885,14 @@ func defaultFlexibleCommand(command string, args ...string) (host.CommandResult,
 		return host.CommandResult{Stdout: "NVIDIA-SMI"}, true
 	case key == "nvidia-smi -L":
 		return host.CommandResult{Stdout: "GPU 0: demo"}, true
+	case key == "git --version":
+		return host.CommandResult{Stdout: "git version 2.0.0"}, true
+	case strings.HasPrefix(key, "git config --global credential.helper "):
+		return host.CommandResult{}, true
+	case key == "git config --global url.https://github.com/.insteadOf git@github.com:":
+		return host.CommandResult{}, true
+	case key == "git config --global url.https://github.com/.insteadOf ssh://git@github.com/":
+		return host.CommandResult{}, true
 	case command == "sudo" && len(args) >= 2 && args[0] == "mkdir" && args[1] == "-p":
 		return host.CommandResult{}, true
 	case command == "sudo" && len(args) >= 2 && args[0] == "chown" && args[1] == "-R":
@@ -3855,6 +3903,14 @@ func defaultFlexibleCommand(command string, args ...string) (host.CommandResult,
 		return host.CommandResult{}, true
 	case command == "sudo" && len(args) >= 1 && args[0] == "systemctl" && len(args) >= 2 && args[1] == "daemon-reload":
 		return host.CommandResult{}, true
+	case command == "sudo" && len(args) >= 3 && args[0] == "sh" && args[1] == "-lc":
+		script := args[2]
+		switch {
+		case strings.Contains(script, "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io"):
+			return host.CommandResult{Stdout: "docker installed"}, true
+		case strings.Contains(script, "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y git"):
+			return host.CommandResult{Stdout: "git installed"}, true
+		}
 	case command == "chmod" && len(args) >= 2 && args[0] == "+x":
 		return host.CommandResult{}, true
 	case command == "chmod" && len(args) >= 2 && args[0] == "600":
@@ -3868,8 +3924,6 @@ func defaultFlexibleCommand(command string, args ...string) (host.CommandResult,
 			return host.CommandResult{Stdout: "agenthub systemd service is active"}, true
 		case strings.Contains(script, "docker ps --filter name='^/agenthub$'"):
 			return host.CommandResult{Stdout: "agenthub Up 10 seconds"}, true
-		case strings.Contains(script, "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io"):
-			return host.CommandResult{Stdout: "docker installed"}, true
 		}
 	case command == "sh" && len(args) >= 2 && strings.Contains(strings.Join(args, " "), "/opt/agenthub/install.sh /opt/agenthub/runtime.yaml"):
 		return host.CommandResult{Stdout: "AgentHub runtime installation complete"}, true
