@@ -219,6 +219,34 @@ sandbox:
 	}
 }
 
+func TestLoadAndSaveRoundTripPreservesGitHubSSHKeySecretARN(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agenthub.yaml")
+	cfg := &Config{
+		Platform: PlatformConfig{Name: PlatformAWS},
+		Region:   RegionConfig{Name: "us-east-1"},
+		Instance: InstanceConfig{Type: "t3.medium", DiskSizeGB: 20},
+		Image:    ImageConfig{Name: "ubuntu-24.04"},
+		Runtime:  RuntimeConfig{Endpoint: "http://localhost:11434", Model: "llama3.2"},
+		GitHub: GitHubConfig{
+			SSHKeySecretARN: "arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-ssh-key",
+		},
+		Sandbox: SandboxConfig{Enabled: true},
+	}
+
+	if err := Save(path, cfg); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if loaded.GitHub.SSHKeySecretARN != cfg.GitHub.SSHKeySecretARN {
+		t.Fatalf("GitHub.SSHKeySecretARN = %q, want %q", loaded.GitHub.SSHKeySecretARN, cfg.GitHub.SSHKeySecretARN)
+	}
+}
+
 func writeFile(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(strings.TrimSpace(contents)+"\n"), 0o600); err != nil {

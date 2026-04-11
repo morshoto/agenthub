@@ -60,6 +60,11 @@ variable "github_private_key_secret_arn" {
   default = ""
 }
 
+variable "github_ssh_key_secret_arn" {
+  type    = string
+  default = ""
+}
+
 variable "github_token_secret_arn" {
   type    = string
   default = ""

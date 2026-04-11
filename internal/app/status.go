@@ -126,6 +126,7 @@ type statusJSONGitHub struct {
 	AppID               string `json:"app_id,omitempty"`
 	InstallationID      string `json:"installation_id,omitempty"`
 	PrivateKeySecretARN string `json:"private_key_secret_arn,omitempty"`
+	SSHKeySecretARN     string `json:"ssh_key_secret_arn,omitempty"`
 	TokenSecretARN      string `json:"token_secret_arn,omitempty"`
 }
 
@@ -547,9 +548,10 @@ func buildStatusJSONGitHub(cfg config.GitHubConfig) *statusJSONGitHub {
 		AppID:               strings.TrimSpace(cfg.AppID),
 		InstallationID:      strings.TrimSpace(cfg.InstallationID),
 		PrivateKeySecretARN: strings.TrimSpace(cfg.PrivateKeySecretARN),
+		SSHKeySecretARN:     strings.TrimSpace(cfg.SSHKeySecretARN),
 		TokenSecretARN:      strings.TrimSpace(cfg.TokenSecretARN),
 	}
-	if github.AuthMode == "" && github.AppID == "" && github.InstallationID == "" && github.PrivateKeySecretARN == "" && github.TokenSecretARN == "" {
+	if github.AuthMode == "" && github.AppID == "" && github.InstallationID == "" && github.PrivateKeySecretARN == "" && github.SSHKeySecretARN == "" && github.TokenSecretARN == "" {
 		return nil
 	}
 	return github
