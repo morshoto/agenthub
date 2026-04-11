@@ -31,6 +31,8 @@ Run the interactive setup:
 agenthub init
 ```
 
+`agenthub init` now requires GitHub connectivity for deployable agents and guides you through GitHub App auth by default. User-token auth remains available for personal or development environments.
+
 Provision from a config file:
 
 ```bash

@@ -116,6 +116,97 @@ runtime:
 	}
 }
 
+func TestCreateCommandFailsWhenGitHubDeploymentAuthIsMissing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "default", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: t3.medium
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: true
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "create", "--config", path}
+
+	app := New()
+	cmd := newRootCommand(app)
+	cmd.SetIn(strings.NewReader(""))
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "deployment validation failed") || !strings.Contains(got, "GitHub connectivity is required for deployment") {
+		t.Fatalf("error = %q, want deployment GitHub validation failure", got)
+	}
+}
+
+func TestInfraTFVarsCommandFailsWhenGitHubDeploymentAuthIsMissing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "default", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: t3.medium
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: true
+ssh:
+  key_name: demo-key
+  private_key_path: /tmp/demo.pem
+  cidr: 203.0.113.0/24
+  user: ubuntu
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "infra", "tfvars", "--config", path}
+
+	app := New()
+	cmd := newRootCommand(app)
+	cmd.SetIn(strings.NewReader(""))
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("Execute() error = nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "deployment validation failed") || !strings.Contains(got, "GitHub connectivity is required for deployment") {
+		t.Fatalf("error = %q, want deployment GitHub validation failure", got)
+	}
+}
+
 func TestConfigUpdateCommandAppliesTypedUpdates(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agents", "default", "config.yaml")

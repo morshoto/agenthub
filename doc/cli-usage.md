@@ -25,6 +25,8 @@ agenthub create --config agents/alpha/config.yaml
 Notes:
 
 - `agenthub init` and `agenthub create` both require a usable AWS profile.
+- Deployed agents require GitHub connectivity. `agenthub init` now configures GitHub auth as a required step, and `agenthub create` refuses to proceed without valid GitHub deployment auth.
+- GitHub App auth is the recommended default for shared or production environments. `github.auth_mode=user` remains available for personal or development use.
 - Pass `--profile` or set `AWS_PROFILE` before running them.
 - If only one AWS profile is discovered locally, `agenthub` auto-selects it instead of prompting.
 - `agenthub init` writes public networking so the generated config is ready for `agenthub create`.
