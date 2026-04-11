@@ -210,8 +210,12 @@ locals {
 }
 
 resource "aws_key_pair" "this" {
-  key_name   = "${trimspace(var.ssh_key_name)}-${random_id.suffix.hex}"
+  key_name   = trimspace(var.ssh_key_name)
   public_key = trimspace(var.ssh_public_key)
+
+  lifecycle {
+    ignore_changes = [public_key]
+  }
 }
 
 resource "random_id" "suffix" {

@@ -398,6 +398,78 @@ func TestCheckGPUQuotaUsesServiceQuotasUtilizationReport(t *testing.T) {
 	}
 }
 
+func TestKeyPairExistsReturnsTrueWhenAWSReturnsKeyPair(t *testing.T) {
+	p := &Provider{
+		Config: Config{Profile: "test-profile"},
+		loadDefaultConfig: func(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (awsbase.Config, error) {
+			return awsbase.Config{Region: "us-east-1"}, nil
+		},
+		newEC2Client: func(cfg awsbase.Config) ec2Client {
+			if cfg.Region != "us-west-2" {
+				t.Fatalf("cfg.Region = %q, want us-west-2", cfg.Region)
+			}
+			return &fakeEC2Client{
+				describeKeyPairsOut: &ec2.DescribeKeyPairsOutput{
+					KeyPairs: []ec2types.KeyPairInfo{{KeyName: awsbase.String("demo-key")}},
+				},
+			}
+		},
+	}
+
+	exists, err := p.KeyPairExists(context.Background(), "us-west-2", "demo-key")
+	if err != nil {
+		t.Fatalf("KeyPairExists() error = %v", err)
+	}
+	if !exists {
+		t.Fatal("KeyPairExists() = false, want true")
+	}
+}
+
+func TestKeyPairExistsReturnsFalseWhenAWSReportsMissingKeyPair(t *testing.T) {
+	p := &Provider{
+		Config: Config{Profile: "test-profile"},
+		loadDefaultConfig: func(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (awsbase.Config, error) {
+			return awsbase.Config{Region: "us-east-1"}, nil
+		},
+		newEC2Client: func(cfg awsbase.Config) ec2Client {
+			return &fakeEC2Client{
+				describeKeyPairsErr: missingKeyPairError{},
+			}
+		},
+	}
+
+	exists, err := p.KeyPairExists(context.Background(), "us-west-2", "demo-key")
+	if err != nil {
+		t.Fatalf("KeyPairExists() error = %v", err)
+	}
+	if exists {
+		t.Fatal("KeyPairExists() = true, want false")
+	}
+}
+
+func TestKeyPairExistsWrapsAuthErrors(t *testing.T) {
+	p := &Provider{
+		Config: Config{Profile: "test-profile"},
+		loadDefaultConfig: func(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (awsbase.Config, error) {
+			return awsbase.Config{Region: "us-east-1"}, nil
+		},
+		newEC2Client: func(cfg awsbase.Config) ec2Client {
+			return &fakeEC2Client{
+				describeKeyPairsErr: accessDeniedError{},
+			}
+		},
+	}
+
+	_, err := p.KeyPairExists(context.Background(), "us-west-2", "demo-key")
+	if err == nil {
+		t.Fatal("KeyPairExists() error = nil")
+	}
+	authErr := mustAuthError(t, err)
+	if authErr.Kind != "permission_denied" {
+		t.Fatalf("AuthError.Kind = %q, want permission_denied", authErr.Kind)
+	}
+}
+
 func mustAuthError(t *testing.T, err error) *AuthError {
 	t.Helper()
 	var authErr *AuthError
@@ -493,6 +565,8 @@ type fakeEC2Client struct {
 	associatePublicIP        bool
 	describeRegionsOut       *ec2.DescribeRegionsOutput
 	describeInstanceTypesOut *ec2.DescribeInstanceTypesOutput
+	describeKeyPairsOut      *ec2.DescribeKeyPairsOutput
+	describeKeyPairsErr      error
 	instanceTags             []ec2types.Tag
 }
 
@@ -508,6 +582,16 @@ func (f *fakeEC2Client) DescribeInstanceTypes(ctx context.Context, params *ec2.D
 		return f.describeInstanceTypesOut, nil
 	}
 	return &ec2.DescribeInstanceTypesOutput{}, nil
+}
+
+func (f *fakeEC2Client) DescribeKeyPairs(ctx context.Context, params *ec2.DescribeKeyPairsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeKeyPairsOutput, error) {
+	if f.describeKeyPairsErr != nil {
+		return nil, f.describeKeyPairsErr
+	}
+	if f.describeKeyPairsOut != nil {
+		return f.describeKeyPairsOut, nil
+	}
+	return &ec2.DescribeKeyPairsOutput{}, nil
 }
 
 func (f *fakeEC2Client) CreateSecurityGroup(ctx context.Context, params *ec2.CreateSecurityGroupInput, optFns ...func(*ec2.Options)) (*ec2.CreateSecurityGroupOutput, error) {
@@ -597,4 +681,22 @@ func (f *fakeEC2Client) DescribeInstances(ctx context.Context, params *ec2.Descr
 
 func (f *fakeEC2Client) TerminateInstances(ctx context.Context, params *ec2.TerminateInstancesInput, optFns ...func(*ec2.Options)) (*ec2.TerminateInstancesOutput, error) {
 	return &ec2.TerminateInstancesOutput{}, nil
+}
+
+type missingKeyPairError struct{}
+
+func (missingKeyPairError) Error() string {
+	return "InvalidKeyPair.NotFound: missing"
+}
+
+func (missingKeyPairError) ErrorCode() string {
+	return "InvalidKeyPair.NotFound"
+}
+
+func (missingKeyPairError) ErrorMessage() string {
+	return "missing"
+}
+
+func (missingKeyPairError) ErrorFault() smithy.ErrorFault {
+	return smithy.FaultClient
 }

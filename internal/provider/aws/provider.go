@@ -57,6 +57,7 @@ type ec2Client interface {
 	DescribeRegions(ctx context.Context, params *ec2.DescribeRegionsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeRegionsOutput, error)
 	DescribeInstanceTypes(ctx context.Context, params *ec2.DescribeInstanceTypesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeInstanceTypesOutput, error)
 	DescribeInstances(ctx context.Context, params *ec2.DescribeInstancesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
+	DescribeKeyPairs(ctx context.Context, params *ec2.DescribeKeyPairsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeKeyPairsOutput, error)
 	TerminateInstances(ctx context.Context, params *ec2.TerminateInstancesInput, optFns ...func(*ec2.Options)) (*ec2.TerminateInstancesOutput, error)
 }
 
@@ -236,6 +237,43 @@ func (p *Provider) RecommendInstanceTypes(ctx context.Context, region, computeCl
 
 func (p *Provider) ListInstanceTypes(ctx context.Context, region string) ([]provider.InstanceType, error) {
 	return p.RecommendInstanceTypes(ctx, region, p.Config.ComputeClass)
+}
+
+func (p *Provider) KeyPairExists(ctx context.Context, region, keyName string) (bool, error) {
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return false, errors.New("region is required")
+	}
+	keyName = strings.TrimSpace(keyName)
+	if keyName == "" {
+		return false, errors.New("key name is required")
+	}
+
+	cfg, err := p.loadAWSConfig(ctx)
+	if err != nil {
+		return false, err
+	}
+	cfg.Region = region
+
+	client := p.newEC2Client(cfg)
+	out, err := client.DescribeKeyPairs(ctx, &ec2.DescribeKeyPairsInput{
+		KeyNames: []string{keyName},
+	})
+	if err != nil {
+		if isAWSMissingKeyPairError(err) {
+			return false, nil
+		}
+		if isPermissionDenied(err) {
+			return false, &AuthError{
+				Kind:    "permission_denied",
+				Profile: p.Config.Profile,
+				Stage:   authStageAPI,
+				Cause:   fmt.Errorf("describe EC2 key pair %q in region %s: %w", keyName, region, err),
+			}
+		}
+		return false, fmt.Errorf("describe EC2 key pair %q in region %s: %w", keyName, region, err)
+	}
+	return len(out.KeyPairs) > 0, nil
 }
 
 func filterInstanceTypesByComputeClass(items []provider.InstanceType, computeClass string) []provider.InstanceType {
@@ -752,6 +790,19 @@ func isPermissionDenied(err error) bool {
 
 	lower := strings.ToLower(err.Error())
 	return strings.Contains(lower, "access denied") || strings.Contains(lower, "not authorized") || strings.Contains(lower, "unauthorized")
+}
+
+func isAWSMissingKeyPairError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		code := strings.TrimSpace(apiErr.ErrorCode())
+		return code == "InvalidKeyPair.NotFound"
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "invalidkeypair.notfound")
 }
 
 func awsString(value *string) string {
