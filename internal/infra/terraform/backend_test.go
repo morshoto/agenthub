@@ -2,6 +2,7 @@ package terraform
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -154,5 +155,70 @@ exit 0
 		if !strings.Contains(got, fragment) {
 			t.Fatalf("env output = %q, want %q", got, fragment)
 		}
+	}
+}
+
+func TestTerraformBackendPrepareWorkspaceRefreshesModuleAndPreservesState(t *testing.T) {
+	dir := t.TempDir()
+
+	moduleDir := filepath.Join(dir, "module")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(module) error = %v", err)
+	}
+	modulePath := filepath.Join(moduleDir, "main.tf")
+	if err := os.WriteFile(modulePath, []byte("terraform {}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(main.tf) error = %v", err)
+	}
+
+	workdir := filepath.Join(dir, "work")
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(work) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workdir, "terraform.tfstate"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(terraform.tfstate) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workdir, "stale.tf"), []byte("stale\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(stale.tf) error = %v", err)
+	}
+
+	binDir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(bin) error = %v", err)
+	}
+	terraformPath := filepath.Join(binDir, "terraform")
+	if err := os.WriteFile(terraformPath, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("WriteFile(terraform) error = %v", err)
+	}
+
+	oldPath := os.Getenv("PATH")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+oldPath)
+
+	backend := &TerraformBackend{
+		Binary:    "terraform",
+		ModuleDir: moduleDir,
+	}
+
+	if err := backend.Init(context.Background(), workdir); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workdir, "terraform.tfstate")); err != nil {
+		t.Fatalf("Stat(terraform.tfstate) error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(workdir, "stale.tf")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Stat(stale.tf) error = %v, want not exist", err)
+	}
+
+	if err := os.WriteFile(modulePath, []byte("terraform {\n  required_version = \">= 1.6.0\"\n}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(main.tf updated) error = %v", err)
+	}
+	if err := backend.Init(context.Background(), workdir); err != nil {
+		t.Fatalf("Init() second call error = %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(workdir, "main.tf"))
+	if err != nil {
+		t.Fatalf("ReadFile(work main.tf) error = %v", err)
+	}
+	if !strings.Contains(string(data), "required_version") {
+		t.Fatalf("work main.tf = %q, want refreshed module contents", string(data))
 	}
 }

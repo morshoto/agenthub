@@ -210,6 +210,10 @@ func (t *TerraformBackend) prepareWorkspace(workdir string) error {
 		return fmt.Errorf("terraform module dir %q is not a directory", src)
 	}
 
+	if err := cleanWorkspaceForModuleCopy(workdir); err != nil {
+		return err
+	}
+
 	return filepath.WalkDir(src, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -231,15 +235,32 @@ func (t *TerraformBackend) prepareWorkspace(workdir string) error {
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return err
 		}
-		if _, err := os.Stat(dst); err == nil {
-			return nil
-		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
 		return os.WriteFile(dst, data, 0o600)
 	})
+}
+
+func cleanWorkspaceForModuleCopy(workdir string) error {
+	entries, err := os.ReadDir(workdir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return os.MkdirAll(workdir, 0o755)
+		}
+		return fmt.Errorf("read terraform workspace %q: %w", workdir, err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if name == ".terraform" || name == "terraform.tfstate" || strings.HasPrefix(name, "terraform.tfstate.") {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(workdir, name)); err != nil {
+			return fmt.Errorf("clean terraform workspace %q: %w", workdir, err)
+		}
+	}
+	return nil
 }
 
 func parseInfraOutput(data []byte) (*InfraOutput, error) {
