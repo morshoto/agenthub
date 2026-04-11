@@ -75,6 +75,12 @@ Preview config edits without writing the config file:
 agenthub config update --config agenthub.yaml --dry-run --set runtime.model=gpt-5.4
 ```
 
+Update one agent's integration credentials without editing files manually:
+
+```bash
+agenthub config secret update --config agenthub.yaml --set slack.bot_token=xoxb-... --set slack.app_token=xapp-...
+```
+
 Inspect one deployed agent in detail:
 
 ```bash

@@ -312,7 +312,11 @@ func resolveSlackDeployCodexAPIKey(ctx context.Context, profile string, cfg *con
 func appendEnvFile(path string, values map[string]string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("read env file %q: %w", path, err)
+		if errors.Is(err, os.ErrNotExist) {
+			data = nil
+		} else {
+			return fmt.Errorf("read env file %q: %w", path, err)
+		}
 	}
 	lines := []string{}
 	for _, line := range strings.Split(string(data), "\n") {
