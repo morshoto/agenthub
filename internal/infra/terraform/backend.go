@@ -14,6 +14,7 @@ import (
 
 type InfraBackend interface {
 	Init(ctx context.Context, workdir string) error
+	Import(ctx context.Context, workdir string, address string, id string) error
 	Plan(ctx context.Context, workdir string, varsFile string) error
 	Apply(ctx context.Context, workdir string, varsFile string) error
 	Destroy(ctx context.Context, workdir string, varsFile string) error
@@ -66,6 +67,21 @@ func (t *TerraformBackend) Plan(ctx context.Context, workdir string, varsFile st
 		args = append(args, "-var-file="+varsFile)
 	}
 	return t.run(ctx, workdir, args...)
+}
+
+func (t *TerraformBackend) Import(ctx context.Context, workdir string, address string, id string) error {
+	if err := t.ensureBinary(); err != nil {
+		return err
+	}
+	address = strings.TrimSpace(address)
+	id = strings.TrimSpace(id)
+	if address == "" {
+		return errors.New("terraform import address is required")
+	}
+	if id == "" {
+		return errors.New("terraform import id is required")
+	}
+	return t.run(ctx, workdir, "import", "-input=false", "-no-color", address, id)
 }
 
 func (t *TerraformBackend) Apply(ctx context.Context, workdir string, varsFile string) error {

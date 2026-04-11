@@ -118,6 +118,10 @@ type createGroupedStageRunner interface {
 	RunGroup(ctx context.Context, group, title string, fn func(context.Context) error) error
 }
 
+type awsKeyPairInspector interface {
+	KeyPairExists(ctx context.Context, region, keyName string) (bool, error)
+}
+
 func runCreateStage(progress stageRunner, ctx context.Context, group, title string, fn func(context.Context) error) error {
 	if progress == nil {
 		return fn(ctx)
@@ -211,6 +215,23 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 		}
 		if err := backend.Init(runCtx, workdir); err != nil {
 			return err
+		}
+		if strings.EqualFold(cfg.Platform.Name, config.PlatformAWS) {
+			inspector, ok := adviser.(awsKeyPairInspector)
+			if ok {
+				keyName := strings.TrimSpace(inputs.SSHKeyName)
+				if keyName != "" {
+					exists, err := inspector.KeyPairExists(runCtx, cfg.Region.Name, keyName)
+					if err != nil {
+						return err
+					}
+					if exists {
+						if err := backend.Import(runCtx, workdir, "aws_key_pair.this", keyName); err != nil {
+							return err
+						}
+					}
+				}
+			}
 		}
 		if err := backend.Plan(runCtx, workdir, varsPath); err != nil {
 			return err
