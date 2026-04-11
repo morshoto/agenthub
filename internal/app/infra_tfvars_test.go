@@ -235,6 +235,10 @@ sandbox:
   enabled: true
   network_mode: public
 github:
+  auth_mode: app
+  app_id: "123456"
+  installation_id: "789012"
+  private_key_secret_arn: arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-app-private-key
   ssh_key_secret_arn: arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-ssh-key
 ssh:
   key_name: demo-key
@@ -303,6 +307,11 @@ runtime:
 sandbox:
   enabled: true
   network_mode: public
+github:
+  auth_mode: app
+  app_id: "123456"
+  installation_id: "789012"
+  private_key_secret_arn: arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-app-private-key
 ssh:
   key_name: demo-key
   private_key_path: `+keyPath+`
