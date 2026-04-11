@@ -102,10 +102,6 @@ func (i Installer) Install(ctx context.Context, req Request) (Result, error) {
 	if backend == nil {
 		backend = ShellBackend{}
 	}
-	workingDir := strings.TrimSpace(req.WorkingDir)
-	if workingDir == "" {
-		workingDir = "/opt/agenthub"
-	}
 
 	report, err := PrereqChecker{
 		Host:          i.Host,
@@ -121,10 +117,11 @@ func (i Installer) Install(ctx context.Context, req Request) (Result, error) {
 		}
 	}
 
-	rendered, err := RenderRuntimeConfig(req.Config, req.UseNemoClaw, req.Port)
+	artifacts, err := PreviewManagedArtifacts(req)
 	if err != nil {
 		return Result{}, err
 	}
+	workingDir := artifacts.WorkingDir
 
 	tmpDir, err := os.MkdirTemp("", "agenthub-install-*")
 	if err != nil {
@@ -133,7 +130,7 @@ func (i Installer) Install(ctx context.Context, req Request) (Result, error) {
 	defer os.RemoveAll(tmpDir)
 
 	localConfigPath := filepath.Join(tmpDir, "runtime.yaml")
-	if err := os.WriteFile(localConfigPath, rendered, 0o600); err != nil {
+	if err := os.WriteFile(localConfigPath, artifacts.RuntimeConfig, 0o600); err != nil {
 		return Result{}, fmt.Errorf("write rendered config: %w", err)
 	}
 
@@ -150,7 +147,7 @@ func (i Installer) Install(ctx context.Context, req Request) (Result, error) {
 		return Result{}, fmt.Errorf("prepare working directory ownership %q: %w", workingDir, err)
 	}
 
-	remoteConfigPath := pathJoin(workingDir, "runtime.yaml")
+	remoteConfigPath := artifacts.RuntimeConfigPath
 	remoteScriptPath := pathJoin(workingDir, "install.sh")
 	if err := i.Host.Upload(ctx, localConfigPath, remoteConfigPath); err != nil {
 		return Result{}, fmt.Errorf("upload runtime config: %w", err)
@@ -221,21 +218,17 @@ func (i Installer) installService(ctx context.Context, req Request, workingDir s
 		return serviceInstallResult{}, err
 	}
 
-	remoteBinaryPath := pathJoin(workingDir, "bin", "agenthub")
-	remoteServicePath := "/etc/systemd/system/agenthub.service"
+	artifacts, err := PreviewManagedArtifacts(req)
+	if err != nil {
+		return serviceInstallResult{}, err
+	}
+
+	remoteBinaryPath := artifacts.BinaryPath
+	remoteServicePath := artifacts.ServicePath
 	stagedBinaryPath := pathJoin(workingDir, "agenthub.upload")
 	stagedServicePath := pathJoin(workingDir, "agenthub.service")
-	remoteEnvPath := pathJoin(workingDir, "agenthub.env")
 	stagedEnvPath := pathJoin(workingDir, "agenthub.env.upload")
-
-	providerName := strings.ToLower(strings.TrimSpace(req.Config.Runtime.Provider))
-	codexAPIKey := strings.TrimSpace(req.CodexAPIKey)
-	envFilePath := ""
-	if providerName == "codex" && codexAPIKey != "" {
-		envFilePath = remoteEnvPath
-	} else if providerName == "aws-bedrock" {
-		envFilePath = remoteEnvPath
-	}
+	envFilePath := artifacts.ProviderEnvPath
 
 	if _, err := i.Host.Run(ctx, "sudo", "mkdir", "-p", pathJoin(workingDir, "bin")); err != nil {
 		return serviceInstallResult{}, fmt.Errorf("prepare runtime binary directory: %w", err)
@@ -261,14 +254,7 @@ func (i Installer) installService(ctx context.Context, req Request, workingDir s
 		defer os.RemoveAll(tmpDir)
 
 		localEnvPath := filepath.Join(tmpDir, "agenthub.env")
-		envContents := ""
-		switch providerName {
-		case "codex":
-			envContents = fmt.Sprintf("OPENAI_API_KEY=%s\n", codexAPIKey)
-		case "aws-bedrock":
-			envContents = fmt.Sprintf("AWS_REGION=%s\nAWS_DEFAULT_REGION=%s\n", strings.TrimSpace(req.Config.Region.Name), strings.TrimSpace(req.Config.Region.Name))
-		}
-		if err := os.WriteFile(localEnvPath, []byte(envContents), 0o600); err != nil {
+		if err := os.WriteFile(localEnvPath, artifacts.ProviderEnv, 0o600); err != nil {
 			return serviceInstallResult{}, fmt.Errorf("write provider environment file: %w", err)
 		}
 		if err := i.Host.Upload(ctx, localEnvPath, stagedEnvPath); err != nil {
@@ -282,22 +268,6 @@ func (i Installer) installService(ctx context.Context, req Request, workingDir s
 		}
 	}
 
-	listenPort := req.Config.Runtime.Port
-	if req.Port > 0 {
-		listenPort = req.Port
-	}
-	if listenPort <= 0 {
-		listenPort = 8080
-	}
-	unitContents := renderSystemdUnit(
-		remoteBinaryPath,
-		pathJoin(workingDir, "runtime.yaml"),
-		listenPort,
-		defaultRuntimeIdleTimeout,
-		defaultRuntimeIdleShutdownCommand,
-		envFilePath,
-	)
-
 	tmpDir, err := os.MkdirTemp("", "agenthub-systemd-*")
 	if err != nil {
 		return serviceInstallResult{}, fmt.Errorf("create temporary service workspace: %w", err)
@@ -305,7 +275,7 @@ func (i Installer) installService(ctx context.Context, req Request, workingDir s
 	defer os.RemoveAll(tmpDir)
 
 	localUnitPath := filepath.Join(tmpDir, "agenthub.service")
-	if err := os.WriteFile(localUnitPath, []byte(unitContents), 0o600); err != nil {
+	if err := os.WriteFile(localUnitPath, artifacts.ServiceUnit, 0o600); err != nil {
 		return serviceInstallResult{}, fmt.Errorf("write systemd unit: %w", err)
 	}
 	if err := i.Host.Upload(ctx, localUnitPath, stagedServicePath); err != nil {

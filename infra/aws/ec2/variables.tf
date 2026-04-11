@@ -80,6 +80,11 @@ variable "name_prefix" {
   default = "agenthub"
 }
 
+variable "security_group_name" {
+  type    = string
+  default = ""
+}
+
 variable "use_nemoclaw" {
   type    = bool
   default = false

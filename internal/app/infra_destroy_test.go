@@ -193,6 +193,10 @@ func (b destroyTrackingTerraformBackend) Init(ctx context.Context, workdir strin
 	return nil
 }
 
+func (b destroyTrackingTerraformBackend) Import(ctx context.Context, workdir string, address string, id string) error {
+	return nil
+}
+
 func (b destroyTrackingTerraformBackend) Plan(ctx context.Context, workdir string, varsFile string) error {
 	return nil
 }

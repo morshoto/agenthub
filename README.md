@@ -8,108 +8,64 @@
 
 `agenthub` is a Go CLI for provisioning and operating multi-agents environments on cloud instance, installing the runtime on a host, and wiring Slack integrations.
 
-### Install
+## Quick Start
 
-**Homebrew**: install from the `morshoto/agenthub` tap <br>
-**Nix**: install directly from this repository using a flake <br>
-**GitHub Releases**: download the binary that matches your platform from the latest release and place it on your `PATH`
+Install `agenthub` with one of the supported distribution paths:
 
-```bash
-# Install with Homebrew
-brew tap morshoto/agenthub && brew install agenthub
-# Install directly from this repository
-nix profile install github:morshoto/agenthub
+- Homebrew: `brew tap morshoto/agenthub && brew install agenthub`
+- Nix: `nix profile install github:morshoto/agenthub`
+- GitHub Releases: download the binary for your platform from the latest release and place it on your `PATH`
 
-# Run it without installing
-nix run github:morshoto/agenthub -- version
+For full install commands and platform notes, see [Installation Guide](./doc/install.md).
 
-# macOS arm64 binary from the latest release
-gh release download latest --pattern 'agenthub_*_darwin_arm64'
-
-# Linux amd64 binary from the latest release
-gh release download latest --pattern 'agenthub_*_linux_amd64'
-```
-
-Release binaries remain the source of truth for manual downloads.
-The Homebrew tap is published separately at `https://github.com/morshoto/homebrew-agenthub`.
-
-### Supported OS / arch
+### Supported OS / Arch
 
 - Linux `amd64`
 - macOS `arm64`
 - Nix on the same systems supported by nixpkgs
 - Homebrew on the same systems supported by the tap
 
-### Common Commands
+Run the interactive setup:
 
 ```bash
-# Run the interactive setup
 agenthub init
-# Create instances from a config file
+```
+
+Provision from a config file:
+
+```bash
 agenthub create --config agenthub.yaml
-# Destroy infrastructure for one deployed agent
-agenthub infra destroy --config agenthub.yaml
-# Re-apply runtime deployment to an existing host
-agenthub redeploy --config agenthub.yaml
-# Deploy Slack integration
-agenthub slack deploy --config agenthub.yaml
-# Show merged agent config status under `agents/`
-agenthub status
-# Print the release version
+```
+
+Inspect one deployed agent:
+
+```bash
+agenthub inspect alpha --ssh-key ~/.ssh/id_ed25519
+```
+
+Check the current version:
+
+```bash
 agenthub --version
 ```
 
-### Runtime API
+## Documentation
 
-The runtime exposes health, status, generation, and command execution endpoints on the configured port.
+- [Documentation Index](./doc/README.md)
+- [Installation Guide](./doc/install.md)
+- [CLI Usage Guide](./doc/cli-usage.md)
+- [Runtime API](./doc/runtime-api.md)
+- [Manual Bootstrap Commands](./doc/manual-bootstrap-commands.md)
+- [Codex Onboarding](./doc/codex-onboarding.md)
+- [Contributing](./CONTRIBUTING.md)
+- [Changelog](./doc/changelog.md)
 
-- `GET /healthz` returns the runtime health payload, including the runtime config path and workspace root.
-- `GET /status` returns active runtime work such as in-flight generation or command execution.
-- `POST /v1/generate` keeps the existing Bedrock-backed text generation path.
-- `POST /v1/execute` runs a command in the runtime workspace context and returns `stdout`, `stderr`, and `exit_code`.
+## Development
 
-Example execution request:
-
-```bash
-curl -fsS -X POST http://127.0.0.1:8080/v1/execute \
-  -H 'Content-Type: application/json' \
-  -d '{"command":"pwd"}'
-```
-
-The default execution workspace is `/opt/agenthub/workspace`. If sandbox filesystem allow-lists are configured, requested working directories must stay inside one of those allowed roots.
-
-Notes:
-
-- `agenthub init` and `agenthub create` both require a usable AWS profile. Pass `--profile` or set `AWS_PROFILE` before running them.
-- If only one AWS profile is discovered locally, `agenthub` will auto-select it instead of asking.
-- `agenthub init` now always writes public networking so the generated config is ready for `agenthub create`.
-- `agenthub infra destroy` is the supported teardown path for one deployed agent; it preserves the local config and clears stale deployment state after a successful destroy.
-- `agenthub slack deploy` uses `infra.instance_id` from the config created by `agenthub create`; pass `--target` if you want to override it.
-
-### Local Validation
+Run the standard local validation loop:
 
 ```bash
-# Fast inner-loop validation
 make validate
-
-# Run individual checks
-make build
-make fmt-check
-make vet
-make test
-
-# Slower deep validation
-make test-race
-make validate-deep
 ```
 
-Use `make validate` for the normal local feedback loop. Run `make test-race` when touching concurrency-sensitive paths or when you want extra confidence from the Go race detector, and use `make validate-deep` when you want the fast checks plus the slower race pass in one command.
-
-The canonical build entrypoint is `./cmd/agenthub`. Local builds, CI, packaging, and runtime install flows all build from that path.
-
-### Publishing
-
-- Release builds are created by `.github/workflows/publish.yml`.
-- The workflow also updates the `morshoto/homebrew-agenthub` tap.
-- Set the `HOMEBREW_TAP_TOKEN` repository secret on `morshoto/agenthub` so the tap push step can authenticate.
-- `go-ci` runs a dry-run publish check against a temporary Homebrew tap before release jobs run.
+For development setup, project structure, and contribution guidelines, see [CONTRIBUTING.md](./CONTRIBUTING.md).
