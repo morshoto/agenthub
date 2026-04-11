@@ -16,6 +16,24 @@
 - Add Slack undeploy command by @morshoto in https://github.com/morshoto/agenthub/pull/114
 - Runtime service control commands by @morshoto in https://github.com/morshoto/agenthub/pull/113
 - Additive --agent Flag Set for Non-Interactive Agent Selection by @morshoto in https://github.com/morshoto/agenthub/pull/115
+- Release for v0.1.4 by @agenthub-tagpr[bot] in https://github.com/morshoto/agenthub/pull/104
+
+## [v0.1.4](https://github.com/morshoto/agenthub/compare/v0.1.3...v0.1.4) - 2026-04-11
+- migration in a single workflow file by @morshoto in https://github.com/morshoto/agenthub/pull/102
+- update: swapped the tagpr auth flow in publish.yml:1 from secrets.TAG… by @morshoto in https://github.com/morshoto/agenthub/pull/103
+- Update tagpr configuration for release and changelog by @morshoto in https://github.com/morshoto/agenthub/pull/105
+- build(deps): bump golang from 1.25-alpine to 1.26-alpine by @dependabot[bot] in https://github.com/morshoto/agenthub/pull/13
+- build(deps): bump github.com/aws/aws-sdk-go-v2/config from 1.32.13 to 1.32.14 by @dependabot[bot] in https://github.com/morshoto/agenthub/pull/16
+- build(deps): bump github.com/aws/aws-sdk-go-v2/service/ec2 from 1.296.1 to 1.297.0 by @dependabot[bot] in https://github.com/morshoto/agenthub/pull/96
+- build(deps): bump github.com/slack-go/slack from 0.20.0 to 0.21.1 by @dependabot[bot] in https://github.com/morshoto/agenthub/pull/95
+- build(deps): bump golang.org/x/term from 0.35.0 to 0.42.0 by @dependabot[bot] in https://github.com/morshoto/agenthub/pull/70
+- update: erase scripts/__pycache__ by @morshoto in https://github.com/morshoto/agenthub/pull/106
+- fix: the failure mode from run 24277842472 by @morshoto in https://github.com/morshoto/agenthub/pull/108
+- Secret update command by @morshoto in https://github.com/morshoto/agenthub/pull/109
+- Diagnostics bundle command by @morshoto in https://github.com/morshoto/agenthub/pull/110
+- Add Slack undeploy command by @morshoto in https://github.com/morshoto/agenthub/pull/114
+- Runtime service control commands by @morshoto in https://github.com/morshoto/agenthub/pull/113
+- Additive --agent Flag Set for Non-Interactive Agent Selection by @morshoto in https://github.com/morshoto/agenthub/pull/115
 
 ## [v0.1.3](https://github.com/morshoto/agenthub/compare/v0.1.2...v0.1.3) - 2026-04-11
 - add: changelog reorganization by @morshoto in https://github.com/morshoto/agenthub/pull/76
