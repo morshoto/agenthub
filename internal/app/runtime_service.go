@@ -297,12 +297,22 @@ func runtimeServiceActionAlreadySatisfied(action string, state inspectServiceSta
 	case "start":
 		return strings.EqualFold(strings.TrimSpace(state.ActiveState), "active")
 	case "stop":
-		return !strings.EqualFold(strings.TrimSpace(state.ActiveState), "active")
+		return runtimeServiceIsStopped(state)
 	case "restart":
 		return false
 	default:
 		return false
 	}
+}
+
+func runtimeServiceIsStopped(state inspectServiceState) bool {
+	activeState := strings.ToLower(strings.TrimSpace(state.ActiveState))
+	subState := strings.ToLower(strings.TrimSpace(state.SubState))
+
+	if activeState == "inactive" {
+		return true
+	}
+	return activeState == "" && (subState == "" || subState == "dead")
 }
 
 func runtimeServiceAlreadySatisfiedMessage(action string) string {
