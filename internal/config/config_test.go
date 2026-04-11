@@ -73,7 +73,7 @@ func TestValidateReportsReadableErrors(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsIncompleteGitHubAuth(t *testing.T) {
+func TestValidateAllowsIncompleteGitHubAuth(t *testing.T) {
 	cfg := &Config{
 		Platform: PlatformConfig{Name: PlatformAWS},
 		Region:   RegionConfig{Name: "us-east-1"},
@@ -84,16 +84,12 @@ func TestValidateRejectsIncompleteGitHubAuth(t *testing.T) {
 		Sandbox:  SandboxConfig{Enabled: true},
 	}
 
-	err := Validate(cfg)
-	if err == nil {
-		t.Fatal("Validate() error = nil")
-	}
-	if got := err.Error(); !strings.Contains(got, "github.installation_id") || !strings.Contains(got, "github.private_key_secret_arn") {
-		t.Fatalf("Validate() error = %q, want github auth validation errors", got)
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("Validate() error = %v", err)
 	}
 }
 
-func TestValidateRejectsIncompleteGitHubUserAuth(t *testing.T) {
+func TestValidateAllowsIncompleteGitHubUserAuth(t *testing.T) {
 	cfg := &Config{
 		Platform: PlatformConfig{Name: PlatformAWS},
 		Region:   RegionConfig{Name: "us-east-1"},
@@ -104,12 +100,108 @@ func TestValidateRejectsIncompleteGitHubUserAuth(t *testing.T) {
 		Sandbox:  SandboxConfig{Enabled: true},
 	}
 
-	err := Validate(cfg)
+	if err := Validate(cfg); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestValidateDeploymentRejectsMissingGitHubAuth(t *testing.T) {
+	cfg := &Config{
+		Platform: PlatformConfig{Name: PlatformAWS},
+		Region:   RegionConfig{Name: "us-east-1"},
+		Instance: InstanceConfig{Type: "t3.medium", DiskSizeGB: 20},
+		Image:    ImageConfig{Name: "ubuntu-24.04"},
+		Runtime:  RuntimeConfig{Endpoint: "http://localhost:11434", Model: "llama3.2"},
+		Sandbox:  SandboxConfig{Enabled: true},
+	}
+
+	err := ValidateDeployment(cfg)
 	if err == nil {
-		t.Fatal("Validate() error = nil")
+		t.Fatal("ValidateDeployment() error = nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "GitHub connectivity is required for deployment") || !strings.Contains(got, "github.auth_mode") {
+		t.Fatalf("ValidateDeployment() error = %q, want deployment GitHub validation error", got)
+	}
+}
+
+func TestValidateDeploymentRejectsIncompleteGitHubAuth(t *testing.T) {
+	cfg := &Config{
+		Platform: PlatformConfig{Name: PlatformAWS},
+		Region:   RegionConfig{Name: "us-east-1"},
+		Instance: InstanceConfig{Type: "t3.medium", DiskSizeGB: 20},
+		Image:    ImageConfig{Name: "ubuntu-24.04"},
+		Runtime:  RuntimeConfig{Endpoint: "http://localhost:11434", Model: "llama3.2"},
+		GitHub:   GitHubConfig{AuthMode: GitHubAuthModeApp, AppID: "123456"},
+		Sandbox:  SandboxConfig{Enabled: true},
+	}
+
+	err := ValidateDeployment(cfg)
+	if err == nil {
+		t.Fatal("ValidateDeployment() error = nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "github.installation_id") || !strings.Contains(got, "github.private_key_secret_arn") {
+		t.Fatalf("ValidateDeployment() error = %q, want github auth validation errors", got)
+	}
+}
+
+func TestValidateDeploymentRejectsIncompleteGitHubUserAuth(t *testing.T) {
+	cfg := &Config{
+		Platform: PlatformConfig{Name: PlatformAWS},
+		Region:   RegionConfig{Name: "us-east-1"},
+		Instance: InstanceConfig{Type: "t3.medium", DiskSizeGB: 20},
+		Image:    ImageConfig{Name: "ubuntu-24.04"},
+		Runtime:  RuntimeConfig{Endpoint: "http://localhost:11434", Model: "llama3.2"},
+		GitHub:   GitHubConfig{AuthMode: GitHubAuthModeUser},
+		Sandbox:  SandboxConfig{Enabled: true},
+	}
+
+	err := ValidateDeployment(cfg)
+	if err == nil {
+		t.Fatal("ValidateDeployment() error = nil")
 	}
 	if got := err.Error(); !strings.Contains(got, "github.token_secret_arn") {
-		t.Fatalf("Validate() error = %q, want github.token_secret_arn validation error", got)
+		t.Fatalf("ValidateDeployment() error = %q, want github.token_secret_arn validation error", got)
+	}
+}
+
+func TestValidateDeploymentRejectsUnsupportedGitHubAuthMode(t *testing.T) {
+	cfg := &Config{
+		Platform: PlatformConfig{Name: PlatformAWS},
+		Region:   RegionConfig{Name: "us-east-1"},
+		Instance: InstanceConfig{Type: "t3.medium", DiskSizeGB: 20},
+		Image:    ImageConfig{Name: "ubuntu-24.04"},
+		Runtime:  RuntimeConfig{Endpoint: "http://localhost:11434", Model: "llama3.2"},
+		GitHub:   GitHubConfig{AuthMode: "ssh"},
+		Sandbox:  SandboxConfig{Enabled: true},
+	}
+
+	err := ValidateDeployment(cfg)
+	if err == nil {
+		t.Fatal("ValidateDeployment() error = nil")
+	}
+	if got := err.Error(); !strings.Contains(got, `unsupported GitHub auth mode "ssh"`) {
+		t.Fatalf("ValidateDeployment() error = %q, want unsupported mode error", got)
+	}
+}
+
+func TestValidateDeploymentAcceptsValidGitHubAuth(t *testing.T) {
+	cfg := &Config{
+		Platform: PlatformConfig{Name: PlatformAWS},
+		Region:   RegionConfig{Name: "us-east-1"},
+		Instance: InstanceConfig{Type: "t3.medium", DiskSizeGB: 20},
+		Image:    ImageConfig{Name: "ubuntu-24.04"},
+		Runtime:  RuntimeConfig{Endpoint: "http://localhost:11434", Model: "llama3.2"},
+		GitHub: GitHubConfig{
+			AuthMode:            GitHubAuthModeApp,
+			AppID:               "123456",
+			InstallationID:      "789012",
+			PrivateKeySecretARN: "arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
+		},
+		Sandbox: SandboxConfig{Enabled: true},
+	}
+
+	if err := ValidateDeployment(cfg); err != nil {
+		t.Fatalf("ValidateDeployment() error = %v", err)
 	}
 }
 

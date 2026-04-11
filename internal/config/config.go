@@ -129,12 +129,7 @@ func (e *ValidationError) Error() string {
 	if e == nil || len(e.Fields) == 0 {
 		return ""
 	}
-	var parts []string
-	for _, field := range e.Fields {
-		parts = append(parts, fmt.Sprintf("%s: %s", field.Field, field.Message))
-	}
-	sort.Strings(parts)
-	return "config validation failed: " + strings.Join(parts, "; ")
+	return formatValidationError("config validation failed", e.Fields)
 }
 
 func (e *ValidationError) Add(field, message string) {
@@ -227,42 +222,6 @@ func Validate(cfg *Config) error {
 	if provider := strings.TrimSpace(cfg.Runtime.Provider); provider != "" && !IsValidRuntimeProvider(provider) {
 		v.Add("runtime.provider", fmt.Sprintf("unsupported provider %q", provider))
 	}
-	if gh := cfg.GitHub; hasGitHubConfig(gh) {
-		explicitMode := strings.ToLower(strings.TrimSpace(gh.AuthMode))
-		if explicitMode != "" && explicitMode != GitHubAuthModeApp && explicitMode != GitHubAuthModeUser {
-			v.Add("github.auth_mode", fmt.Sprintf("unsupported GitHub auth mode %q", gh.AuthMode))
-			goto validateGitHubConfigDone
-		}
-		mode := GitHubAuthModeFor(gh)
-		switch mode {
-		case GitHubAuthModeUser:
-			if strings.TrimSpace(gh.TokenSecretARN) == "" {
-				v.Add("github.token_secret_arn", "is required when github user auth is configured")
-			} else if !strings.HasPrefix(strings.TrimSpace(gh.TokenSecretARN), "arn:") {
-				v.Add("github.token_secret_arn", "must be a Secrets Manager ARN")
-			}
-		case GitHubAuthModeApp:
-			if strings.TrimSpace(gh.AppID) == "" {
-				v.Add("github.app_id", "is required when github app auth is configured")
-			} else if _, err := strconv.ParseInt(strings.TrimSpace(gh.AppID), 10, 64); err != nil {
-				v.Add("github.app_id", "must be a numeric GitHub App id")
-			}
-			if strings.TrimSpace(gh.InstallationID) == "" {
-				v.Add("github.installation_id", "is required when github app auth is configured")
-			} else if _, err := strconv.ParseInt(strings.TrimSpace(gh.InstallationID), 10, 64); err != nil {
-				v.Add("github.installation_id", "must be a numeric GitHub installation id")
-			}
-			if strings.TrimSpace(gh.PrivateKeySecretARN) == "" {
-				v.Add("github.private_key_secret_arn", "is required when github app auth is configured")
-			} else if !strings.HasPrefix(strings.TrimSpace(gh.PrivateKeySecretARN), "arn:") {
-				v.Add("github.private_key_secret_arn", "must be a Secrets Manager ARN")
-			}
-		default:
-			// no-op: config.HasGitHubAuth may be true when the auth fields are
-			// incomplete, and the specific validation errors above will cover them.
-		}
-	}
-validateGitHubConfigDone:
 	if publicCIDR := strings.TrimSpace(cfg.Runtime.PublicCIDR); publicCIDR != "" {
 		if _, err := parseCIDRLike(publicCIDR); err != nil {
 			v.Add("runtime.public_cidr", err.Error())
@@ -288,6 +247,51 @@ validateGitHubConfigDone:
 	}
 
 	return v.OrNil()
+}
+
+func ValidateDeployment(cfg *Config) error {
+	if cfg == nil {
+		return errors.New("deployment validation failed: config is nil")
+	}
+
+	var v ValidationError
+	gh := cfg.GitHub
+	mode := GitHubAuthModeFor(gh)
+	switch mode {
+	case GitHubAuthModeUser:
+		if strings.TrimSpace(gh.TokenSecretARN) == "" {
+			v.Add("github.token_secret_arn", "is required for deployment when github.auth_mode=user")
+		} else if !strings.HasPrefix(strings.TrimSpace(gh.TokenSecretARN), "arn:") {
+			v.Add("github.token_secret_arn", "must be a Secrets Manager ARN")
+		}
+	case GitHubAuthModeApp:
+		if strings.TrimSpace(gh.AppID) == "" {
+			v.Add("github.app_id", "is required for deployment when github.auth_mode=app")
+		} else if _, err := strconv.ParseInt(strings.TrimSpace(gh.AppID), 10, 64); err != nil {
+			v.Add("github.app_id", "must be a numeric GitHub App id")
+		}
+		if strings.TrimSpace(gh.InstallationID) == "" {
+			v.Add("github.installation_id", "is required for deployment when github.auth_mode=app")
+		} else if _, err := strconv.ParseInt(strings.TrimSpace(gh.InstallationID), 10, 64); err != nil {
+			v.Add("github.installation_id", "must be a numeric GitHub installation id")
+		}
+		if strings.TrimSpace(gh.PrivateKeySecretARN) == "" {
+			v.Add("github.private_key_secret_arn", "is required for deployment when github.auth_mode=app")
+		} else if !strings.HasPrefix(strings.TrimSpace(gh.PrivateKeySecretARN), "arn:") {
+			v.Add("github.private_key_secret_arn", "must be a Secrets Manager ARN")
+		}
+	default:
+		if strings.TrimSpace(gh.AuthMode) != "" {
+			v.Add("github.auth_mode", fmt.Sprintf("GitHub connectivity is required for deployment; unsupported GitHub auth mode %q", gh.AuthMode))
+		} else {
+			v.Add("github.auth_mode", "GitHub connectivity is required for deployment; configure github.auth_mode=app (recommended) or github.auth_mode=user")
+		}
+	}
+
+	if len(v.Fields) == 0 {
+		return nil
+	}
+	return errors.New(formatValidationError("deployment validation failed", v.Fields))
 }
 
 func LoadAndValidate(path string) (*Config, error) {
@@ -448,4 +452,16 @@ func parseCIDRLike(value string) (string, error) {
 		return addr.String() + "/32", nil
 	}
 	return addr.String() + "/128", nil
+}
+
+func formatValidationError(prefix string, fields []FieldError) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(fields))
+	for _, field := range fields {
+		parts = append(parts, fmt.Sprintf("%s: %s", field.Field, field.Message))
+	}
+	sort.Strings(parts)
+	return prefix + ": " + strings.Join(parts, "; ")
 }

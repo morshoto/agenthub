@@ -39,6 +39,9 @@ This command resolves the active AWS profile, derives the SSH public key from th
 			if err := validateInfraConfig(cfg); err != nil {
 				return err
 			}
+			if err := validateDeploymentConfig(cmd.OutOrStdout(), cfg); err != nil {
+				return err
+			}
 
 			profile, err := selectAWSProfile(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), app.opts.Profile)
 			if err != nil {

@@ -236,49 +236,49 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if err == nil && strings.TrimSpace(repoSlug) != "" {
 		w.logLine("Access", "!", fmt.Sprintf("detected GitHub repo candidate: %s", repoSlug))
 	}
+	w.logLine("Access", "⇒", "GitHub connectivity is required for deployed agents.")
+	w.logLine("Access", "⇒", "GitHub App auth is recommended for shared or production environments.")
 	githubCfg := config.GitHubConfig{}
 	if w.Existing != nil {
 		githubCfg = w.Existing.GitHub
 	}
-	connectGitHub, err := w.Prompter.Confirm("Configure GitHub access?", config.HasGitHubAuth(w.Existing))
+	defaultAuthMode := config.GitHubAuthModeFor(githubCfg)
+	if defaultAuthMode != config.GitHubAuthModeUser && defaultAuthMode != config.GitHubAuthModeApp {
+		defaultAuthMode = config.GitHubAuthModeApp
+	}
+	const (
+		githubAuthOptionApp  = "app (recommended for shared/production use)"
+		githubAuthOptionUser = "user (personal/development use)"
+	)
+	defaultAuthOption := githubAuthOptionApp
+	if defaultAuthMode == config.GitHubAuthModeUser {
+		defaultAuthOption = githubAuthOptionUser
+	}
+	authSelection, err := w.Prompter.Select("Select GitHub auth mode", []string{githubAuthOptionApp, githubAuthOptionUser}, defaultAuthOption)
 	if err != nil {
 		return nil, err
 	}
-	if connectGitHub {
-		defaultAuthMode := config.GitHubAuthModeFor(githubCfg)
-		if defaultAuthMode == "" {
-			if _, lookPathErr := exec.LookPath("gh"); lookPathErr == nil {
-				defaultAuthMode = config.GitHubAuthModeUser
-			} else {
-				defaultAuthMode = config.GitHubAuthModeApp
-			}
-		}
-		authMode, err := w.Prompter.Select("Select GitHub auth mode", []string{config.GitHubAuthModeUser, config.GitHubAuthModeApp}, defaultAuthMode)
+	switch authSelection {
+	case githubAuthOptionUser:
+		githubCfg, err = bootstrapGitHubUserAuth(ctx, w.AWSProfile, region, repoSlug)
 		if err != nil {
 			return nil, err
 		}
-		switch authMode {
-		case config.GitHubAuthModeUser:
-			githubCfg, err = bootstrapGitHubUserAuth(ctx, w.AWSProfile, region, repoSlug)
-			if err != nil {
-				return nil, err
-			}
-		case config.GitHubAuthModeApp:
-			githubCfg = config.GitHubConfig{AuthMode: config.GitHubAuthModeApp}
-			githubCfg.AppID, err = w.Prompter.Text("GitHub App ID", strings.TrimSpace(githubCfg.AppID))
-			if err != nil {
-				return nil, err
-			}
-			githubCfg.InstallationID, err = w.Prompter.Text("GitHub installation ID", strings.TrimSpace(githubCfg.InstallationID))
-			if err != nil {
-				return nil, err
-			}
-			githubCfg.PrivateKeySecretARN, err = w.Prompter.Text("GitHub private key secret ARN", strings.TrimSpace(githubCfg.PrivateKeySecretARN))
-			if err != nil {
-				return nil, err
-			}
-			githubCfg.TokenSecretARN = ""
+	default:
+		githubCfg.AuthMode = config.GitHubAuthModeApp
+		githubCfg.AppID, err = w.Prompter.Text("GitHub App ID", strings.TrimSpace(githubCfg.AppID))
+		if err != nil {
+			return nil, err
 		}
+		githubCfg.InstallationID, err = w.Prompter.Text("GitHub installation ID", strings.TrimSpace(githubCfg.InstallationID))
+		if err != nil {
+			return nil, err
+		}
+		githubCfg.PrivateKeySecretARN, err = w.Prompter.Text("GitHub private key secret ARN", strings.TrimSpace(githubCfg.PrivateKeySecretARN))
+		if err != nil {
+			return nil, err
+		}
+		githubCfg.TokenSecretARN = ""
 	}
 
 	useNemoClaw, err := w.Prompter.Confirm("Use NemoClaw", true)
