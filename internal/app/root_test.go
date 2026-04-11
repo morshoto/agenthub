@@ -193,6 +193,75 @@ sandbox:
 	}
 }
 
+func TestConfigUpdateCommandDryRunPrintsChangesWithoutWriting(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "default", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: t3.medium
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+sandbox:
+  enabled: false
+`)
+
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{
+		"agenthub", "config", "update",
+		"--config", path,
+		"--dry-run",
+		"--set", "runtime.model=gpt-5.4",
+		"--set", "sandbox.enabled=true",
+	}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("config file changed during dry-run:\nbefore=%s\nafter=%s", before, after)
+	}
+
+	output := stdout.String()
+	for _, fragment := range []string{
+		"changes:",
+		"runtime.model: llama3.2 -> gpt-5.4",
+		"sandbox.enabled: false -> true",
+		"dry-run: configuration not written:",
+	} {
+		if !strings.Contains(output, fragment) {
+			t.Fatalf("stdout = %q, want %q", output, fragment)
+		}
+	}
+}
+
 func TestConfigUpdateCommandRequiresSetFlag(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agents", "default", "config.yaml")
@@ -1039,6 +1108,150 @@ sandbox:
 	} {
 		if !strings.Contains(got, fragment) {
 			t.Fatalf("stdout = %q, want %q", got, fragment)
+		}
+	}
+}
+
+func TestRedeployCommandDryRunOutputsPreviewWithoutMutation(t *testing.T) {
+	restore := stubAWSProviderFactory()
+	defer restore()
+
+	var commands []string
+	originalExecutor := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return flexibleExecutor{
+			run: func(command string, args ...string) (host.CommandResult, error) {
+				key := strings.TrimSpace(command + " " + strings.Join(args, " "))
+				commands = append(commands, key)
+				switch {
+				case key == "true":
+					return host.CommandResult{}, nil
+				case key == "sudo test -f /opt/agenthub/runtime.yaml":
+					return host.CommandResult{}, nil
+				case key == "sudo cat /opt/agenthub/runtime.yaml":
+					return host.CommandResult{Stdout: strings.Join([]string{
+						"use_nemoclaw: false",
+						"nim_endpoint: http://localhost:11434",
+						"model: llama3.2",
+						"port: 8080",
+						"sandbox:",
+						"  enabled: false",
+						"  network_mode: public",
+						"",
+					}, "\n")}, nil
+				case key == "sudo test -f /etc/systemd/system/agenthub.service":
+					return host.CommandResult{}, nil
+				case key == "sudo cat /etc/systemd/system/agenthub.service":
+					return host.CommandResult{Stdout: strings.Join([]string{
+						"[Unit]",
+						"Description=AgentHub runtime",
+						"After=network-online.target",
+						"Wants=network-online.target",
+						"",
+						"[Service]",
+						"Type=simple",
+						"WorkingDirectory=/opt/agenthub",
+						"ExecStart=/opt/agenthub/bin/agenthub serve --runtime-config /opt/agenthub/runtime.yaml --listen 0.0.0.0:8080 --idle-timeout 24h0m0s --idle-shutdown-command \"shutdown -h now\"",
+						"Restart=always",
+						"RestartSec=5",
+						"",
+						"[Install]",
+						"WantedBy=multi-user.target",
+						"",
+					}, "\n")}, nil
+				case key == "sudo test -f /opt/agenthub/agenthub.env":
+					return host.CommandResult{}, &host.RemoteCommandError{Command: "test", Args: []string{"-f", "/opt/agenthub/agenthub.env"}, ExitCode: 1, Err: errors.New("exit status 1")}
+				default:
+					return host.CommandResult{}, errors.New("unexpected command: " + key)
+				}
+			},
+		}
+	}
+	defer func() { newSSHExecutor = originalExecutor }()
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "demo.pem")
+	if err := os.WriteFile(keyPath, []byte("dummy"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+	path := filepath.Join(dir, "agents", "default", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+ssh:
+  private_key_path: `+keyPath+`
+  user: ubuntu
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+  network_mode: public
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.3
+  port: 8080
+  provider: aws-bedrock
+infra:
+  instance_id: i-0123456789abcdef0
+sandbox:
+  enabled: true
+  network_mode: public
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--config", path, "redeploy", "--dry-run", "--working-dir", "/opt/agenthub", "--ssh-user", "ubuntu", "--ssh-key", keyPath}
+
+	app := New()
+	cmd := newRootCommand(app)
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	got := stdout.String()
+	for _, fragment := range []string{
+		"running redeploy workflow...",
+		"dry-run preview",
+		"- runtime config: would update",
+		"- systemd unit: would update",
+		"- provider environment: would create",
+		"- runtime binary: would replace",
+		"--- current /opt/agenthub/runtime.yaml",
+		"+++ proposed /opt/agenthub/runtime.yaml",
+		"-model: llama3.2",
+		"+model: llama3.3",
+		"target: 203.0.113.10",
+	} {
+		if !strings.Contains(got, fragment) {
+			t.Fatalf("stdout = %q, want %q", got, fragment)
+		}
+	}
+	for _, forbidden := range []string{
+		"install workflow completed",
+		"verification summary",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("stdout = %q, do not want %q", got, forbidden)
+		}
+	}
+	for _, forbidden := range []string{
+		"sudo systemctl daemon-reload",
+		"sudo systemctl enable --now agenthub.service",
+		"sudo mkdir -p /opt/agenthub",
+		"sudo mv /opt/agenthub/agenthub.service /etc/systemd/system/agenthub.service",
+	} {
+		if slices.Contains(commands, forbidden) {
+			t.Fatalf("commands = %v, do not want %q", commands, forbidden)
 		}
 	}
 }
