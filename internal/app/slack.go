@@ -23,21 +23,25 @@ func newSlackServeCommand(app *App) *cobra.Command {
 	var allowedChannels []string
 	var requestTimeout time.Duration
 	var agentsDir string
+	var agentName string
 	var debug bool
 
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run the Slack Socket Mode adapter",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			configPath := strings.TrimSpace(app.opts.ConfigPath)
-			if configPath == "" {
-				session := prompt.NewSession(cmd.InOrStdin(), cmd.OutOrStdout())
-				selectedConfigPath, err := selectAgentConfigPath(session, agentsDir)
-				if err != nil {
-					return err
-				}
-				configPath = selectedConfigPath
+			configPath, err := resolveAgentConfigPath(agentConfigResolutionOptions{
+				ConfigPath:       app.opts.ConfigPath,
+				AgentName:        agentName,
+				AgentsDir:        agentsDir,
+				Session:          prompt.NewSession(cmd.InOrStdin(), cmd.OutOrStdout()),
+				AllowInteractive: true,
+				RequireConfig:    true,
+			})
+			if err != nil {
+				return err
 			}
+			app.opts.ConfigPath = configPath
 			agentCfg, err := config.Load(configPath)
 			if err != nil {
 				return err
@@ -94,6 +98,7 @@ func newSlackServeCommand(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&botUserID, "bot-user-id", "", "Slack bot user id; defaults to SLACK_BOT_USER_ID or AuthTest")
 	cmd.Flags().StringSliceVar(&allowedChannels, "allowed-channel", nil, "channel ID allowed to trigger the bot; repeatable")
 	cmd.Flags().DurationVar(&requestTimeout, "request-timeout", 30*time.Second, "timeout for runtime requests")
+	cmd.Flags().StringVar(&agentName, "agent", "", "agent name to resolve under the agents directory")
 	cmd.Flags().StringVar(&agentsDir, "agents-dir", "agents", "path to the agents directory")
 	cmd.Flags().BoolVar(&debug, "debug", false, "enable Slack adapter debug logging")
 

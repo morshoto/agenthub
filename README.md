@@ -34,7 +34,13 @@ agenthub init
 Provision from a config file:
 
 ```bash
-agenthub create --config agenthub.yaml
+agenthub create --agent alpha
+```
+
+Or use the lower-level config path directly:
+
+```bash
+agenthub create --config agents/alpha/config.yaml
 ```
 
 Inspect one deployed agent:

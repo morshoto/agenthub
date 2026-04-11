@@ -44,21 +44,25 @@ func newSlackDeployCommand(app *App) *cobra.Command {
 	var sshPort int
 	var workingDir string
 	var agentsDir string
+	var agentName string
 
 	cmd := &cobra.Command{
 		Use:     "deploy",
 		Short:   "Deploy the Slack adapter to a remote EC2 host",
 		GroupID: "integrations",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			configPath := strings.TrimSpace(app.opts.ConfigPath)
-			if configPath == "" {
-				session := prompt.NewSession(cmd.InOrStdin(), cmd.OutOrStdout())
-				selectedConfigPath, err := selectAgentConfigPath(session, agentsDir)
-				if err != nil {
-					return err
-				}
-				configPath = selectedConfigPath
+			configPath, err := resolveAgentConfigPath(agentConfigResolutionOptions{
+				ConfigPath:       app.opts.ConfigPath,
+				AgentName:        agentName,
+				AgentsDir:        agentsDir,
+				Session:          prompt.NewSession(cmd.InOrStdin(), cmd.OutOrStdout()),
+				AllowInteractive: true,
+				RequireConfig:    true,
+			})
+			if err != nil {
+				return err
 			}
+			app.opts.ConfigPath = configPath
 			agentCfg, err := config.Load(configPath)
 			if err != nil {
 				return err
@@ -123,6 +127,7 @@ func newSlackDeployCommand(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&sshKey, "ssh-key", "", "path to the SSH private key")
 	cmd.Flags().IntVar(&sshPort, "ssh-port", 22, "SSH port")
 	cmd.Flags().StringVar(&workingDir, "working-dir", "/opt/agenthub", "remote working directory")
+	cmd.Flags().StringVar(&agentName, "agent", "", "agent name to resolve under the agents directory")
 	cmd.Flags().StringVar(&agentsDir, "agents-dir", "agents", "path to the agents directory")
 	return cmd
 }

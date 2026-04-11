@@ -10,10 +10,16 @@ Run the interactive setup:
 agenthub init
 ```
 
-Create infrastructure from a config file:
+Create infrastructure for a named agent:
 
 ```bash
-agenthub create --config agenthub.yaml
+agenthub create --agent alpha
+```
+
+Use the lower-level config path directly when needed:
+
+```bash
+agenthub create --config agents/alpha/config.yaml
 ```
 
 Notes:
@@ -118,7 +124,7 @@ This is the supported teardown path for one deployed agent. It preserves the loc
 Deploy the Slack integration:
 
 ```bash
-agenthub slack deploy --config agenthub.yaml
+agenthub slack deploy --agent alpha
 ```
 
 `agenthub slack deploy` uses `infra.instance_id` from the config created by `agenthub create`. Pass `--target` if you want to override it.

@@ -27,22 +27,25 @@ func newCreateCommand(app *App) *cobra.Command {
 	var useNemoClaw bool
 	var disableNemoClaw bool
 	var agentsDir string
+	var agentName string
 
 	cmd := &cobra.Command{
 		Use:     "create",
 		Short:   "Create and verify a new environment",
 		GroupID: "provision",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			configPath := strings.TrimSpace(app.opts.ConfigPath)
-			if configPath == "" {
-				session := prompt.NewSession(cmd.InOrStdin(), cmd.OutOrStdout())
-				selectedConfigPath, err := selectAgentConfigPath(session, agentsDir)
-				if err != nil {
-					return err
-				}
-				configPath = selectedConfigPath
-				app.opts.ConfigPath = configPath
+			configPath, err := resolveAgentConfigPath(agentConfigResolutionOptions{
+				ConfigPath:       app.opts.ConfigPath,
+				AgentName:        agentName,
+				AgentsDir:        agentsDir,
+				Session:          prompt.NewSession(cmd.InOrStdin(), cmd.OutOrStdout()),
+				AllowInteractive: true,
+				RequireConfig:    true,
+			})
+			if err != nil {
+				return err
 			}
+			app.opts.ConfigPath = configPath
 			cfg, err := config.Load(configPath)
 			if err != nil {
 				return err
@@ -123,6 +126,7 @@ func newCreateCommand(app *App) *cobra.Command {
 	cmd.Flags().IntVar(&port, "port", 0, "runtime port override")
 	cmd.Flags().BoolVar(&useNemoClaw, "use-nemoclaw", false, "enable NemoClaw settings for the generated runtime config")
 	cmd.Flags().BoolVar(&disableNemoClaw, "disable-nemoclaw", false, "disable NemoClaw settings for the generated runtime config")
+	cmd.Flags().StringVar(&agentName, "agent", "", "agent name to resolve under the agents directory")
 	cmd.Flags().StringVar(&agentsDir, "agents-dir", "agents", "path to the agents directory")
 	return cmd
 }
