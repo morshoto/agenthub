@@ -992,6 +992,93 @@ sandbox:
 	}
 }
 
+func TestInfraCreateCommandImportsExistingAWSSecurityGroupBeforePlanWhenStateMissing(t *testing.T) {
+	originalProvider := newAWSProvider
+	originalBackend := newTerraformBackend
+	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
+	originalEnsureSSHPrivateKey := ensureSSHPrivateKeyFunc
+	defer func() {
+		newAWSProvider = originalProvider
+		newTerraformBackend = originalBackend
+		deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey
+		ensureSSHPrivateKeyFunc = originalEnsureSSHPrivateKey
+	}()
+
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+		return keyPairInspectorCloudProvider{
+			stubCloudProvider: stubCloudProvider{profile: profile},
+			exists:            false,
+			securityGroupID:   "sg-0123456789abcdef0",
+		}
+	}
+	ensureSSHPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return privateKeyPath, nil
+	}
+	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub", nil
+	}
+
+	var calls []string
+	newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {
+		return fakeTerraformBackend{
+			onInit: func(workdir string) { calls = append(calls, "init:"+workdir) },
+			onImport: func(workdir, address, id string) {
+				calls = append(calls, "import:"+address+":"+id)
+			},
+			onPlan:  func(workdir, varsFile string) { calls = append(calls, "plan") },
+			onApply: func(workdir, varsFile string) { calls = append(calls, "apply") },
+			output:  &infratf.InfraOutput{InstanceID: "i-0123456789abcdef0", Region: cfg.Region.Name, NetworkMode: "public"},
+		}, nil
+	}
+
+	dir := t.TempDir()
+	agentDir := filepath.Join(dir, "alpha")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(agentDir) error = %v", err)
+	}
+	path := filepath.Join(agentDir, "config.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+infra:
+  aws_profile: sso-dev
+ssh:
+  key_name: demo-key
+  private_key_path: /tmp/demo.pem
+  cidr: 203.0.113.0/24
+  user: ubuntu
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+  network_mode: public
+image:
+  id: ami-0123456789abcdef0
+sandbox:
+  enabled: true
+  network_mode: public
+`)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--config", path, "infra", "create", "--ssh-key-name", "demo-key", "--ssh-cidr", "203.0.113.0/24"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	workdir := filepath.Join(agentDir, ".agenthub", "terraform")
+	want := []string{"init:" + workdir, "import:aws_security_group.this:sg-0123456789abcdef0", "plan", "apply"}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("backend calls = %#v, want %#v", calls, want)
+	}
+}
+
 func TestCreateCommandRequiresSSHAccessConfiguration(t *testing.T) {
 	restore := stubAWSProviderFactory()
 	defer restore()
@@ -3022,12 +3109,17 @@ type infraCreateStubCloudProvider struct {
 
 type keyPairInspectorCloudProvider struct {
 	stubCloudProvider
-	exists bool
-	err    error
+	exists          bool
+	err             error
+	securityGroupID string
 }
 
 func (p keyPairInspectorCloudProvider) KeyPairExists(ctx context.Context, region, keyName string) (bool, error) {
 	return p.exists, p.err
+}
+
+func (p keyPairInspectorCloudProvider) FindSecurityGroupByName(ctx context.Context, region, groupName, owner, agentName, environment string) (string, error) {
+	return p.securityGroupID, p.err
 }
 
 type cleanupTrackingCloudProvider struct {

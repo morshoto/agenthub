@@ -58,6 +58,7 @@ type ec2Client interface {
 	DescribeInstanceTypes(ctx context.Context, params *ec2.DescribeInstanceTypesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeInstanceTypesOutput, error)
 	DescribeInstances(ctx context.Context, params *ec2.DescribeInstancesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error)
 	DescribeKeyPairs(ctx context.Context, params *ec2.DescribeKeyPairsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeKeyPairsOutput, error)
+	DescribeSecurityGroups(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error)
 	TerminateInstances(ctx context.Context, params *ec2.TerminateInstancesInput, optFns ...func(*ec2.Options)) (*ec2.TerminateInstancesOutput, error)
 }
 
@@ -274,6 +275,65 @@ func (p *Provider) KeyPairExists(ctx context.Context, region, keyName string) (b
 		return false, fmt.Errorf("describe EC2 key pair %q in region %s: %w", keyName, region, err)
 	}
 	return len(out.KeyPairs) > 0, nil
+}
+
+func (p *Provider) FindSecurityGroupByName(ctx context.Context, region, groupName, owner, agentName, environment string) (string, error) {
+	region = strings.TrimSpace(region)
+	if region == "" {
+		return "", errors.New("region is required")
+	}
+	groupName = strings.TrimSpace(groupName)
+	if groupName == "" {
+		return "", errors.New("security group name is required")
+	}
+
+	cfg, err := p.loadAWSConfig(ctx)
+	if err != nil {
+		return "", err
+	}
+	cfg.Region = region
+
+	client := p.newEC2Client(cfg)
+	out, err := client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
+		Filters: []ec2types.Filter{
+			{Name: awsbase.String("group-name"), Values: []string{groupName}},
+		},
+	})
+	if err != nil {
+		if isPermissionDenied(err) {
+			return "", &AuthError{
+				Kind:    "permission_denied",
+				Profile: p.Config.Profile,
+				Stage:   authStageAPI,
+				Cause:   fmt.Errorf("describe EC2 security group %q in region %s: %w", groupName, region, err),
+			}
+		}
+		return "", fmt.Errorf("describe EC2 security group %q in region %s: %w", groupName, region, err)
+	}
+	for _, group := range out.SecurityGroups {
+		if tagsMatchSecurityGroup(group.Tags, owner, agentName, environment) {
+			return strings.TrimSpace(awsString(group.GroupId)), nil
+		}
+	}
+	return "", nil
+}
+
+func tagsMatchSecurityGroup(tags []ec2types.Tag, owner, agentName, environment string) bool {
+	if len(tags) == 0 {
+		return false
+	}
+	values := map[string]string{}
+	for _, tag := range tags {
+		key := strings.TrimSpace(awsString(tag.Key))
+		if key == "" {
+			continue
+		}
+		values[key] = strings.TrimSpace(awsString(tag.Value))
+	}
+	return values["ManagedBy"] == "agenthub" &&
+		values["Owner"] == strings.TrimSpace(owner) &&
+		values["AgentName"] == strings.TrimSpace(agentName) &&
+		values["Environment"] == strings.TrimSpace(environment)
 }
 
 func filterInstanceTypesByComputeClass(items []provider.InstanceType, computeClass string) []provider.InstanceType {

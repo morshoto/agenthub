@@ -470,6 +470,72 @@ func TestKeyPairExistsWrapsAuthErrors(t *testing.T) {
 	}
 }
 
+func TestFindSecurityGroupByNameReturnsMatchingTaggedGroupID(t *testing.T) {
+	p := &Provider{
+		Config: Config{Profile: "test-profile"},
+		loadDefaultConfig: func(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (awsbase.Config, error) {
+			return awsbase.Config{Region: "us-east-1"}, nil
+		},
+		newEC2Client: func(cfg awsbase.Config) ec2Client {
+			if cfg.Region != "us-west-2" {
+				t.Fatalf("cfg.Region = %q, want us-west-2", cfg.Region)
+			}
+			return &fakeEC2Client{
+				describeSecurityGroupsOut: &ec2.DescribeSecurityGroupsOutput{
+					SecurityGroups: []ec2types.SecurityGroup{{
+						GroupId:   awsbase.String("sg-0123456789abcdef0"),
+						GroupName: awsbase.String("agenthub-owner-alpha-default-sg"),
+						Tags: []ec2types.Tag{
+							{Key: awsbase.String("ManagedBy"), Value: awsbase.String("agenthub")},
+							{Key: awsbase.String("Owner"), Value: awsbase.String("owner")},
+							{Key: awsbase.String("AgentName"), Value: awsbase.String("alpha")},
+							{Key: awsbase.String("Environment"), Value: awsbase.String("default")},
+						},
+					}},
+				},
+			}
+		},
+	}
+
+	id, err := p.FindSecurityGroupByName(context.Background(), "us-west-2", "agenthub-owner-alpha-default-sg", "owner", "alpha", "default")
+	if err != nil {
+		t.Fatalf("FindSecurityGroupByName() error = %v", err)
+	}
+	if id != "sg-0123456789abcdef0" {
+		t.Fatalf("FindSecurityGroupByName() = %q, want sg-0123456789abcdef0", id)
+	}
+}
+
+func TestFindSecurityGroupByNameReturnsEmptyWhenTagsDoNotMatch(t *testing.T) {
+	p := &Provider{
+		Config: Config{Profile: "test-profile"},
+		loadDefaultConfig: func(ctx context.Context, optFns ...func(*awsconfig.LoadOptions) error) (awsbase.Config, error) {
+			return awsbase.Config{Region: "us-east-1"}, nil
+		},
+		newEC2Client: func(cfg awsbase.Config) ec2Client {
+			return &fakeEC2Client{
+				describeSecurityGroupsOut: &ec2.DescribeSecurityGroupsOutput{
+					SecurityGroups: []ec2types.SecurityGroup{{
+						GroupId: awsbase.String("sg-0123456789abcdef0"),
+						Tags: []ec2types.Tag{
+							{Key: awsbase.String("ManagedBy"), Value: awsbase.String("agenthub")},
+							{Key: awsbase.String("Owner"), Value: awsbase.String("other")},
+						},
+					}},
+				},
+			}
+		},
+	}
+
+	id, err := p.FindSecurityGroupByName(context.Background(), "us-west-2", "agenthub-owner-alpha-default-sg", "owner", "alpha", "default")
+	if err != nil {
+		t.Fatalf("FindSecurityGroupByName() error = %v", err)
+	}
+	if id != "" {
+		t.Fatalf("FindSecurityGroupByName() = %q, want empty", id)
+	}
+}
+
 func mustAuthError(t *testing.T, err error) *AuthError {
 	t.Helper()
 	var authErr *AuthError
@@ -558,16 +624,18 @@ func (f fakeServiceQuotasClient) GetQuotaUtilizationReport(ctx context.Context, 
 type fakeEC2Client struct {
 	t *testing.T
 
-	createSecurityGroupVpcID string
-	authorizedCIDR           string
-	runImageID               string
-	runInstanceType          string
-	associatePublicIP        bool
-	describeRegionsOut       *ec2.DescribeRegionsOutput
-	describeInstanceTypesOut *ec2.DescribeInstanceTypesOutput
-	describeKeyPairsOut      *ec2.DescribeKeyPairsOutput
-	describeKeyPairsErr      error
-	instanceTags             []ec2types.Tag
+	createSecurityGroupVpcID  string
+	authorizedCIDR            string
+	runImageID                string
+	runInstanceType           string
+	associatePublicIP         bool
+	describeRegionsOut        *ec2.DescribeRegionsOutput
+	describeInstanceTypesOut  *ec2.DescribeInstanceTypesOutput
+	describeKeyPairsOut       *ec2.DescribeKeyPairsOutput
+	describeKeyPairsErr       error
+	describeSecurityGroupsOut *ec2.DescribeSecurityGroupsOutput
+	describeSecurityGroupsErr error
+	instanceTags              []ec2types.Tag
 }
 
 func (f *fakeEC2Client) DescribeRegions(ctx context.Context, params *ec2.DescribeRegionsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeRegionsOutput, error) {
@@ -592,6 +660,16 @@ func (f *fakeEC2Client) DescribeKeyPairs(ctx context.Context, params *ec2.Descri
 		return f.describeKeyPairsOut, nil
 	}
 	return &ec2.DescribeKeyPairsOutput{}, nil
+}
+
+func (f *fakeEC2Client) DescribeSecurityGroups(ctx context.Context, params *ec2.DescribeSecurityGroupsInput, optFns ...func(*ec2.Options)) (*ec2.DescribeSecurityGroupsOutput, error) {
+	if f.describeSecurityGroupsErr != nil {
+		return nil, f.describeSecurityGroupsErr
+	}
+	if f.describeSecurityGroupsOut != nil {
+		return f.describeSecurityGroupsOut, nil
+	}
+	return &ec2.DescribeSecurityGroupsOutput{}, nil
 }
 
 func (f *fakeEC2Client) CreateSecurityGroup(ctx context.Context, params *ec2.CreateSecurityGroupInput, optFns ...func(*ec2.Options)) (*ec2.CreateSecurityGroupOutput, error) {
