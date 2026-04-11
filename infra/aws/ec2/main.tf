@@ -91,9 +91,13 @@ locals {
     for subnet_id in data.aws_subnets.default_for_az.ids : subnet_id
     if contains(local.public_subnet_ids, subnet_id)
   ])
-  subnet_id           = length(local.preferred_subnet_ids) > 0 ? local.preferred_subnet_ids[0] : length(local.public_subnet_ids) > 0 ? local.public_subnet_ids[0] : ""
-  github_secret_arn   = trimspace(var.github_token_secret_arn) != "" ? trimspace(var.github_token_secret_arn) : trimspace(var.github_private_key_secret_arn)
-  github_auth_enabled = local.github_secret_arn != ""
+  subnet_id = length(local.preferred_subnet_ids) > 0 ? local.preferred_subnet_ids[0] : length(local.public_subnet_ids) > 0 ? local.public_subnet_ids[0] : ""
+  github_secret_arns = distinct(compact([
+    trimspace(var.github_private_key_secret_arn),
+    trimspace(var.github_ssh_key_secret_arn),
+    trimspace(var.github_token_secret_arn),
+  ]))
+  github_auth_enabled = length(local.github_secret_arns) > 0
   owner               = trimspace(var.owner)
   agent_name          = trimspace(var.agent_name)
   environment         = trimspace(var.environment) != "" ? trimspace(var.environment) : "default"
@@ -118,11 +122,13 @@ locals {
     }
   })
   user_data = templatefile("${path.module}/user_data.sh.tftpl", {
-    container_name      = trimspace(var.container_name)
-    listen_port         = local.listen_port
-    runtime_provider    = local.runtime_provider
-    runtime_config_yaml = local.runtime_config_yaml
-    source_archive_url  = trimspace(var.source_archive_url)
+    container_name            = trimspace(var.container_name)
+    github_ssh_key_secret_arn = trimspace(var.github_ssh_key_secret_arn)
+    listen_port               = local.listen_port
+    region                    = trimspace(var.region)
+    runtime_provider          = local.runtime_provider
+    runtime_config_yaml       = local.runtime_config_yaml
+    source_archive_url        = trimspace(var.source_archive_url)
   })
 
   security_group_rules = var.network_mode == "public" && trimspace(var.ssh_cidr) != "" ? [
@@ -190,7 +196,7 @@ resource "aws_iam_role_policy" "github" {
       Action = [
         "secretsmanager:GetSecretValue",
       ]
-      Resource = local.github_secret_arn
+      Resource = local.github_secret_arns
     }]
   })
 }
