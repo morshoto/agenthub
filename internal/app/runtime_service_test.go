@@ -480,6 +480,81 @@ sandbox:
 	}
 }
 
+func TestRuntimeStopCommandStopsFailedService(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agents", "alpha", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-west-2
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  model: llama3.2
+infra:
+  instance_id: i-0123456789abcdef0
+sandbox:
+  enabled: false
+`)
+
+	keyPath := filepath.Join(t.TempDir(), "id_ed25519")
+	if err := os.WriteFile(keyPath, []byte("test-key"), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+
+	oldProvider := newAWSProvider
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+		return fakeStatusCloudProvider{}
+	}
+	t.Cleanup(func() { newAWSProvider = oldProvider })
+
+	var stopCalls int
+	var inspectCalls int
+	oldExecutor := newSSHExecutor
+	newSSHExecutor = func(cfg host.SSHConfig) host.Executor {
+		return flexibleExecutor{
+			run: func(command string, args ...string) (host.CommandResult, error) {
+				key := strings.TrimSpace(command + " " + strings.Join(args, " "))
+				switch {
+				case command == "sh" && len(args) >= 2 && args[0] == "-lc" && strings.Contains(args[1], `unit="agenthub.service"`):
+					inspectCalls++
+					if inspectCalls == 1 {
+						return host.CommandResult{Stdout: "installed=true\nLoadState=loaded\nActiveState=failed\nSubState=failed\nUnitFileState=enabled\nFragmentPath=/etc/systemd/system/agenthub.service\n"}, nil
+					}
+					return host.CommandResult{Stdout: "installed=true\nLoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=enabled\nFragmentPath=/etc/systemd/system/agenthub.service\n"}, nil
+				case key == "sudo systemctl stop agenthub.service":
+					stopCalls++
+					return host.CommandResult{}, nil
+				}
+				if result, ok := defaultFlexibleCommand(command, args...); ok {
+					return result, nil
+				}
+				return host.CommandResult{}, errors.New("unexpected command: " + key)
+			},
+		}
+	}
+	t.Cleanup(func() { newSSHExecutor = oldExecutor })
+
+	stdout, err := runRuntimeStopCommand(t, []string{"--config", path, "--ssh-user", "ubuntu", "--ssh-key", keyPath})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if stopCalls != 1 {
+		t.Fatalf("stopCalls = %d, want 1", stopCalls)
+	}
+	if !strings.Contains(stdout, "result: runtime service stopped") {
+		t.Fatalf("stdout = %q, want stopped message", stdout)
+	}
+}
+
 func TestRuntimeStopCommandFailsWhenServiceMissing(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "agents", "alpha", "config.yaml")
