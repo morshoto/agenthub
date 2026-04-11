@@ -134,11 +134,27 @@ func verifyRemoteGitHubAccess(ctx context.Context, exec host.Executor, repoURL s
 	if err := verifyGitHubCredentialHelperFunc(ctx, exec); err != nil {
 		return err
 	}
-	_, err := exec.Run(ctx, "git", "ls-remote", repoURL)
+	result, err := exec.Run(ctx, "git", "ls-remote", repoURL)
 	if err != nil {
 		return fmt.Errorf("verify GitHub access with git ls-remote %q: %w", repoURL, err)
 	}
+	if !hasGitRemoteRefs(result.Stdout) {
+		return fmt.Errorf("verify GitHub access with git ls-remote %q: expected at least one ref in stdout", repoURL)
+	}
 	return nil
+}
+
+func hasGitRemoteRefs(stdout string) bool {
+	for _, line := range strings.Split(strings.TrimSpace(stdout), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.Contains(line, "\t") {
+			return true
+		}
+	}
+	return false
 }
 
 func verifyGitHubCredentialHelperConfigured(ctx context.Context, exec host.Executor) error {
