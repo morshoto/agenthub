@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"agenthub/internal/config"
 	"agenthub/internal/githubauth"
 	"agenthub/internal/runtimeinstall"
 )
@@ -114,5 +115,14 @@ func hasGitHubRuntimeConfig(cfg *runtimeinstall.RuntimeConfig) bool {
 	if cfg == nil {
 		return false
 	}
-	return strings.TrimSpace(cfg.GitHub.AppID) != "" && strings.TrimSpace(cfg.GitHub.InstallationID) != "" && strings.TrimSpace(cfg.GitHub.PrivateKeySecretARN) != ""
+	switch config.GitHubAuthModeFor(cfg.GitHub) {
+	case config.GitHubAuthModeUser:
+		return strings.TrimSpace(cfg.GitHub.TokenSecretARN) != ""
+	case config.GitHubAuthModeApp:
+		return strings.TrimSpace(cfg.GitHub.AppID) != "" &&
+			strings.TrimSpace(cfg.GitHub.InstallationID) != "" &&
+			strings.TrimSpace(cfg.GitHub.PrivateKeySecretARN) != ""
+	default:
+		return false
+	}
 }
