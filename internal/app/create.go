@@ -92,6 +92,7 @@ func newCreateCommand(app *App) *cobra.Command {
 				Port:            port,
 				UseNemoClaw:     useNemoClaw,
 				DisableNemoClaw: disableNemoClaw,
+				ConfigPath:      configPath,
 				AgentName:       agentNameFromConfigPath(configPath),
 			}, progress)
 			if err != nil {

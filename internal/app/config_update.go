@@ -25,6 +25,7 @@ type configUpdateChange struct {
 func newConfigUpdateCommand(app *App) *cobra.Command {
 	var setValues []string
 	var agentsDir string
+	var dryRun bool
 
 	cmd := &cobra.Command{
 		Use:   "update",
@@ -61,6 +62,11 @@ func newConfigUpdateCommand(app *App) *cobra.Command {
 				fmt.Fprintln(cmd.OutOrStdout(), "configuration is unchanged")
 				return nil
 			}
+			if dryRun {
+				printConfigUpdateChanges(cmd.OutOrStdout(), changes)
+				fmt.Fprintf(cmd.OutOrStdout(), "dry-run: configuration not written: %s\n", configPath)
+				return nil
+			}
 			if err := config.Save(configPath, cfg); err != nil {
 				return err
 			}
@@ -72,6 +78,7 @@ func newConfigUpdateCommand(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringArrayVar(&setValues, "set", nil, "update a config field with key=value; value is parsed as YAML")
 	cmd.Flags().StringVar(&agentsDir, "agents-dir", "agents", "path to the agents directory")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview config changes without writing the file")
 	return cmd
 }
 

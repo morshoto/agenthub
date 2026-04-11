@@ -57,6 +57,7 @@ type createOptions struct {
 	Port            int
 	UseNemoClaw     bool
 	DisableNemoClaw bool
+	ConfigPath      string
 	AgentName       string
 }
 
@@ -82,6 +83,7 @@ type terraformVars struct {
 	SSHCIDR                   string `json:"ssh_cidr"`
 	SSHUser                   string `json:"ssh_user"`
 	NamePrefix                string `json:"name_prefix"`
+	SecurityGroupName         string `json:"security_group_name"`
 	UseNemoClaw               bool   `json:"use_nemoclaw"`
 	NIMEndpoint               string `json:"nim_endpoint"`
 	Model                     string `json:"model"`
@@ -116,6 +118,14 @@ type verifyOptions struct {
 type createGroupedStageRunner interface {
 	stageRunner
 	RunGroup(ctx context.Context, group, title string, fn func(context.Context) error) error
+}
+
+type awsKeyPairInspector interface {
+	KeyPairExists(ctx context.Context, region, keyName string) (bool, error)
+}
+
+type awsSecurityGroupInspector interface {
+	FindSecurityGroupByName(ctx context.Context, region, groupName, owner, agentName, environment string) (string, error)
 }
 
 func runCreateStage(progress stageRunner, ctx context.Context, group, title string, fn func(context.Context) error) error {
@@ -173,8 +183,15 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 	var output *infratf.InfraOutput
 	if err := runCreateStage(progress, ctx, "Infrastructure", "prepare terraform", func(runCtx context.Context) error {
 		var err error
-		workdir, err = prepareTerraformWorkdir()
+		workdir, err = prepareTerraformWorkdir(opts.ConfigPath)
 		if err != nil {
+			return err
+		}
+		backend, err = newTerraformBackend(profile, cfg)
+		if err != nil {
+			return err
+		}
+		if err := backend.Init(runCtx, workdir); err != nil {
 			return err
 		}
 		varsPath, err = writeTerraformVars(workdir, terraformVars{
@@ -197,6 +214,7 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 			SSHCIDR:                   inputs.SSHCIDR,
 			SSHUser:                   inputs.SSHUser,
 			NamePrefix:                "agenthub",
+			SecurityGroupName:         securityGroupIdentityName("agenthub", inputs.Owner, inputs.AgentName, inputs.Environment),
 			UseNemoClaw:               cfg.Sandbox.UseNemoClaw,
 			NIMEndpoint:               cfg.Runtime.Endpoint,
 			Model:                     cfg.Runtime.Model,
@@ -205,12 +223,37 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 		if err != nil {
 			return err
 		}
-		backend, err = newTerraformBackend(profile, cfg)
-		if err != nil {
-			return err
-		}
-		if err := backend.Init(runCtx, workdir); err != nil {
-			return err
+		if strings.EqualFold(cfg.Platform.Name, config.PlatformAWS) {
+			inspector, ok := adviser.(awsKeyPairInspector)
+			if ok {
+				keyName := strings.TrimSpace(inputs.SSHKeyName)
+				if keyName != "" {
+					exists, err := inspector.KeyPairExists(runCtx, cfg.Region.Name, keyName)
+					if err != nil {
+						return err
+					}
+					if exists {
+						if err := backend.Import(runCtx, workdir, "aws_key_pair.this", keyName); err != nil {
+							return err
+						}
+					}
+				}
+			}
+			sgInspector, ok := adviser.(awsSecurityGroupInspector)
+			if ok && !terraformStateExists(workdir) {
+				securityGroupName := securityGroupIdentityName("agenthub", inputs.Owner, inputs.AgentName, inputs.Environment)
+				if securityGroupName != "" {
+					securityGroupID, err := sgInspector.FindSecurityGroupByName(runCtx, cfg.Region.Name, securityGroupName, inputs.Owner, inputs.AgentName, inputs.Environment)
+					if err != nil {
+						return err
+					}
+					if securityGroupID != "" {
+						if err := backend.Import(runCtx, workdir, "aws_security_group.this", securityGroupID); err != nil {
+							return err
+						}
+					}
+				}
+			}
 		}
 		if err := backend.Plan(runCtx, workdir, varsPath); err != nil {
 			return err
@@ -218,11 +261,15 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 		return nil
 	}); err != nil {
 		if workdir != "" {
-			defer os.RemoveAll(workdir)
+			if workdir != "" && isEphemeralTerraformWorkdir(workdir) {
+				defer os.RemoveAll(workdir)
+			}
 		}
 		return nil, err
 	}
-	defer os.RemoveAll(workdir)
+	if isEphemeralTerraformWorkdir(workdir) {
+		defer os.RemoveAll(workdir)
+	}
 
 	if err := runCreateStage(progress, ctx, "Infrastructure", "apply terraform", func(runCtx context.Context) error {
 		if err := backend.Apply(runCtx, workdir, varsPath); err != nil {
@@ -888,12 +935,44 @@ func isTransientSSHError(err error) bool {
 	return false
 }
 
-func prepareTerraformWorkdir() (string, error) {
+func prepareTerraformWorkdir(configPath string) (string, error) {
+	if path := terraformWorkspacePath(configPath); path != "" {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			return "", fmt.Errorf("prepare terraform workspace %q: %w", path, err)
+		}
+		return path, nil
+	}
 	workdir, err := os.MkdirTemp("", "agenthub-terraform-*")
 	if err != nil {
 		return "", fmt.Errorf("create terraform workspace: %w", err)
 	}
 	return workdir, nil
+}
+
+func terraformWorkspacePath(configPath string) string {
+	configPath = strings.TrimSpace(configPath)
+	if configPath == "" {
+		return ""
+	}
+	dir := filepath.Dir(configPath)
+	if strings.TrimSpace(dir) == "" || dir == "." {
+		return ""
+	}
+	return filepath.Join(dir, ".agenthub", "terraform")
+}
+
+func isEphemeralTerraformWorkdir(workdir string) bool {
+	workdir = strings.TrimSpace(workdir)
+	return workdir != "" && strings.Contains(filepath.Base(workdir), "agenthub-terraform-")
+}
+
+func terraformStateExists(workdir string) bool {
+	workdir = strings.TrimSpace(workdir)
+	if workdir == "" {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(workdir, "terraform.tfstate"))
+	return err == nil && !info.IsDir()
 }
 
 func resolveTerraformModuleDir(cfg *config.Config) (string, error) {
@@ -940,6 +1019,23 @@ func writeTerraformVars(workdir string, vars terraformVars) (string, error) {
 		return "", fmt.Errorf("write terraform vars: %w", err)
 	}
 	return path, nil
+}
+
+func securityGroupIdentityName(prefix, owner, agentName, environment string) string {
+	parts := []string{
+		normalizeIdentitySegment(prefix),
+		normalizeIdentitySegment(owner),
+		normalizeIdentitySegment(agentName),
+		normalizeIdentitySegment(environment),
+		"sg",
+	}
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if strings.TrimSpace(part) != "" {
+			filtered = append(filtered, part)
+		}
+	}
+	return strings.Join(filtered, "-")
 }
 
 var newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {

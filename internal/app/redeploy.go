@@ -20,6 +20,7 @@ func newRedeployCommand(app *App) *cobra.Command {
 	var port int
 	var useNemoClaw bool
 	var disableNemoClaw bool
+	var dryRun bool
 
 	cmd := &cobra.Command{
 		Use:     "redeploy",
@@ -66,6 +67,33 @@ func newRedeployCommand(app *App) *cobra.Command {
 			printRedeployUpdateSummary(cmd.OutOrStdout(), cfg, workingDir)
 
 			logger := loggerFromContext(cmd.Context())
+			if dryRun {
+				logger.Info("starting redeploy dry-run preview")
+				preview, resolvedTarget, err := runRedeployPreviewWorkflow(cmd.Context(), app.opts.Profile, cfg, installOptions{
+					Target:          targetValue,
+					SSHUser:         sshUser,
+					SSHKey:          sshKey,
+					SSHPort:         sshPort,
+					WorkingDir:      workingDir,
+					Port:            port,
+					UseNemoClaw:     useNemoClaw,
+					DisableNemoClaw: disableNemoClaw,
+				})
+				printRedeployPreview(cmd.OutOrStdout(), preview)
+				if strings.TrimSpace(resolvedTarget) != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "target: %s\n", resolvedTarget)
+				}
+				if err != nil {
+					return wrapUserFacingError(
+						"redeploy dry-run failed",
+						err,
+						"the target host could not be inspected for a dry-run preview",
+						"confirm SSH access and rerun "+commandRef(cmd.OutOrStdout(), "agenthub", "redeploy", "--config", app.opts.ConfigPath, "--dry-run"),
+					)
+				}
+				return nil
+			}
+
 			logger.Info("starting redeploy workflow")
 
 			installResult, verifyReport, resolvedTarget, err := runRedeployWorkflow(cmd.Context(), app.opts.Profile, cfg, installOptions{
@@ -104,6 +132,7 @@ func newRedeployCommand(app *App) *cobra.Command {
 	cmd.Flags().IntVar(&port, "port", 0, "runtime port override")
 	cmd.Flags().BoolVar(&useNemoClaw, "use-nemoclaw", false, "enable NemoClaw settings for the generated runtime config")
 	cmd.Flags().BoolVar(&disableNemoClaw, "disable-nemoclaw", false, "disable NemoClaw settings for the generated runtime config")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview redeploy changes without mutating the target host")
 	return cmd
 }
 

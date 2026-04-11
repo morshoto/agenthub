@@ -49,8 +49,10 @@ func newRootCommand(app *App) *cobra.Command {
 	rootCmd.AddCommand(newOnboardCommand(app))
 	rootCmd.AddCommand(newConfigCommand(app))
 	rootCmd.AddCommand(newGitHubCommand(app))
+	rootCmd.AddCommand(newInspectCommand(app))
 	rootCmd.AddCommand(newStatusCommand(app))
 	rootCmd.AddCommand(newQuotaCommand(app))
+	rootCmd.AddCommand(newRuntimeCommand(app))
 	rootCmd.AddCommand(newSlackCommand(app))
 	rootCmd.AddCommand(newInitCommand(app))
 	rootCmd.AddCommand(newCreateCommand(app))
@@ -212,7 +214,8 @@ func newInitCommand(app *App) *cobra.Command {
 				agentName = "default"
 			}
 			instance, installResult, verifyReport, err := runCreateWorkflow(cmd.Context(), app.opts.Profile, cfg, createOptions{
-				AgentName: agentName,
+				ConfigPath: configPath,
+				AgentName:  agentName,
 			}, nil)
 			if err != nil {
 				return wrapUserFacingError(
