@@ -500,11 +500,7 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 		progress = newProgressRenderer(io.Discard)
 	}
 
-	ghTarget, err := resolveGitHubVerificationTarget(ctx)
-	if err != nil {
-		return nil, runtimeinstall.Result{}, verify.Report{}, err
-	}
-	if err := validateCreateGitHubDeployment(cfg, ghTarget); err != nil {
+	if err := validateCreateGitHubDeployment(cfg); err != nil {
 		return nil, runtimeinstall.Result{}, verify.Report{}, err
 	}
 	if err := runCreateStage(progress, ctx, "GitHub", "verifying local auth", func(runCtx context.Context) error {
@@ -562,7 +558,7 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 	}
 
 	if err = runCreateStage(progress, ctx, "GitHub", "verifying host GitHub access", func(runCtx context.Context) error {
-		return runRemoteGitHubVerification(runCtx, profile, cfg, opts, resolvedTarget, ghTarget.HTTPSURL)
+		return runRemoteGitHubVerification(runCtx, profile, cfg, opts, resolvedTarget)
 	}); err != nil {
 		return instance, installResult, verify.Report{}, err
 	}
@@ -605,9 +601,13 @@ func cleanupCreatedInstance(ctx context.Context, profile string, cfg *config.Con
 	return nil
 }
 
-func runRemoteGitHubVerification(ctx context.Context, profile string, cfg *config.Config, opts createOptions, target, repoURL string) error {
+func runRemoteGitHubVerification(ctx context.Context, profile string, cfg *config.Config, opts createOptions, target string) error {
 	if strings.TrimSpace(target) == "" {
 		return errors.New("target is required")
+	}
+	ghTarget, err := resolveGitHubVerificationTarget(ctx)
+	if err != nil {
+		return err
 	}
 	user, keyPath, err := resolveInstallSSH(cfg, opts.SSHUser, opts.SSHKey)
 	if err != nil {
@@ -623,7 +623,7 @@ func runRemoteGitHubVerification(ctx context.Context, profile string, cfg *confi
 	if err := waitForSSHReady(ctx, exec, target); err != nil {
 		return err
 	}
-	if err := verifyRemoteGitHubAccessFunc(ctx, exec, repoURL); err != nil {
+	if err := verifyRemoteGitHubAccessFunc(ctx, exec, ghTarget.HTTPSURL); err != nil {
 		return err
 	}
 	return nil
