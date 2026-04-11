@@ -220,7 +220,7 @@ sandbox:
 		t.Fatalf("Execute() error = %v", err)
 	}
 	for _, fragment := range []string{
-		"warning: integration service probe failed: probe failed",
+		"warning: integration service probe failed: systemctl unavailable",
 		"warning: runtime health unavailable: curl: (7) connection refused",
 		"warning: integration logs unavailable: service unit agenthub-slack-alpha.service is not installed on the target host",
 	} {
