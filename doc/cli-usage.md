@@ -57,6 +57,14 @@ Stop the runtime service for one deployed agent:
 agenthub runtime stop --config agenthub.yaml
 ```
 
+Collect a diagnostics bundle for one deployed agent:
+
+```bash
+agenthub runtime diagnostics --config agenthub.yaml
+```
+
+`agenthub runtime diagnostics` connects to the deployed host over SSH, gathers remote runtime state and recent service logs, and writes a local `.tar.gz` bundle for troubleshooting.
+
 Show merged agent config status under `agents/`:
 
 ```bash

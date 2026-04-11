@@ -38,6 +38,7 @@ func newRuntimeCommand(app *App) *cobra.Command {
 		Short:   "Run deployed runtime service commands",
 		GroupID: "runtime",
 	}
+	cmd.AddCommand(newRuntimeDiagnosticsCommand(app))
 	cmd.AddCommand(newRuntimeStartCommand(app))
 	cmd.AddCommand(newRuntimeRestartCommand(app))
 	cmd.AddCommand(newRuntimeStopCommand(app))
