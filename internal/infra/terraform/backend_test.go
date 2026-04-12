@@ -180,6 +180,10 @@ func TestTerraformBackendPrepareWorkspaceRefreshesModuleAndPreservesState(t *tes
 	if err := os.WriteFile(filepath.Join(workdir, "stale.tf"), []byte("stale\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile(stale.tf) error = %v", err)
 	}
+	varsPath := filepath.Join(workdir, "agenthub.auto.tfvars.json")
+	if err := os.WriteFile(varsPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(agenthub.auto.tfvars.json) error = %v", err)
+	}
 
 	binDir := filepath.Join(dir, "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
@@ -207,12 +211,18 @@ func TestTerraformBackendPrepareWorkspaceRefreshesModuleAndPreservesState(t *tes
 	if _, err := os.Stat(filepath.Join(workdir, "stale.tf")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Stat(stale.tf) error = %v, want not exist", err)
 	}
+	if _, err := os.Stat(varsPath); err != nil {
+		t.Fatalf("Stat(agenthub.auto.tfvars.json) error = %v", err)
+	}
 
 	if err := os.WriteFile(modulePath, []byte("terraform {\n  required_version = \">= 1.6.0\"\n}\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile(main.tf updated) error = %v", err)
 	}
 	if err := backend.Init(context.Background(), workdir); err != nil {
 		t.Fatalf("Init() second call error = %v", err)
+	}
+	if _, err := os.Stat(varsPath); err != nil {
+		t.Fatalf("Stat(agenthub.auto.tfvars.json) after second init error = %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(workdir, "main.tf"))
 	if err != nil {
