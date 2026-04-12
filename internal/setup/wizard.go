@@ -285,6 +285,25 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		githubCfg.TokenSecretARN = ""
 	}
 
+	githubSSHPrivateKeyPath := ""
+	if strings.TrimSpace(repoSlug) != "" {
+		githubSSHPrivateKeyPath, err = w.Prompter.Text("GitHub deploy key private key path", defaultGitHubSSHPrivateKeyPath(repoSlug))
+		if err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(githubSSHPrivateKeyPath) != "" {
+			githubSSHCfg, resolvedKeyPath, sshErr := bootstrapGitHubSSHCloneFunc(ctx, w.AWSProfile, region, repoSlug, githubSSHPrivateKeyPath)
+			if sshErr != nil {
+				w.logLine("Access", "!", fmt.Sprintf("GitHub SSH clone setup unavailable: %v", sshErr))
+				w.logLine("Access", "⇒", "falling back to HTTPS-based GitHub access")
+			} else {
+				githubCfg.SSHKeySecretARN = strings.TrimSpace(githubSSHCfg.SSHKeySecretARN)
+				githubSSHPrivateKeyPath = resolvedKeyPath
+				w.logLine("Access", "!", fmt.Sprintf("registered GitHub deploy key for %s", repoSlug))
+			}
+		}
+	}
+
 	if gitIdentity.Name == "" {
 		gitIdentity.Name, err = w.Prompter.Text("Git author name", "")
 		if err != nil {
@@ -348,10 +367,11 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		Instance: config.InstanceConfig{Type: instanceType, DiskSizeGB: diskSize, NetworkMode: networkMode},
 		Image:    config.ImageConfig{Name: image.Name, ID: image.ID},
 		SSH: config.SSHConfig{
-			KeyName:        sshKeyName,
-			PrivateKeyPath: sshPrivateKeyPath,
-			CIDR:           sshCIDR,
-			User:           sshUser,
+			KeyName:              sshKeyName,
+			PrivateKeyPath:       sshPrivateKeyPath,
+			GitHubPrivateKeyPath: githubSSHPrivateKeyPath,
+			CIDR:                 sshCIDR,
+			User:                 sshUser,
 		},
 		Infra: config.InfraConfig{
 			Backend:   "terraform",
@@ -396,6 +416,9 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	}
 	if strings.TrimSpace(cfg.SSH.PrivateKeyPath) != "" {
 		fmt.Fprintf(w.Out, "- ssh private key: %s\n", cfg.SSH.PrivateKeyPath)
+	}
+	if strings.TrimSpace(githubSSHPrivateKeyPath) != "" {
+		fmt.Fprintf(w.Out, "- github deploy key: %s\n", githubSSHPrivateKeyPath)
 	}
 	if strings.TrimSpace(cfg.SSH.CIDR) != "" {
 		fmt.Fprintf(w.Out, "- ssh cidr: %s\n", cfg.SSH.CIDR)

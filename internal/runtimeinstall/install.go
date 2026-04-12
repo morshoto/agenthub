@@ -328,11 +328,13 @@ func (i Installer) configureGitHubAuth(ctx context.Context, req Request, working
 	if _, err := i.Host.Run(ctx, "git", "config", "--global", "credential.helper", helperValue); err != nil {
 		return fmt.Errorf("configure git credential helper: %w", err)
 	}
-	if _, err := i.Host.Run(ctx, "git", "config", "--global", "url.https://github.com/.insteadOf", "git@github.com:"); err != nil {
-		return fmt.Errorf("configure git github ssh rewrite: %w", err)
-	}
-	if _, err := i.Host.Run(ctx, "git", "config", "--global", "url.https://github.com/.insteadOf", "ssh://git@github.com/"); err != nil {
-		return fmt.Errorf("configure git github ssh rewrite: %w", err)
+	if strings.TrimSpace(req.Config.GitHub.SSHKeySecretARN) == "" {
+		if _, err := i.Host.Run(ctx, "git", "config", "--global", "url.https://github.com/.insteadOf", "git@github.com:"); err != nil {
+			return fmt.Errorf("configure git github ssh rewrite: %w", err)
+		}
+		if _, err := i.Host.Run(ctx, "git", "config", "--global", "url.https://github.com/.insteadOf", "ssh://git@github.com/"); err != nil {
+			return fmt.Errorf("configure git github ssh rewrite: %w", err)
+		}
 	}
 	switch mode {
 	case config.GitHubAuthModeApp, config.GitHubAuthModeUser:

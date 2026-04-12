@@ -268,6 +268,64 @@ func TestInstallerConfiguresGitHubCredentialHelperForUserAuth(t *testing.T) {
 	}
 }
 
+func TestInstallerSkipsGitHubSSHRewriteWhenSSHKeySecretPresent(t *testing.T) {
+	originalBuildRuntimeBinary := BuildRuntimeBinaryFunc
+	BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "agenthub")
+		if err := os.WriteFile(path, []byte("binary"), 0o700); err != nil {
+			return "", err
+		}
+		return path, nil
+	}
+	defer func() { BuildRuntimeBinaryFunc = originalBuildRuntimeBinary }()
+
+	exec := &fakeExecutor{
+		results: map[string]host.CommandResult{
+			"git --version": {Stdout: "git version 2.43.0"},
+			"nvidia-smi -L": {Stdout: "GPU 0: demo"},
+			"docker info":   {Stdout: "Docker Engine"},
+			"docker info --format {{json .Runtimes}}":                                                {Stdout: `{"nvidia":{}}`},
+			"docker run --rm --gpus all --pull=never nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi": {Stdout: "NVIDIA-SMI"},
+			"sudo mkdir -p /opt/agenthub":                                                            {},
+			"chmod +x /opt/agenthub/install.sh":                                                      {},
+			"sh /opt/agenthub/install.sh /opt/agenthub/runtime.yaml":                                 {Stdout: "AgentHub runtime installation complete"},
+			"sudo mkdir -p /opt/agenthub/bin":                                                        {},
+			"sudo chown -R ubuntu:ubuntu /opt/agenthub":                                              {},
+			"sudo mv /opt/agenthub/agenthub.upload /opt/agenthub/bin/agenthub":                       {},
+			"chmod +x /opt/agenthub/bin/agenthub":                                                    {},
+			"git config --global credential.helper !/opt/agenthub/bin/agenthub github credential --runtime-config /opt/agenthub/runtime.yaml": {},
+			"git config --global user.name Test User":                                                                                         {},
+			"git config --global user.email test@example.com":                                                                                 {},
+			"sudo mv /opt/agenthub/agenthub.service /etc/systemd/system/agenthub.service":                                                     {},
+			"sudo systemctl daemon-reload":                                                                                                    {},
+			"sudo systemctl enable --now agenthub.service":                                                                                    {},
+		},
+	}
+
+	inst := Installer{Host: exec}
+	_, err := inst.Install(context.Background(), Request{
+		Config: &config.Config{
+			Runtime: config.RuntimeConfig{
+				Endpoint: "http://localhost:11434",
+				Model:    "llama3.2",
+				Provider: "codex",
+			},
+			GitHub: config.GitHubConfig{
+				AuthMode:            config.GitHubAuthModeUser,
+				TokenSecretARN:      "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-token",
+				SSHKeySecretARN:     "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-ssh-key",
+			},
+			Git:     config.GitConfig{Name: "Test User", Email: "test@example.com"},
+			Sandbox: config.SandboxConfig{Enabled: true, NetworkMode: "private", UseNemoClaw: true},
+		},
+		WorkingDir: "/opt/agenthub",
+	})
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+}
+
 func TestInstallerSkipsCodexEnvWhenSecretIsUnavailable(t *testing.T) {
 	originalBuildRuntimeBinary := BuildRuntimeBinaryFunc
 	BuildRuntimeBinaryFunc = func(ctx context.Context) (string, error) {

@@ -745,7 +745,6 @@ func TestWizardConfiguresGitHubUserAuthFromRepoOrigin(t *testing.T) {
 		"",
 		"2", // select user auth
 		"",
-		"",
 		"y", // use NemoClaw
 		"1", // provider codex
 		"http://localhost:11434",

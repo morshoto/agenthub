@@ -48,6 +48,7 @@ func TestInitWritesConfigFile(t *testing.T) {
 		"123456",         // GitHub App ID
 		"789012",         // GitHub installation ID
 		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
+		"",
 		"y",                      // use NemoClaw
 		"1",                      // provider codex
 		"http://localhost:11434", // endpoint
@@ -152,6 +153,7 @@ func TestInitUsesDefaultAgentNameWhenBlank(t *testing.T) {
 		"123456",         // GitHub App ID
 		"789012",         // GitHub installation ID
 		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
+		"",
 		"y",                      // use NemoClaw
 		"1",                      // provider codex
 		"http://localhost:11434", // endpoint
@@ -210,6 +212,7 @@ func TestInitSupportsCPUComputeMode(t *testing.T) {
 		"123456",
 		"789012",
 		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
+		"",
 		"y",                      // use NemoClaw
 		"1",                      // provider codex
 		"http://localhost:11434", // endpoint
@@ -275,6 +278,7 @@ func TestInitSupportsNonAWSPlatformScaffold(t *testing.T) {
 		"123456",         // GitHub App ID
 		"789012",         // GitHub installation ID
 		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
+		"",
 		"y",                      // use NemoClaw
 		"1",                      // provider codex
 		"http://localhost:11434", // endpoint
@@ -382,6 +386,7 @@ sandbox:
 		"123456",
 		"789012",
 		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
+		"",
 		"y",
 		"1",
 		"http://localhost:11434",
@@ -445,6 +450,7 @@ func TestInitContinuesWhenAWSAuthCheckIsPermissionDenied(t *testing.T) {
 		"123456",         // GitHub App ID
 		"789012",         // GitHub installation ID
 		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
+		"",
 		"y",                      // use NemoClaw
 		"1",                      // provider codex
 		"http://localhost:11434", // endpoint
@@ -504,6 +510,7 @@ func TestInitContinuesWhenAWSAuthCheckFailsAtSTS(t *testing.T) {
 		"123456",         // GitHub App ID
 		"789012",         // GitHub installation ID
 		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
+		"",
 		"y",                      // use NemoClaw
 		"1",                      // provider codex
 		"http://localhost:11434", // endpoint
@@ -563,6 +570,7 @@ func TestInitFallsBackWhenAWSImageLookupIsPermissionDenied(t *testing.T) {
 		"123456",         // GitHub App ID
 		"789012",         // GitHub installation ID
 		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
+		"",
 		"y",                      // use NemoClaw
 		"1",                      // provider codex
 		"http://localhost:11434", // endpoint
