@@ -5,11 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"os/exec"
+	"net/url"
+	"path/filepath"
 	"strings"
 	"unicode"
+
+	awsbase "github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	"github.com/aws/smithy-go"
 
 	"agenthub/internal/config"
 	"agenthub/internal/githubauth"
@@ -21,6 +27,11 @@ var runGitHubAuthTokenFunc = defaultRunGitHubAuthToken
 var storeGitHubTokenFunc = defaultStoreGitHubToken
 var runGitHubAPIUserFunc = defaultRunGitHubAPIUser
 var runGitHubAPIUserEmailsFunc = defaultRunGitHubAPIUserEmails
+var runGitHubAPIRepoDeployKeyFunc = defaultRunGitHubAPIRepoDeployKey
+var storeGitHubSSHKeyFunc = defaultStoreGitHubSSHKey
+var ensureGitHubSSHPrivateKeyFunc = defaultEnsureGitHubSSHPrivateKey
+var deriveGitHubSSHPublicKeyFunc = defaultDeriveGitHubSSHPublicKey
+var bootstrapGitHubSSHCloneFunc = bootstrapGitHubSSHClone
 var LookupGitIdentityFunc = lookupGitIdentity
 
 type GitIdentity struct {
@@ -172,6 +183,138 @@ func defaultStoreGitHubToken(ctx context.Context, profile, region, secretName, t
 	return githubauth.StoreToken(ctx, profile, region, secretName, token)
 }
 
+func defaultStoreGitHubSSHKey(ctx context.Context, profile, region, secretName, privateKey string) (string, error) {
+	secretName = strings.TrimSpace(secretName)
+	privateKey = strings.TrimSpace(privateKey)
+	if secretName == "" {
+		secretName = "agenthub/github-ssh-key"
+	}
+	if privateKey == "" {
+		return "", errors.New("github ssh private key is required")
+	}
+
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(strings.TrimSpace(region)), awsconfig.WithSharedConfigProfile(strings.TrimSpace(profile)))
+	if err != nil {
+		return "", fmt.Errorf("load aws config for github ssh secret: %w", err)
+	}
+	client := secretsmanager.NewFromConfig(awsCfg)
+
+	out, err := client.CreateSecret(ctx, &secretsmanager.CreateSecretInput{
+		Name:         awsbase.String(secretName),
+		SecretString: awsbase.String(privateKey),
+	})
+	if err == nil {
+		return awsString(out.ARN), nil
+	}
+	var apiErr smithy.APIError
+	if !errors.As(err, &apiErr) || apiErr.ErrorCode() != "ResourceExistsException" {
+		return "", fmt.Errorf("create github ssh secret %q: %w", secretName, err)
+	}
+
+	putOut, putErr := client.PutSecretValue(ctx, &secretsmanager.PutSecretValueInput{
+		SecretId:     awsbase.String(secretName),
+		SecretString: awsbase.String(privateKey),
+	})
+	if putErr != nil {
+		return "", fmt.Errorf("update github ssh secret %q: %w", secretName, putErr)
+	}
+	if arn := awsString(putOut.ARN); arn != "" {
+		return arn, nil
+	}
+	return secretName, nil
+}
+
+func defaultEnsureGitHubSSHPrivateKey(ctx context.Context, privateKeyPath string) (string, error) {
+	privateKeyPath = strings.TrimSpace(privateKeyPath)
+	if privateKeyPath == "" {
+		return "", errors.New("github ssh private key path is required")
+	}
+	if strings.HasPrefix(privateKeyPath, "~") {
+		home, err := os.UserHomeDir()
+		if err == nil && strings.TrimSpace(home) != "" {
+			privateKeyPath = filepath.Join(home, strings.TrimPrefix(privateKeyPath, "~/"))
+		}
+	}
+	if _, err := os.Stat(privateKeyPath); err == nil {
+		return privateKeyPath, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("read github ssh private key %q: %w", privateKeyPath, err)
+	}
+	if _, err := exec.LookPath("ssh-keygen"); err != nil {
+		return "", errors.New("ssh-keygen is required to create the github deploy key")
+	}
+	if err := os.MkdirAll(filepath.Dir(privateKeyPath), 0o700); err != nil {
+		return "", fmt.Errorf("create github ssh key directory %q: %w", filepath.Dir(privateKeyPath), err)
+	}
+	cmd := exec.CommandContext(ctx, "ssh-keygen", "-t", "ed25519", "-N", "", "-f", privateKeyPath, "-C", "agenthub-github-deploy-key")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return "", fmt.Errorf("create github ssh private key %q: %s: %w", privateKeyPath, msg, err)
+		}
+		return "", fmt.Errorf("create github ssh private key %q: %w", privateKeyPath, err)
+	}
+	return privateKeyPath, nil
+}
+
+func defaultDeriveGitHubSSHPublicKey(ctx context.Context, privateKeyPath string) (string, error) {
+	path, err := defaultEnsureGitHubSSHPrivateKey(ctx, privateKeyPath)
+	if err != nil {
+		return "", err
+	}
+	if _, err := exec.LookPath("ssh-keygen"); err != nil {
+		return "", errors.New("ssh-keygen is required to derive the github deploy public key")
+	}
+	cmd := exec.CommandContext(ctx, "ssh-keygen", "-y", "-f", path)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("derive github ssh public key from %q: %w", path, err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func defaultRunGitHubAPIRepoDeployKey(ctx context.Context, repoSlug, title, publicKey string) error {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return errors.New("gh CLI is required for github deploy key registration")
+	}
+	repoSlug = strings.TrimSpace(repoSlug)
+	title = strings.TrimSpace(title)
+	publicKey = strings.TrimSpace(publicKey)
+	if repoSlug == "" || title == "" || publicKey == "" {
+		return errors.New("github deploy key registration requires repo slug, title, and public key")
+	}
+	cmd := exec.CommandContext(ctx, "gh", "api", "repos/"+repoSlug+"/keys", "--method", "POST", "-f", "title="+title, "-f", "key="+publicKey, "-f", "read_only=true")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("register github deploy key for %s: %s: %w", repoSlug, msg, err)
+		}
+		return fmt.Errorf("register github deploy key for %s: %w", repoSlug, err)
+	}
+	return nil
+}
+
+func defaultGitHubSSHKeySecretName(repoSlug string) string {
+	repoSlug = strings.TrimSpace(repoSlug)
+	if repoSlug == "" {
+		return "agenthub/github-ssh-key"
+	}
+	if safe := sanitizeSecretName(repoSlug); safe != "" {
+		return "agenthub/github-ssh-key/" + safe
+	}
+	return "agenthub/github-ssh-key"
+}
+
+func defaultGitHubSSHPrivateKeyPath(repoSlug string) string {
+	repoSlug = strings.TrimSpace(repoSlug)
+	if repoSlug == "" {
+		return "~/.ssh/agenthub-github-deploy-key"
+	}
+	return "~/.ssh/" + sanitizeSecretName(repoSlug) + "-agenthub-deploy-key"
+}
+
 func bootstrapGitHubUserAuth(ctx context.Context, profile, region, repoSlug string) (config.GitHubConfig, error) {
 	token, err := runGitHubAuthTokenFunc(ctx)
 	if err != nil {
@@ -193,6 +336,48 @@ func bootstrapGitHubUserAuth(ctx context.Context, profile, region, repoSlug stri
 		AuthMode:       config.GitHubAuthModeUser,
 		TokenSecretARN: arn,
 	}, nil
+}
+
+func bootstrapGitHubSSHClone(ctx context.Context, profile, region, repoSlug, privateKeyPath string) (config.GitHubConfig, string, error) {
+	repoSlug = strings.TrimSpace(repoSlug)
+	if repoSlug == "" {
+		return config.GitHubConfig{}, "", errors.New("github repo slug is required")
+	}
+	resolvedKeyPath, err := ensureGitHubSSHPrivateKeyFunc(ctx, privateKeyPath)
+	if err != nil {
+		return config.GitHubConfig{}, "", err
+	}
+	publicKey, err := deriveGitHubSSHPublicKeyFunc(ctx, resolvedKeyPath)
+	if err != nil {
+		return config.GitHubConfig{}, "", err
+	}
+	title := "agenthub deploy key for " + repoSlug
+	if err := runGitHubAPIRepoDeployKeyFunc(ctx, repoSlug, title, publicKey); err != nil {
+		return config.GitHubConfig{}, "", err
+	}
+	secretName := defaultGitHubSSHKeySecretName(repoSlug)
+	arn, err := storeGitHubSSHKeyFunc(ctx, profile, region, secretName, mustReadFile(resolvedKeyPath))
+	if err != nil {
+		return config.GitHubConfig{}, "", err
+	}
+	return config.GitHubConfig{
+		SSHKeySecretARN: arn,
+	}, resolvedKeyPath, nil
+}
+
+func mustReadFile(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func awsString(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
 }
 
 func lookupGitIdentity(ctx context.Context) (GitIdentity, error) {

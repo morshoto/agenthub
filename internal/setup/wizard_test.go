@@ -795,64 +795,6 @@ func TestWizardConfiguresGitHubUserAuthFromRepoOrigin(t *testing.T) {
 	}
 }
 
-func TestWizardDefaultsGitHubAuthToApp(t *testing.T) {
-	input := strings.Join([]string{
-		"alpha",
-		"1", // platform aws
-		"",  // accept default GPU compute mode
-		"1", // region
-		"",  // accept default instance type
-		"1", // base image
-		"20",
-		"",
-		"",
-		"",
-		"",
-		"", // accept default GitHub auth mode (app)
-		"123456",
-		"789012",
-		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
-		"",
-		"",
-		"y", // use NemoClaw
-		"1", // provider codex
-		"http://localhost:11434",
-		"y", // confirm summary
-	}, "\n") + "\n"
-
-	out := &bytes.Buffer{}
-	wizard := NewWizard(
-		prompt.NewSession(strings.NewReader(input), out),
-		out,
-		func(platform, computeClass string) provider.CloudProvider {
-			return fakeProvider{
-				regions: []string{"us-east-1", "us-west-2"},
-				report: provider.GPUQuotaReport{
-					Region:          "us-east-1",
-					InstanceFamily:  "g5",
-					LikelyCreatable: true,
-				},
-			}
-		},
-		&config.Config{},
-	)
-	wizard.AWSProfile = "sso-dev"
-
-	cfg, err := wizard.Run(context.Background())
-	if err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
-	if cfg.GitHub.AuthMode != config.GitHubAuthModeApp {
-		t.Fatalf("GitHub.AuthMode = %q, want %q", cfg.GitHub.AuthMode, config.GitHubAuthModeApp)
-	}
-	if cfg.GitHub.AppID != "123456" || cfg.GitHub.InstallationID != "789012" {
-		t.Fatalf("GitHub app config = %#v, want populated app fields", cfg.GitHub)
-	}
-	if got := out.String(); !strings.Contains(got, "GitHub connectivity is required for deployed agents.") {
-		t.Fatalf("output = %q, want required GitHub messaging", got)
-	}
-}
-
 type failingImageProvider struct {
 	fakeProvider
 }

@@ -91,6 +91,71 @@ func TestBootstrapGitHubUserAuthStoresTokenSecret(t *testing.T) {
 	}
 }
 
+func TestBootstrapGitHubSSHCloneStoresKeyAndRegistersDeployKey(t *testing.T) {
+	originalEnsure := ensureGitHubSSHPrivateKeyFunc
+	originalDerive := deriveGitHubSSHPublicKeyFunc
+	originalRegister := runGitHubAPIRepoDeployKeyFunc
+	originalStore := storeGitHubSSHKeyFunc
+	defer func() {
+		ensureGitHubSSHPrivateKeyFunc = originalEnsure
+		deriveGitHubSSHPublicKeyFunc = originalDerive
+		runGitHubAPIRepoDeployKeyFunc = originalRegister
+		storeGitHubSSHKeyFunc = originalStore
+	}()
+
+	ensureGitHubSSHPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		if privateKeyPath != "~/.ssh/custom-deploy-key" {
+			t.Fatalf("privateKeyPath = %q, want custom path", privateKeyPath)
+		}
+		return "/tmp/custom-deploy-key", nil
+	}
+	deriveGitHubSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		if privateKeyPath != "/tmp/custom-deploy-key" {
+			t.Fatalf("derive privateKeyPath = %q, want resolved path", privateKeyPath)
+		}
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestDeployKey agenthub", nil
+	}
+	var gotRepoSlug, gotTitle, gotPublicKey string
+	runGitHubAPIRepoDeployKeyFunc = func(ctx context.Context, repoSlug, title, publicKey string) error {
+		gotRepoSlug, gotTitle, gotPublicKey = repoSlug, title, publicKey
+		return nil
+	}
+	var gotProfile, gotRegion, gotSecretName, gotPrivateKey string
+	storeGitHubSSHKeyFunc = func(ctx context.Context, profile, region, secretName, privateKey string) (string, error) {
+		gotProfile, gotRegion, gotSecretName, gotPrivateKey = profile, region, secretName, privateKey
+		return "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-ssh-key/owner/repo", nil
+	}
+
+	cfg, resolvedPath, err := bootstrapGitHubSSHClone(context.Background(), "dev-profile", "ap-northeast-1", "owner/repo", "~/.ssh/custom-deploy-key")
+	if err != nil {
+		t.Fatalf("bootstrapGitHubSSHClone() error = %v", err)
+	}
+	if resolvedPath != "/tmp/custom-deploy-key" {
+		t.Fatalf("resolvedPath = %q, want /tmp/custom-deploy-key", resolvedPath)
+	}
+	if cfg.SSHKeySecretARN == "" {
+		t.Fatal("SSHKeySecretARN = empty, want value")
+	}
+	if gotRepoSlug != "owner/repo" {
+		t.Fatalf("repoSlug = %q, want owner/repo", gotRepoSlug)
+	}
+	if gotTitle != "agenthub deploy key for owner/repo" {
+		t.Fatalf("title = %q, want deploy key title", gotTitle)
+	}
+	if gotPublicKey != "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestDeployKey agenthub" {
+		t.Fatalf("public key = %q, want deploy key", gotPublicKey)
+	}
+	if gotProfile != "dev-profile" || gotRegion != "ap-northeast-1" {
+		t.Fatalf("store profile/region = %q/%q, want dev-profile/ap-northeast-1", gotProfile, gotRegion)
+	}
+	if gotSecretName != "agenthub/github-ssh-key/owner/repo" {
+		t.Fatalf("secretName = %q, want %q", gotSecretName, "agenthub/github-ssh-key/owner/repo")
+	}
+	if gotPrivateKey != "" {
+		t.Fatalf("privateKey = %q, want empty string from fixture path", gotPrivateKey)
+	}
+}
+
 func TestLookupGitIdentityUsesGitHubCLI(t *testing.T) {
 	originalUser := runGitHubAPIUserFunc
 	originalEmails := runGitHubAPIUserEmailsFunc
