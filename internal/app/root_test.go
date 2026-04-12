@@ -1282,6 +1282,133 @@ sandbox:
 	}
 }
 
+func TestInfraCreateCommandSkipsImportWhenAWSKeyPairAlreadyManaged(t *testing.T) {
+	originalProvider := newAWSProvider
+	originalBackend := newTerraformBackend
+	originalDeriveSSHPublicKey := deriveSSHPublicKeyFunc
+	originalEnsureSSHPrivateKey := ensureSSHPrivateKeyFunc
+	defer func() {
+		newAWSProvider = originalProvider
+		newTerraformBackend = originalBackend
+		deriveSSHPublicKeyFunc = originalDeriveSSHPublicKey
+		ensureSSHPrivateKeyFunc = originalEnsureSSHPrivateKey
+	}()
+
+	newAWSProvider = func(profile, computeClass string) provider.CloudProvider {
+		return keyPairInspectorCloudProvider{
+			stubCloudProvider: stubCloudProvider{profile: profile},
+			exists:            true,
+		}
+	}
+	ensureSSHPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return privateKeyPath, nil
+	}
+	deriveSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestPublicKey agenthub", nil
+	}
+
+	var calls []string
+	newTerraformBackend = func(profile string, cfg *config.Config) (infratf.InfraBackend, error) {
+		return fakeTerraformBackend{
+			onInit: func(workdir string) { calls = append(calls, "init") },
+			onImport: func(workdir, address, id string) {
+				calls = append(calls, "import:"+address+":"+id)
+			},
+			onPlan:  func(workdir, varsFile string) { calls = append(calls, "plan") },
+			onApply: func(workdir, varsFile string) { calls = append(calls, "apply") },
+			output:  &infratf.InfraOutput{InstanceID: "i-0123456789abcdef0", Region: cfg.Region.Name, NetworkMode: "public"},
+		}, nil
+	}
+
+	dir := t.TempDir()
+	agentDir := filepath.Join(dir, "agent")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(agentDir) error = %v", err)
+	}
+	path := filepath.Join(agentDir, "config.yaml")
+	writeConfig(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+ssh:
+  key_name: demo-key
+  private_key_path: /tmp/demo.pem
+  cidr: 203.0.113.0/24
+  user: ubuntu
+instance:
+  type: g5.xlarge
+  disk_size_gb: 40
+  network_mode: public
+image:
+  id: ami-0123456789abcdef0
+sandbox:
+  enabled: true
+  network_mode: public
+`)
+	workdir := filepath.Join(agentDir, ".agenthub", "terraform")
+	if err := os.MkdirAll(workdir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(workdir) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workdir, "terraform.tfstate"), []byte(`{
+  "resources": [
+    {"address": "aws_key_pair.this"}
+  ]
+}`), 0o600); err != nil {
+		t.Fatalf("WriteFile(terraform.tfstate) error = %v", err)
+	}
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"agenthub", "--config", path, "infra", "create", "--ssh-key-name", "demo-key", "--ssh-cidr", "203.0.113.0/24"}
+
+	app := New()
+	cmd := newRootCommand(app)
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	want := []string{"init", "plan", "apply"}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("backend calls = %#v, want %#v", calls, want)
+	}
+}
+
+func TestTerraformStateHasAddressMatchesRootAndChildModules(t *testing.T) {
+	state := []byte(`{
+  "resources": [
+    {"address": "aws_key_pair.this"}
+  ],
+  "root_module": {
+    "resources": [
+      {"address": "aws_security_group.this"}
+    ],
+    "child_modules": [
+      {
+        "resources": [
+          {"address": "module.network.aws_instance.this"}
+        ]
+      }
+    ]
+  }
+}`)
+
+	for _, address := range []string{
+		"aws_key_pair.this",
+		"aws_security_group.this",
+		"module.network.aws_instance.this",
+	} {
+		if !terraformStateHasAddress(state, address) {
+			t.Fatalf("terraformStateHasAddress() = false for %q, want true", address)
+		}
+	}
+	if terraformStateHasAddress(state, "aws_eip.this") {
+		t.Fatal("terraformStateHasAddress() = true for missing address, want false")
+	}
+}
+
 func TestInfraCreateCommandSkipsImportWhenAWSKeyPairDoesNotExist(t *testing.T) {
 	originalProvider := newAWSProvider
 	originalBackend := newTerraformBackend

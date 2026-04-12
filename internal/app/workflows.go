@@ -230,7 +230,7 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 			inspector, ok := adviser.(awsKeyPairInspector)
 			if ok {
 				keyName := strings.TrimSpace(inputs.SSHKeyName)
-				if keyName != "" {
+				if keyName != "" && !terraformResourceManaged(workdir, "aws_key_pair.this") {
 					exists, err := inspector.KeyPairExists(runCtx, cfg.Region.Name, keyName)
 					if err != nil {
 						return err
@@ -243,7 +243,7 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 				}
 			}
 			sgInspector, ok := adviser.(awsSecurityGroupInspector)
-			if ok && !terraformStateExists(workdir) {
+			if ok && !terraformResourceManaged(workdir, "aws_security_group.this") {
 				securityGroupName := securityGroupIdentityName("agenthub", inputs.Owner, inputs.AgentName, inputs.Environment)
 				if securityGroupName != "" {
 					securityGroupID, err := sgInspector.FindSecurityGroupByName(runCtx, cfg.Region.Name, securityGroupName, inputs.Owner, inputs.AgentName, inputs.Environment)
@@ -1020,6 +1020,67 @@ func terraformStateExists(workdir string) bool {
 	}
 	info, err := os.Stat(filepath.Join(workdir, "terraform.tfstate"))
 	return err == nil && !info.IsDir()
+}
+
+func terraformResourceManaged(workdir, address string) bool {
+	workdir = strings.TrimSpace(workdir)
+	address = strings.TrimSpace(address)
+	if workdir == "" || address == "" {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(workdir, "terraform.tfstate"))
+	if err != nil || len(data) == 0 {
+		return false
+	}
+	return terraformStateHasAddress(data, address)
+}
+
+func terraformStateHasAddress(data []byte, address string) bool {
+	var state struct {
+		Resources    []terraformStateResource `json:"resources"`
+		RootModule   terraformStateModule     `json:"root_module"`
+		ChildModules []terraformStateModule   `json:"child_modules"`
+	}
+	if err := json.Unmarshal(data, &state); err != nil {
+		return false
+	}
+	for _, resource := range state.Resources {
+		if strings.TrimSpace(resource.Address) == address {
+			return true
+		}
+	}
+	if terraformModuleHasAddress(state.RootModule, address) {
+		return true
+	}
+	for _, child := range state.ChildModules {
+		if terraformModuleHasAddress(child, address) {
+			return true
+		}
+	}
+	return false
+}
+
+type terraformStateModule struct {
+	Resources    []terraformStateResource `json:"resources"`
+	ChildModules []terraformStateModule   `json:"child_modules"`
+}
+
+type terraformStateResource struct {
+	Address string `json:"address"`
+}
+
+func terraformModuleHasAddress(module terraformStateModule, address string) bool {
+	for _, resource := range module.Resources {
+		if strings.TrimSpace(resource.Address) == address {
+			return true
+		}
+	}
+	for _, child := range module.ChildModules {
+		if terraformModuleHasAddress(child, address) {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveTerraformModuleDir(cfg *config.Config) (string, error) {
