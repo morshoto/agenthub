@@ -156,6 +156,93 @@ func TestBootstrapGitHubSSHCloneStoresKeyAndRegistersDeployKey(t *testing.T) {
 	}
 }
 
+func TestBootstrapGitHubSSHCloneReusesExistingDeployKeyOn422(t *testing.T) {
+	originalEnsure := ensureGitHubSSHPrivateKeyFunc
+	originalDerive := deriveGitHubSSHPublicKeyFunc
+	originalRegister := runGitHubAPIRepoDeployKeyFunc
+	originalLookup := runGitHubAPIRepoDeployKeysFunc
+	originalStore := storeGitHubSSHKeyFunc
+	defer func() {
+		ensureGitHubSSHPrivateKeyFunc = originalEnsure
+		deriveGitHubSSHPublicKeyFunc = originalDerive
+		runGitHubAPIRepoDeployKeyFunc = originalRegister
+		runGitHubAPIRepoDeployKeysFunc = originalLookup
+		storeGitHubSSHKeyFunc = originalStore
+	}()
+
+	ensureGitHubSSHPrivateKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return "/tmp/custom-deploy-key", nil
+	}
+	deriveGitHubSSHPublicKeyFunc = func(ctx context.Context, privateKeyPath string) (string, error) {
+		return "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestDeployKey agenthub", nil
+	}
+	runGitHubAPIRepoDeployKeyFunc = func(ctx context.Context, repoSlug, title, publicKey string) error {
+		return errGitHubDeployKeyAlreadyInUse
+	}
+	lookupCalls := 0
+	runGitHubAPIRepoDeployKeysFunc = func(ctx context.Context, repoSlug string) ([]githubDeployKey, error) {
+		lookupCalls++
+		return []githubDeployKey{
+			{ID: 1, Title: "unrelated key", Key: "ssh-ed25519 AAAAother"},
+			{ID: 2, Title: "agenthub deploy key for owner/repo", Key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestDeployKey agenthub"},
+		}, nil
+	}
+	var gotProfile, gotRegion, gotSecretName, gotPrivateKey string
+	storeGitHubSSHKeyFunc = func(ctx context.Context, profile, region, secretName, privateKey string) (string, error) {
+		gotProfile, gotRegion, gotSecretName, gotPrivateKey = profile, region, secretName, privateKey
+		return "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-ssh-key/owner/repo", nil
+	}
+
+	cfg, resolvedPath, err := bootstrapGitHubSSHClone(context.Background(), "dev-profile", "ap-northeast-1", "owner/repo", "~/.ssh/custom-deploy-key")
+	if err != nil {
+		t.Fatalf("bootstrapGitHubSSHClone() error = %v", err)
+	}
+	if resolvedPath != "/tmp/custom-deploy-key" {
+		t.Fatalf("resolvedPath = %q, want /tmp/custom-deploy-key", resolvedPath)
+	}
+	if cfg.SSHKeySecretARN == "" {
+		t.Fatal("SSHKeySecretARN = empty, want value")
+	}
+	if lookupCalls != 1 {
+		t.Fatalf("lookupCalls = %d, want 1", lookupCalls)
+	}
+	if gotSecretName != "agenthub/github-ssh-key/owner/repo" {
+		t.Fatalf("secretName = %q, want %q", gotSecretName, "agenthub/github-ssh-key/owner/repo")
+	}
+	if gotPrivateKey != "" {
+		t.Fatalf("privateKey = %q, want empty string from fixture path", gotPrivateKey)
+	}
+	if gotProfile != "dev-profile" || gotRegion != "ap-northeast-1" {
+		t.Fatalf("store profile/region = %q/%q, want dev-profile/ap-northeast-1", gotProfile, gotRegion)
+	}
+}
+
+func TestMatchGitHubDeployKey(t *testing.T) {
+	keys := []githubDeployKey{
+		{ID: 1, Title: "other", Key: "ssh-ed25519 AAAAother"},
+		{ID: 2, Title: "agenthub deploy key for owner/repo", Key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestDeployKey agenthub"},
+	}
+
+	if got := matchGitHubDeployKey(keys, "agenthub deploy key for owner/repo", "nope"); got == nil || got.ID != 2 {
+		t.Fatalf("match by title = %+v, want id 2", got)
+	}
+	if got := matchGitHubDeployKey(keys, "nope", "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestDeployKey agenthub"); got == nil || got.ID != 2 {
+		t.Fatalf("match by key = %+v, want id 2", got)
+	}
+	if got := matchGitHubDeployKey(keys, "missing", "missing"); got != nil {
+		t.Fatalf("matchGitHubDeployKey() = %+v, want nil", got)
+	}
+}
+
+func TestIsGitHubDeployKeyAlreadyInUseError(t *testing.T) {
+	if !isGitHubDeployKeyAlreadyInUseError("Validation Failed: key is already in use") {
+		t.Fatal("expected 422 error matcher to recognize GitHub response")
+	}
+	if isGitHubDeployKeyAlreadyInUseError("Validation Failed: title is invalid") {
+		t.Fatal("unexpected match for unrelated validation error")
+	}
+}
+
 func TestLookupGitIdentityUsesGitHubCLI(t *testing.T) {
 	originalUser := runGitHubAPIUserFunc
 	originalEmails := runGitHubAPIUserEmailsFunc

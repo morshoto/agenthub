@@ -28,6 +28,7 @@ var storeGitHubTokenFunc = defaultStoreGitHubToken
 var runGitHubAPIUserFunc = defaultRunGitHubAPIUser
 var runGitHubAPIUserEmailsFunc = defaultRunGitHubAPIUserEmails
 var runGitHubAPIRepoDeployKeyFunc = defaultRunGitHubAPIRepoDeployKey
+var runGitHubAPIRepoDeployKeysFunc = defaultRunGitHubAPIRepoDeployKeys
 var storeGitHubSSHKeyFunc = defaultStoreGitHubSSHKey
 var ensureGitHubSSHPrivateKeyFunc = defaultEnsureGitHubSSHPrivateKey
 var deriveGitHubSSHPublicKeyFunc = defaultDeriveGitHubSSHPublicKey
@@ -288,12 +289,48 @@ func defaultRunGitHubAPIRepoDeployKey(ctx context.Context, repoSlug, title, publ
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
+		if isGitHubDeployKeyAlreadyInUseError(msg) {
+			return errGitHubDeployKeyAlreadyInUse
+		}
 		if msg != "" {
 			return fmt.Errorf("register github deploy key for %s: %s: %w", repoSlug, msg, err)
 		}
 		return fmt.Errorf("register github deploy key for %s: %w", repoSlug, err)
 	}
 	return nil
+}
+
+type githubDeployKey struct {
+	ID    int    `json:"id"`
+	Title string `json:"title"`
+	Key   string `json:"key"`
+}
+
+var errGitHubDeployKeyAlreadyInUse = errors.New("github deploy key already in use")
+
+func defaultRunGitHubAPIRepoDeployKeys(ctx context.Context, repoSlug string) ([]githubDeployKey, error) {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return nil, errors.New("gh CLI is required for github deploy key lookup")
+	}
+	repoSlug = strings.TrimSpace(repoSlug)
+	if repoSlug == "" {
+		return nil, errors.New("github repo slug is required for deploy key lookup")
+	}
+	cmd := exec.CommandContext(ctx, "gh", "api", "repos/"+repoSlug+"/keys")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("list github deploy keys for %s: %w", repoSlug, err)
+	}
+	var keys []githubDeployKey
+	if err := json.Unmarshal(out, &keys); err != nil {
+		return nil, fmt.Errorf("parse github deploy keys for %s: %w", repoSlug, err)
+	}
+	return keys, nil
+}
+
+func isGitHubDeployKeyAlreadyInUseError(msg string) bool {
+	msg = strings.ToLower(strings.TrimSpace(msg))
+	return strings.Contains(msg, "validation failed") && strings.Contains(msg, "key is already in use")
 }
 
 func defaultGitHubSSHKeySecretName(repoSlug string) string {
@@ -353,7 +390,17 @@ func bootstrapGitHubSSHClone(ctx context.Context, profile, region, repoSlug, pri
 	}
 	title := "agenthub deploy key for " + repoSlug
 	if err := runGitHubAPIRepoDeployKeyFunc(ctx, repoSlug, title, publicKey); err != nil {
-		return config.GitHubConfig{}, "", err
+		if !errors.Is(err, errGitHubDeployKeyAlreadyInUse) {
+			return config.GitHubConfig{}, "", err
+		}
+		keys, lookupErr := runGitHubAPIRepoDeployKeysFunc(ctx, repoSlug)
+		if lookupErr != nil {
+			return config.GitHubConfig{}, "", lookupErr
+		}
+		matched := matchGitHubDeployKey(keys, title, publicKey)
+		if matched == nil {
+			return config.GitHubConfig{}, "", fmt.Errorf("github deploy key for %s already exists but no matching key was found", repoSlug)
+		}
 	}
 	secretName := defaultGitHubSSHKeySecretName(repoSlug)
 	arn, err := storeGitHubSSHKeyFunc(ctx, profile, region, secretName, mustReadFile(resolvedKeyPath))
@@ -363,6 +410,18 @@ func bootstrapGitHubSSHClone(ctx context.Context, profile, region, repoSlug, pri
 	return config.GitHubConfig{
 		SSHKeySecretARN: arn,
 	}, resolvedKeyPath, nil
+}
+
+func matchGitHubDeployKey(keys []githubDeployKey, title, publicKey string) *githubDeployKey {
+	title = strings.TrimSpace(title)
+	publicKey = strings.TrimSpace(publicKey)
+	for i := range keys {
+		key := &keys[i]
+		if strings.TrimSpace(key.Title) == title || strings.TrimSpace(key.Key) == publicKey {
+			return key
+		}
+	}
+	return nil
 }
 
 func mustReadFile(path string) string {
