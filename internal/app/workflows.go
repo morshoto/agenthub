@@ -504,7 +504,7 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 		return nil, runtimeinstall.Result{}, verify.Report{}, err
 	}
 	if err := runCreateStage(progress, ctx, "GitHub", "verifying local auth", func(runCtx context.Context) error {
-		return verifyLocalGitHubAuth(runCtx, cfg)
+		return verifyLocalGitHubAuth(runCtx, profile, cfg)
 	}); err != nil {
 		return nil, runtimeinstall.Result{}, verify.Report{}, err
 	}

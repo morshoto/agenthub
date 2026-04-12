@@ -83,8 +83,11 @@ func TestVerifyLocalGitHubAuthUsesAppInstallationToken(t *testing.T) {
 	original := loadGitHubInstallationToken
 	defer func() { loadGitHubInstallationToken = original }()
 	called := false
-	loadGitHubInstallationToken = func(ctx context.Context, region string, cfg config.GitHubConfig) (string, error) {
+	loadGitHubInstallationToken = func(ctx context.Context, profile, region string, cfg config.GitHubConfig) (string, error) {
 		called = true
+		if profile != "sso-dev" {
+			t.Fatalf("profile = %q, want sso-dev", profile)
+		}
 		if region != "us-east-1" {
 			t.Fatalf("region = %q, want us-east-1", region)
 		}
@@ -94,7 +97,7 @@ func TestVerifyLocalGitHubAuthUsesAppInstallationToken(t *testing.T) {
 		Region: config.RegionConfig{Name: "us-east-1"},
 		GitHub: config.GitHubConfig{AuthMode: config.GitHubAuthModeApp},
 	}
-	if err := verifyLocalGitHubAuth(context.Background(), cfg); err != nil {
+	if err := verifyLocalGitHubAuth(context.Background(), "sso-dev", cfg); err != nil {
 		t.Fatalf("verifyLocalGitHubAuth() error = %v", err)
 	}
 	if !called {
@@ -106,8 +109,11 @@ func TestVerifyLocalGitHubAuthUsesUserToken(t *testing.T) {
 	original := loadGitHubUserToken
 	defer func() { loadGitHubUserToken = original }()
 	called := false
-	loadGitHubUserToken = func(ctx context.Context, region, secretID string) (string, error) {
+	loadGitHubUserToken = func(ctx context.Context, profile, region, secretID string) (string, error) {
 		called = true
+		if profile != "sso-dev" {
+			t.Fatalf("profile = %q, want sso-dev", profile)
+		}
 		if secretID != "arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-token" {
 			t.Fatalf("secretID = %q, want configured token secret", secretID)
 		}
@@ -117,7 +123,7 @@ func TestVerifyLocalGitHubAuthUsesUserToken(t *testing.T) {
 		Region: config.RegionConfig{Name: "us-east-1"},
 		GitHub: config.GitHubConfig{AuthMode: config.GitHubAuthModeUser, TokenSecretARN: "arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-token"},
 	}
-	if err := verifyLocalGitHubAuth(context.Background(), cfg); err != nil {
+	if err := verifyLocalGitHubAuth(context.Background(), "sso-dev", cfg); err != nil {
 		t.Fatalf("verifyLocalGitHubAuth() error = %v", err)
 	}
 	if !called {

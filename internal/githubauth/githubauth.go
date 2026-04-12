@@ -31,12 +31,12 @@ type Credential struct {
 	Password string
 }
 
-func InstallationToken(ctx context.Context, region string, cfg config.GitHubConfig) (string, error) {
+func InstallationToken(ctx context.Context, profile, region string, cfg config.GitHubConfig) (string, error) {
 	if strings.TrimSpace(cfg.AppID) == "" || strings.TrimSpace(cfg.InstallationID) == "" || strings.TrimSpace(cfg.PrivateKeySecretARN) == "" {
 		return "", errors.New("github auth requires app id, installation id, and private key secret arn")
 	}
 
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(strings.TrimSpace(region)))
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(strings.TrimSpace(region)), awsconfig.WithSharedConfigProfile(strings.TrimSpace(profile)))
 	if err != nil {
 		return "", fmt.Errorf("load aws config for github auth: %w", err)
 	}
@@ -102,13 +102,13 @@ func InstallationToken(ctx context.Context, region string, cfg config.GitHubConf
 func CredentialForGit(ctx context.Context, region string, cfg config.GitHubConfig) (Credential, error) {
 	switch config.GitHubAuthModeFor(cfg) {
 	case config.GitHubAuthModeUser:
-		token, err := LoadToken(ctx, region, cfg.TokenSecretARN)
+		token, err := LoadToken(ctx, "", region, cfg.TokenSecretARN)
 		if err != nil {
 			return Credential{}, err
 		}
 		return Credential{Username: "x-access-token", Password: token}, nil
 	case config.GitHubAuthModeApp, "":
-		token, err := InstallationToken(ctx, region, cfg)
+		token, err := InstallationToken(ctx, "", region, cfg)
 		if err != nil {
 			return Credential{}, err
 		}
@@ -159,13 +159,13 @@ func StoreToken(ctx context.Context, profile, region, secretName, token string) 
 	return secretName, nil
 }
 
-func LoadToken(ctx context.Context, region, secretID string) (string, error) {
+func LoadToken(ctx context.Context, profile, region, secretID string) (string, error) {
 	secretID = strings.TrimSpace(secretID)
 	if secretID == "" {
 		return "", errors.New("github token secret id is required")
 	}
 
-	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(strings.TrimSpace(region)))
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(strings.TrimSpace(region)), awsconfig.WithSharedConfigProfile(strings.TrimSpace(profile)))
 	if err != nil {
 		return "", fmt.Errorf("load aws config for github token secret: %w", err)
 	}

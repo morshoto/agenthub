@@ -17,10 +17,10 @@ func TestMain(m *testing.M) {
 	gitRemoteOriginURLFunc = func(ctx context.Context) (string, error) {
 		return "git@github.com:owner/repo.git", nil
 	}
-	loadGitHubInstallationToken = func(ctx context.Context, region string, cfg config.GitHubConfig) (string, error) {
+	loadGitHubInstallationToken = func(ctx context.Context, profile, region string, cfg config.GitHubConfig) (string, error) {
 		return "test-app-token", nil
 	}
-	loadGitHubUserToken = func(ctx context.Context, region, secretID string) (string, error) {
+	loadGitHubUserToken = func(ctx context.Context, profile, region, secretID string) (string, error) {
 		return "test-user-token", nil
 	}
 	verifyRemoteGitHubAccessFunc = func(ctx context.Context, exec host.Executor, repoURL string) error {

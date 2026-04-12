@@ -96,13 +96,13 @@ func validateCreateGitHubDeployment(cfg *config.Config) error {
 	return nil
 }
 
-func verifyLocalGitHubAuth(ctx context.Context, cfg *config.Config) error {
+func verifyLocalGitHubAuth(ctx context.Context, profile string, cfg *config.Config) error {
 	if cfg == nil {
 		return errors.New("config is required")
 	}
 	switch config.GitHubAuthModeFor(cfg.GitHub) {
 	case config.GitHubAuthModeApp:
-		token, err := loadGitHubInstallationToken(ctx, strings.TrimSpace(cfg.Region.Name), cfg.GitHub)
+		token, err := loadGitHubInstallationToken(ctx, strings.TrimSpace(profile), strings.TrimSpace(cfg.Region.Name), cfg.GitHub)
 		if err != nil {
 			return err
 		}
@@ -110,7 +110,7 @@ func verifyLocalGitHubAuth(ctx context.Context, cfg *config.Config) error {
 			return errors.New("github installation token response did not contain a token")
 		}
 	case config.GitHubAuthModeUser:
-		token, err := loadGitHubUserToken(ctx, strings.TrimSpace(cfg.Region.Name), cfg.GitHub.TokenSecretARN)
+		token, err := loadGitHubUserToken(ctx, strings.TrimSpace(profile), strings.TrimSpace(cfg.Region.Name), cfg.GitHub.TokenSecretARN)
 		if err != nil {
 			return err
 		}
