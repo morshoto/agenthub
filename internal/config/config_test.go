@@ -36,6 +36,38 @@ sandbox:
 	}
 }
 
+func TestLoadPreservesGitIdentity(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "agenthub.yaml")
+	writeFile(t, path, `
+platform:
+  name: aws
+region:
+  name: us-east-1
+instance:
+  type: t3.medium
+  disk_size_gb: 20
+image:
+  name: ubuntu-24.04
+runtime:
+  endpoint: http://localhost:11434
+  provider: codex
+git:
+  name: Test User
+  email: test@example.com
+sandbox:
+  enabled: true
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Git.Name != "Test User" || cfg.Git.Email != "test@example.com" {
+		t.Fatalf("Git identity = %+v, want Test User/test@example.com", cfg.Git)
+	}
+}
+
 func TestValidateAllowsCodexWithoutSecretID(t *testing.T) {
 	cfg := &Config{
 		Platform: PlatformConfig{Name: PlatformAWS},

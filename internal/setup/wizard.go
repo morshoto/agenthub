@@ -235,6 +235,11 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 	if err == nil && strings.TrimSpace(repoSlug) != "" {
 		w.logLine("Access", "!", fmt.Sprintf("detected GitHub repo candidate: %s", repoSlug))
 	}
+	gitIdentity := config.GitConfig{}
+	if detected, detectErr := LookupGitIdentityFunc(ctx); detectErr == nil {
+		gitIdentity.Name = strings.TrimSpace(detected.Name)
+		gitIdentity.Email = strings.TrimSpace(detected.Email)
+	}
 	w.logLine("Access", "⇒", "GitHub connectivity is required for deployed agents.")
 	w.logLine("Access", "⇒", "GitHub App auth is recommended for shared or production environments.")
 	githubCfg := config.GitHubConfig{}
@@ -278,6 +283,19 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 			return nil, err
 		}
 		githubCfg.TokenSecretARN = ""
+	}
+
+	if gitIdentity.Name == "" {
+		gitIdentity.Name, err = w.Prompter.Text("Git author name", "")
+		if err != nil {
+			return nil, err
+		}
+	}
+	if gitIdentity.Email == "" {
+		gitIdentity.Email, err = w.Prompter.Text("Git author email", "")
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	useNemoClaw, err := w.Prompter.Confirm("Use NemoClaw", true)
@@ -340,6 +358,7 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 			ModuleDir: defaultTerraformModuleDir(platform),
 		},
 		GitHub: githubCfg,
+		Git:    gitIdentity,
 		Sandbox: config.SandboxConfig{
 			Enabled:     true,
 			NetworkMode: networkMode,
@@ -413,6 +432,9 @@ func (w *Wizard) Run(ctx context.Context) (*config.Config, error) {
 		default:
 			fmt.Fprintf(w.Out, "- github auth: %s\n", valueOrDash(cfg.GitHub.AuthMode))
 		}
+	}
+	if strings.TrimSpace(cfg.Git.Name) != "" || strings.TrimSpace(cfg.Git.Email) != "" {
+		fmt.Fprintf(w.Out, "- git author: %s / %s\n", valueOrDash(cfg.Git.Name), valueOrDash(cfg.Git.Email))
 	}
 
 	confirm, err := w.Prompter.Confirm("Write this configuration", true)

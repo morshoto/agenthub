@@ -744,6 +744,8 @@ func TestWizardConfiguresGitHubUserAuthFromRepoOrigin(t *testing.T) {
 		"",
 		"",
 		"2", // select user auth
+		"",
+		"",
 		"y", // use NemoClaw
 		"1", // provider codex
 		"http://localhost:11434",
@@ -810,6 +812,8 @@ func TestWizardDefaultsGitHubAuthToApp(t *testing.T) {
 		"123456",
 		"789012",
 		"arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
+		"",
+		"",
 		"y", // use NemoClaw
 		"1", // provider codex
 		"http://localhost:11434",

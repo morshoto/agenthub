@@ -195,6 +195,17 @@ func (i Installer) Install(ctx context.Context, req Request) (Result, error) {
 			}, err
 		}
 	}
+	if err := i.configureGitIdentity(ctx, req); err != nil {
+		return Result{
+			WorkingDir:     workingDir,
+			ConfigPath:     remoteConfigPath,
+			ScriptPath:     remoteScriptPath,
+			BinaryPath:     serviceResult.BinaryPath,
+			ServicePath:    serviceResult.ServicePath,
+			Prerequisites:  report,
+			CommandResults: []host.CommandResult{cmdResult},
+		}, err
+	}
 
 	return Result{
 		WorkingDir:     workingDir,
@@ -329,6 +340,31 @@ func (i Installer) configureGitHubAuth(ctx context.Context, req Request, working
 	default:
 		return fmt.Errorf("unsupported github auth mode %q", req.Config.GitHub.AuthMode)
 	}
+}
+
+func (i Installer) configureGitIdentity(ctx context.Context, req Request) error {
+	if i.Host == nil || req.Config == nil {
+		return nil
+	}
+	name := strings.TrimSpace(req.Config.Git.Name)
+	email := strings.TrimSpace(req.Config.Git.Email)
+	if name == "" && email == "" {
+		return nil
+	}
+	if err := ensureGitAvailable(ctx, i.Host); err != nil {
+		return err
+	}
+	if name != "" {
+		if _, err := i.Host.Run(ctx, "git", "config", "--global", "user.name", name); err != nil {
+			return fmt.Errorf("configure git user.name: %w", err)
+		}
+	}
+	if email != "" {
+		if _, err := i.Host.Run(ctx, "git", "config", "--global", "user.email", email); err != nil {
+			return fmt.Errorf("configure git user.email: %w", err)
+		}
+	}
+	return nil
 }
 
 func buildRuntimeBinary(ctx context.Context) (string, error) {

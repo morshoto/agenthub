@@ -96,6 +96,9 @@ func TestInitWritesConfigFile(t *testing.T) {
 		`app_id: "123456"`,
 		`installation_id: "789012"`,
 		"private_key_secret_arn: arn:aws:secretsmanager:us-east-1:123456789012:secret:agenthub/github-app-private-key",
+		"git:",
+		"name: Test User",
+		"email: test@example.com",
 	} {
 		if !strings.Contains(body, fragment) {
 			t.Fatalf("config file %q missing %q", body, fragment)

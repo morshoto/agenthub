@@ -258,7 +258,7 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 				}
 			}
 		}
-		if err := backend.Plan(runCtx, workdir, varsPath); err != nil {
+		if err := backend.Plan(runCtx, workdir, filepath.Base(varsPath)); err != nil {
 			return err
 		}
 		return nil
@@ -275,7 +275,7 @@ func runInfraCreate(ctx context.Context, profile string, cfg *config.Config, opt
 	}
 
 	if err := runCreateStage(progress, ctx, "Infrastructure", "apply terraform", func(runCtx context.Context) error {
-		if err := backend.Apply(runCtx, workdir, varsPath); err != nil {
+		if err := backend.Apply(runCtx, workdir, filepath.Base(varsPath)); err != nil {
 			return err
 		}
 		var outErr error
@@ -504,7 +504,7 @@ func runCreateWorkflow(ctx context.Context, profile string, cfg *config.Config, 
 		return nil, runtimeinstall.Result{}, verify.Report{}, err
 	}
 	if err := runCreateStage(progress, ctx, "GitHub", "verifying local auth", func(runCtx context.Context) error {
-		return verifyLocalGitHubAuth(runCtx, cfg)
+		return verifyLocalGitHubAuth(runCtx, profile, cfg)
 	}); err != nil {
 		return nil, runtimeinstall.Result{}, verify.Report{}, err
 	}

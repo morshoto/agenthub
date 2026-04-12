@@ -253,7 +253,13 @@ func cleanWorkspaceForModuleCopy(workdir string) error {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if name == ".terraform" || name == "terraform.tfstate" || strings.HasPrefix(name, "terraform.tfstate.") {
+		if name == ".terraform" ||
+			name == "terraform.tfstate" ||
+			strings.HasPrefix(name, "terraform.tfstate.") ||
+			strings.HasSuffix(name, ".tfvars") ||
+			strings.HasSuffix(name, ".tfvars.json") ||
+			strings.HasSuffix(name, ".auto.tfvars") ||
+			strings.HasSuffix(name, ".auto.tfvars.json") {
 			continue
 		}
 		if err := os.RemoveAll(filepath.Join(workdir, name)); err != nil {
