@@ -2,6 +2,7 @@ package setup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -18,6 +19,14 @@ var gitRemoteOriginURLFunc = defaultGitRemoteOriginURL
 var runGitHubAuthLoginFunc = defaultRunGitHubAuthLogin
 var runGitHubAuthTokenFunc = defaultRunGitHubAuthToken
 var storeGitHubTokenFunc = defaultStoreGitHubToken
+var runGitHubAPIUserFunc = defaultRunGitHubAPIUser
+var runGitHubAPIUserEmailsFunc = defaultRunGitHubAPIUserEmails
+var LookupGitIdentityFunc = lookupGitIdentity
+
+type GitIdentity struct {
+	Name  string
+	Email string
+}
 
 func detectGitHubRepoSlug(ctx context.Context) (string, error) {
 	remoteURL, err := gitRemoteOriginURLFunc(ctx)
@@ -106,6 +115,59 @@ func defaultRunGitHubAuthToken(ctx context.Context) (string, error) {
 	return token, nil
 }
 
+func defaultRunGitHubAPIUser(ctx context.Context) (GitIdentity, error) {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return GitIdentity{}, errors.New("gh CLI is required for GitHub identity lookup")
+	}
+	cmd := exec.CommandContext(ctx, "gh", "api", "user")
+	out, err := cmd.Output()
+	if err != nil {
+		return GitIdentity{}, fmt.Errorf("run gh api user: %w", err)
+	}
+	var payload struct {
+		Name  string `json:"name"`
+		Login string `json:"login"`
+	}
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return GitIdentity{}, fmt.Errorf("parse gh api user response: %w", err)
+	}
+	name := strings.TrimSpace(payload.Name)
+	if name == "" {
+		name = strings.TrimSpace(payload.Login)
+	}
+	return GitIdentity{Name: name}, nil
+}
+
+func defaultRunGitHubAPIUserEmails(ctx context.Context) (string, error) {
+	if _, err := exec.LookPath("gh"); err != nil {
+		return "", errors.New("gh CLI is required for GitHub identity lookup")
+	}
+	cmd := exec.CommandContext(ctx, "gh", "api", "user/emails")
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("run gh api user/emails: %w", err)
+	}
+	var emails []struct {
+		Email    string `json:"email"`
+		Primary  bool   `json:"primary"`
+		Verified bool   `json:"verified"`
+	}
+	if err := json.Unmarshal(out, &emails); err != nil {
+		return "", fmt.Errorf("parse gh api user/emails response: %w", err)
+	}
+	for _, email := range emails {
+		if email.Primary && email.Verified && strings.TrimSpace(email.Email) != "" {
+			return strings.TrimSpace(email.Email), nil
+		}
+	}
+	for _, email := range emails {
+		if strings.TrimSpace(email.Email) != "" {
+			return strings.TrimSpace(email.Email), nil
+		}
+	}
+	return "", errors.New("gh api user/emails did not return an email")
+}
+
 func defaultStoreGitHubToken(ctx context.Context, profile, region, secretName, token string) (string, error) {
 	return githubauth.StoreToken(ctx, profile, region, secretName, token)
 }
@@ -131,6 +193,25 @@ func bootstrapGitHubUserAuth(ctx context.Context, profile, region, repoSlug stri
 		AuthMode:       config.GitHubAuthModeUser,
 		TokenSecretARN: arn,
 	}, nil
+}
+
+func lookupGitIdentity(ctx context.Context) (GitIdentity, error) {
+	identity := GitIdentity{}
+	user, err := runGitHubAPIUserFunc(ctx)
+	if err == nil {
+		identity.Name = strings.TrimSpace(user.Name)
+	}
+	email, err := runGitHubAPIUserEmailsFunc(ctx)
+	if err == nil {
+		identity.Email = strings.TrimSpace(email)
+	}
+	if strings.TrimSpace(identity.Name) == "" && strings.TrimSpace(identity.Email) == "" {
+		if err != nil {
+			return GitIdentity{}, err
+		}
+		return GitIdentity{}, errors.New("github identity lookup returned no usable values")
+	}
+	return identity, nil
 }
 
 func defaultGitHubUserSecretName(repoSlug string) string {

@@ -36,6 +36,7 @@ type Config struct {
 	Image    ImageConfig    `yaml:"image"`
 	Runtime  RuntimeConfig  `yaml:"runtime"`
 	GitHub   GitHubConfig   `yaml:"github,omitempty"`
+	Git      GitConfig      `yaml:"git,omitempty"`
 	Slack    SlackConfig    `yaml:"slack,omitempty"`
 	SSH      SSHConfig      `yaml:"ssh,omitempty"`
 	Infra    InfraConfig    `yaml:"infra,omitempty"`
@@ -85,6 +86,11 @@ type GitHubConfig struct {
 	PrivateKeySecretARN string `yaml:"private_key_secret_arn,omitempty"`
 	SSHKeySecretARN     string `yaml:"ssh_key_secret_arn,omitempty"`
 	TokenSecretARN      string `yaml:"token_secret_arn,omitempty"`
+}
+
+type GitConfig struct {
+	Name  string `yaml:"name,omitempty"`
+	Email string `yaml:"email,omitempty"`
 }
 
 type SlackConfig struct {

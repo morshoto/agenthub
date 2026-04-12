@@ -91,6 +91,54 @@ func TestBootstrapGitHubUserAuthStoresTokenSecret(t *testing.T) {
 	}
 }
 
+func TestLookupGitIdentityUsesGitHubCLI(t *testing.T) {
+	originalUser := runGitHubAPIUserFunc
+	originalEmails := runGitHubAPIUserEmailsFunc
+	defer func() {
+		runGitHubAPIUserFunc = originalUser
+		runGitHubAPIUserEmailsFunc = originalEmails
+	}()
+
+	runGitHubAPIUserFunc = func(ctx context.Context) (GitIdentity, error) {
+		return GitIdentity{Name: "Test User"}, nil
+	}
+	runGitHubAPIUserEmailsFunc = func(ctx context.Context) (string, error) {
+		return "test@example.com", nil
+	}
+
+	got, err := lookupGitIdentity(context.Background())
+	if err != nil {
+		t.Fatalf("lookupGitIdentity() error = %v", err)
+	}
+	if got.Name != "Test User" || got.Email != "test@example.com" {
+		t.Fatalf("lookupGitIdentity() = %+v, want Test User/test@example.com", got)
+	}
+}
+
+func TestLookupGitIdentityFallsBackWhenEmailMissing(t *testing.T) {
+	originalUser := runGitHubAPIUserFunc
+	originalEmails := runGitHubAPIUserEmailsFunc
+	defer func() {
+		runGitHubAPIUserFunc = originalUser
+		runGitHubAPIUserEmailsFunc = originalEmails
+	}()
+
+	runGitHubAPIUserFunc = func(ctx context.Context) (GitIdentity, error) {
+		return GitIdentity{Name: "Test User"}, nil
+	}
+	runGitHubAPIUserEmailsFunc = func(ctx context.Context) (string, error) {
+		return "", errors.New("no email")
+	}
+
+	got, err := lookupGitIdentity(context.Background())
+	if err != nil {
+		t.Fatalf("lookupGitIdentity() error = %v", err)
+	}
+	if got.Name != "Test User" || got.Email != "" {
+		t.Fatalf("lookupGitIdentity() = %+v, want Test User/empty email", got)
+	}
+}
+
 func TestDetectGitHubRepoSlugFromRemoteURL(t *testing.T) {
 	original := gitRemoteOriginURLFunc
 	defer func() { gitRemoteOriginURLFunc = original }()

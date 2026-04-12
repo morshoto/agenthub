@@ -178,9 +178,11 @@ func TestInstallerConfiguresGitHubCredentialHelper(t *testing.T) {
 			"git config --global credential.helper !/opt/agenthub/bin/agenthub github credential --runtime-config /opt/agenthub/runtime.yaml": {},
 			"git config --global url.https://github.com/.insteadOf git@github.com:":                                                           {},
 			"git config --global url.https://github.com/.insteadOf ssh://git@github.com/":                                                     {},
+			"git config --global user.name Test User":                                                                                         {},
+			"git config --global user.email test@example.com":                                                                                 {},
 			"sudo mv /opt/agenthub/agenthub.service /etc/systemd/system/agenthub.service":                                                     {},
-			"sudo systemctl daemon-reload":                 {},
-			"sudo systemctl enable --now agenthub.service": {},
+			"sudo systemctl daemon-reload":                                                                                                    {},
+			"sudo systemctl enable --now agenthub.service":                                                                                    {},
 		},
 	}
 
@@ -197,6 +199,7 @@ func TestInstallerConfiguresGitHubCredentialHelper(t *testing.T) {
 				InstallationID:      "789012",
 				PrivateKeySecretARN: "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-app-private-key",
 			},
+			Git:     config.GitConfig{Name: "Test User", Email: "test@example.com"},
 			Sandbox: config.SandboxConfig{Enabled: true, NetworkMode: "private", UseNemoClaw: true},
 		},
 		WorkingDir: "/opt/agenthub",
@@ -235,9 +238,11 @@ func TestInstallerConfiguresGitHubCredentialHelperForUserAuth(t *testing.T) {
 			"git config --global credential.helper !/opt/agenthub/bin/agenthub github credential --runtime-config /opt/agenthub/runtime.yaml": {},
 			"git config --global url.https://github.com/.insteadOf git@github.com:":                                                           {},
 			"git config --global url.https://github.com/.insteadOf ssh://git@github.com/":                                                     {},
+			"git config --global user.name Test User":                                                                                         {},
+			"git config --global user.email test@example.com":                                                                                 {},
 			"sudo mv /opt/agenthub/agenthub.service /etc/systemd/system/agenthub.service":                                                     {},
-			"sudo systemctl daemon-reload":                 {},
-			"sudo systemctl enable --now agenthub.service": {},
+			"sudo systemctl daemon-reload":                                                                                                    {},
+			"sudo systemctl enable --now agenthub.service":                                                                                    {},
 		},
 	}
 
@@ -253,6 +258,7 @@ func TestInstallerConfiguresGitHubCredentialHelperForUserAuth(t *testing.T) {
 				AuthMode:       config.GitHubAuthModeUser,
 				TokenSecretARN: "arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:agenthub/github-token",
 			},
+			Git:     config.GitConfig{Name: "Test User", Email: "test@example.com"},
 			Sandbox: config.SandboxConfig{Enabled: true, NetworkMode: "private", UseNemoClaw: true},
 		},
 		WorkingDir: "/opt/agenthub",
