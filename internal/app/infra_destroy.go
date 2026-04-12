@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -141,7 +142,7 @@ func runInfraDestroy(ctx context.Context, profile string, cfg *config.Config, op
 	if err != nil {
 		return err
 	}
-	if err := backend.Destroy(ctx, workdir, varsPath); err != nil {
+	if err := backend.Destroy(ctx, workdir, filepath.Base(varsPath)); err != nil {
 		return err
 	}
 	if !isEphemeralTerraformWorkdir(workdir) {

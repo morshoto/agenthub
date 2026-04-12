@@ -44,8 +44,8 @@ func TestInfraDestroyCommandDestroysInfrastructureAndClearsDeployState(t *testin
 			onInit: func(workdir string) { initCalled = true },
 			onDestroy: func(workdir, varsFile string) {
 				destroyCalled = true
-				if !strings.HasPrefix(varsFile, workdir) {
-					t.Fatalf("vars file = %q, want path under %q", varsFile, workdir)
+				if varsFile != "agenthub.auto.tfvars.json" {
+					t.Fatalf("vars file = %q, want terraform-readable basename", varsFile)
 				}
 			},
 		}, nil
