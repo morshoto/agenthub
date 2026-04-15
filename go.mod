@@ -11,7 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/servicequotas v1.34.5
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.68.4
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.10
-	github.com/aws/smithy-go v1.24.3
+	github.com/aws/smithy-go v1.25.0
 	github.com/slack-go/slack v0.21.1
 	github.com/spf13/cobra v1.10.1
 	golang.org/x/term v0.42.0
